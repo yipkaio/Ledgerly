@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import os
 import secrets
+from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from app.config import ConfigurationError, Settings
+from app.ocr import (
+    OCRNoTextError,
+    OCRProcessingError,
+    OCRTimeoutError,
+    OCRUnavailableError,
+    TesseractOCRService,
+)
 
 CHUNK_SIZE = 64 * 1024
 IMAGE_TYPES = {
@@ -19,11 +28,12 @@ IMAGE_TYPES = {
 }
 
 
-class UploadAccepted(BaseModel):
+class ReceiptProcessed(BaseModel):
     receipt_id: str
     content_type: str
     size_bytes: int
-    status: str = "uploaded"
+    ocr_text: str
+    status: str = "ocr_complete"
 
 
 def get_settings() -> Settings:
@@ -50,6 +60,17 @@ def require_api_key(
     return settings
 
 
+def get_ocr_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> TesseractOCRService:
+    return TesseractOCRService(
+        executable=settings.tesseract_cmd,
+        language=settings.tesseract_language,
+        page_segmentation_mode=settings.tesseract_psm,
+        timeout_seconds=settings.ocr_timeout_seconds,
+    )
+
+
 def has_expected_signature(content_type: str, prefix: bytes) -> bool:
     return any(
         prefix.startswith(signature) for signature in IMAGE_TYPES[content_type][1]
@@ -69,14 +90,15 @@ def create_app() -> FastAPI:
 
     @api.post(
         "/receipts/upload",
-        response_model=UploadAccepted,
+        response_model=ReceiptProcessed,
         status_code=status.HTTP_202_ACCEPTED,
         tags=["receipts"],
     )
     async def upload_receipt(
         receipt: Annotated[UploadFile, File(description="JPEG or PNG receipt")],
         settings: Annotated[Settings, Depends(require_api_key)],
-    ) -> UploadAccepted:
+        ocr_service: Annotated[TesseractOCRService, Depends(get_ocr_service)],
+    ) -> ReceiptProcessed:
         content_type = (receipt.content_type or "").lower()
         if content_type not in IMAGE_TYPES:
             raise HTTPException(
@@ -124,10 +146,32 @@ def create_app() -> FastAPI:
         finally:
             await receipt.close()
 
-        return UploadAccepted(
+        try:
+            ocr_text = await run_in_threadpool(ocr_service.extract_text, final_path)
+        except OCRUnavailableError as exc:
+            final_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OCR service is unavailable",
+            ) from exc
+        except OCRTimeoutError as exc:
+            final_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Receipt OCR timed out",
+            ) from exc
+        except (OCRProcessingError, OCRNoTextError) as exc:
+            final_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Receipt text could not be extracted",
+            ) from exc
+
+        return ReceiptProcessed(
             receipt_id=receipt_id,
             content_type=content_type,
             size_bytes=size,
+            ocr_text=ocr_text,
         )
 
     return api

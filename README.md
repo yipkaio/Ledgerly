@@ -4,14 +4,15 @@ A hackathon MVP for turning receipt images into structured, reviewable business 
 
 ## Current status
 
-The first milestone provides a secure FastAPI receipt-intake boundary:
+The application now provides a secure FastAPI receipt-intake and OCR boundary:
 
 - `GET /health` for service health checks.
 - `POST /receipts/upload` for authenticated JPEG/PNG uploads.
 - A 5 MB default size limit, file-signature checks, generated storage names, and cleanup of rejected uploads.
-- Automated tests for health, authentication, unsafe filenames, invalid content, and oversized files.
+- Local Tesseract OCR with a configurable executable, language, page segmentation mode, and timeout.
+- Automated tests that mock Tesseract, so tests do not require OCR installation or consume API credits.
 
-OCR, LLM extraction, vendor lookup, classification, confidence gating, SQLite persistence, Firebase Authentication, Telegram/OpenClaw integration, and a review UI remain TODOs.
+LLM extraction, vendor lookup, classification, confidence gating, SQLite persistence, Firebase Authentication, Telegram/OpenClaw integration, and a review UI remain TODOs.
 
 ## Confirmed pipeline
 
@@ -42,14 +43,20 @@ Copy-Item .env.example .env
 Set secrets only in the current shell or an ignored `.env` file. The application currently reads environment variables directly, so load them before startup:
 
 ```powershell
-$env:APP_API_KEY = "replace-with-a-random-value-at-least-32-characters"
+$apiKey = [guid]::NewGuid().ToString("N")
+$env:APP_API_KEY = $apiKey
+Set-Clipboard -Value $apiKey
 $env:UPLOAD_DIR = "data/uploads"
 $env:MAX_UPLOAD_BYTES = "5242880"
+$env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"
+$env:TESSERACT_LANGUAGE = "eng"
+$env:TESSERACT_PSM = "6"
+$env:OCR_TIMEOUT_SECONDS = "30"
 
 uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs`, authorize an upload by adding the `X-API-Key` request header, and submit a JPEG or PNG receipt.
+Open `http://127.0.0.1:8000/docs`, paste the copied `APP_API_KEY` value into the `X-API-Key` request header, and submit a JPEG or PNG receipt. A successful response includes the raw `ocr_text`; it does not call the LLM gateway or consume tokens.
 
 Run the tests with:
 
@@ -61,4 +68,4 @@ python -m pytest
 
 The confirmed endpoint is `POST https://api.softwaresystems.app/api/chat` using the `X-API-Key` header and model `global.anthropic.claude-sonnet-4-5-20250929-v1:0`. Keep these values in environment variables; never commit the real API key.
 
-The gateway integration is deliberately not implemented in this first milestone. The next milestone will add Tesseract execution, validated structured extraction, and tests using mocked gateway responses before any real credits are consumed.
+The gateway integration is deliberately not implemented yet. The next milestone will send OCR text for validated structured extraction and will test that integration with mocked gateway responses before any real credits are consumed.
