@@ -66,6 +66,29 @@ Open `http://127.0.0.1:8000/docs`, paste the copied `APP_API_KEY` value into the
 
 To use the existing Tesseract fallback instead, set `$env:OCR_ENGINE = "tesseract"` before starting Uvicorn. Tesseract does not expose a recognition confidence through this integration, so `ocr_confidence` will be `null`.
 
+## OCR engine comparison
+
+Both OCR engines were tested locally on the same 263,222-byte JPEG receipt using a Windows CPU environment.
+
+| Engine | Processing time | Reported confidence | Observed result |
+|---|---:|---:|---|
+| Tesseract | 2–3 seconds | Not available | Faster, but it missed the vendor name and misread parts of the address, fax number, GST number, and receipt table. |
+| PaddleOCR | About 10 seconds | 0.994 | It detected the vendor and produced substantially clearer identity, contact, tax, receipt, total, and line-item text. |
+
+PaddleOCR is the default because accurate vendor and amount recognition is more important than raw OCR speed for downstream vendor lookup and structured expense extraction. Tesseract remains available as a faster, lightweight alternative and fallback.
+
+Choose an engine before starting Uvicorn:
+
+```powershell
+$env:OCR_ENGINE = "paddle"       # Accuracy-focused default
+# or
+$env:OCR_ENGINE = "tesseract"    # Faster alternative
+
+& $python -m uvicorn app.main:app --reload
+```
+
+These results are an indicative comparison from one receipt, not a comprehensive benchmark or a claim that PaddleOCR is always more accurate. PaddleOCR's value is its average recognition confidence across accepted text lines; it is not an accounting-field accuracy score and cannot be compared directly with the current Tesseract response, which does not include confidence.
+
 Run the tests with:
 
 ```powershell
