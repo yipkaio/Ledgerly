@@ -16,7 +16,8 @@ dependencies = [
 [project.optional-dependencies]
 ocr-paddle = [
     "paddleocr>=3.7,<4.0",
-    "paddlepaddle>=3.2,<4.0",
+    # PaddlePaddle 3.3.x has a CPU/oneDNN regression affecting PP-OCR models.
+    "paddlepaddle==3.2.2",
 ]
 test = [
     "httpx>=0.28,<1.0",

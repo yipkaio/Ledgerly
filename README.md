@@ -35,9 +35,10 @@ Requirements: Python 3.11. PaddleOCR is the default provider; [Tesseract OCR](ht
 ```powershell
 git clone https://github.com/yipkaio/expense-classification-agent.git
 cd expense-classification-agent
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[test,ocr-paddle]"
+py -3.11 -m venv .venv311
+$python = ".\.venv311\Scripts\python.exe"
+& $python -m pip install --upgrade pip setuptools wheel
+& $python -m pip install -e ".[test,ocr-paddle]"
 Copy-Item .env.example .env
 ```
 
@@ -58,7 +59,7 @@ $env:TESSERACT_LANGUAGE = "eng"
 $env:TESSERACT_PSM = "6"
 $env:OCR_TIMEOUT_SECONDS = "30"
 
-uvicorn app.main:app --reload
+& $python -m uvicorn app.main:app --reload
 ```
 
 Open `http://127.0.0.1:8000/docs`, paste the copied `APP_API_KEY` value into the `X-API-Key` request header, and submit a JPEG or PNG receipt. A successful response includes `ocr_engine`, Paddle's average `ocr_confidence`, and the raw `ocr_text`; it does not call the LLM gateway or consume tokens. PaddleOCR downloads its model files on the first real OCR request and caches one pipeline instance per application process.
@@ -68,7 +69,17 @@ To use the existing Tesseract fallback instead, set `$env:OCR_ENGINE = "tesserac
 Run the tests with:
 
 ```powershell
-python -m pytest
+& $python -m pytest
+```
+
+### PaddleOCR Windows CPU compatibility
+
+The project pins PaddlePaddle `3.2.2` because PaddlePaddle `3.3.x` has a CPU/oneDNN regression that can raise `ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]` during PP-OCR inference. If `3.3.x` was previously installed in `.venv311`, stop Uvicorn and restore the pinned dependency with:
+
+```powershell
+$python = ".\.venv311\Scripts\python.exe"
+& $python -m pip install --force-reinstall "paddlepaddle==3.2.2"
+& $python -m pip install -e ".[test,ocr-paddle]"
 ```
 
 ## Gateway configuration
