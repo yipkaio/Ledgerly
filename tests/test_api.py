@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import create_app, get_ocr_service
-from app.ocr import OCRTimeoutError
+from app.ocr import OCRResult, OCRTimeoutError
 
 TEST_KEY = "test-key-that-is-longer-than-32-characters"
 
@@ -13,9 +13,9 @@ class StubOCRService:
         self.text = text
         self.paths: list[Path] = []
 
-    def extract_text(self, image_path: Path) -> str:
+    def extract(self, image_path: Path) -> OCRResult:
         self.paths.append(image_path)
-        return self.text
+        return OCRResult(text=self.text, engine="stub", confidence=0.95)
 
 
 def configured_client(
@@ -64,6 +64,8 @@ def test_valid_jpeg_is_saved_with_generated_name(monkeypatch, tmp_path: Path) ->
     stored_files = list(tmp_path.iterdir())
     assert payload["status"] == "ocr_complete"
     assert payload["size_bytes"] == len(image)
+    assert payload["ocr_engine"] == "stub"
+    assert payload["ocr_confidence"] == 0.95
     assert payload["ocr_text"] == "MR DIY\nTOTAL RM 33.90"
     assert len(stored_files) == 1
     assert stored_files[0].name == f"{payload['receipt_id']}.jpg"
@@ -105,7 +107,7 @@ def test_ocr_failure_returns_safe_error_and_removes_upload(
     def time_out(_: Path) -> str:
         raise OCRTimeoutError("internal timeout information")
 
-    ocr_service.extract_text = time_out
+    ocr_service.extract = time_out
     response = client.post(
         "/receipts/upload",
         headers={"X-API-Key": TEST_KEY},

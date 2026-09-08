@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -16,8 +17,11 @@ from app.config import ConfigurationError, Settings
 from app.ocr import (
     OCRNoTextError,
     OCRProcessingError,
+    OCRResult,
+    OCRService,
     OCRTimeoutError,
     OCRUnavailableError,
+    PaddleOCRService,
     TesseractOCRService,
 )
 
@@ -32,6 +36,8 @@ class ReceiptProcessed(BaseModel):
     receipt_id: str
     content_type: str
     size_bytes: int
+    ocr_engine: str
+    ocr_confidence: float | None
     ocr_text: str
     status: str = "ocr_complete"
 
@@ -60,9 +66,27 @@ def require_api_key(
     return settings
 
 
+@lru_cache(maxsize=1)
+def get_paddle_ocr_service(
+    language: str, device: str, minimum_confidence: float
+) -> PaddleOCRService:
+    return PaddleOCRService.create(
+        language=language,
+        device=device,
+        minimum_confidence=minimum_confidence,
+    )
+
+
 def get_ocr_service(
     settings: Annotated[Settings, Depends(get_settings)],
-) -> TesseractOCRService:
+) -> OCRService:
+    if settings.ocr_engine == "paddle":
+        return get_paddle_ocr_service(
+            settings.paddle_language,
+            settings.paddle_device,
+            settings.paddle_min_confidence,
+        )
+
     return TesseractOCRService(
         executable=settings.tesseract_cmd,
         language=settings.tesseract_language,
@@ -97,7 +121,7 @@ def create_app() -> FastAPI:
     async def upload_receipt(
         receipt: Annotated[UploadFile, File(description="JPEG or PNG receipt")],
         settings: Annotated[Settings, Depends(require_api_key)],
-        ocr_service: Annotated[TesseractOCRService, Depends(get_ocr_service)],
+        ocr_service: Annotated[OCRService, Depends(get_ocr_service)],
     ) -> ReceiptProcessed:
         content_type = (receipt.content_type or "").lower()
         if content_type not in IMAGE_TYPES:
@@ -147,7 +171,9 @@ def create_app() -> FastAPI:
             await receipt.close()
 
         try:
-            ocr_text = await run_in_threadpool(ocr_service.extract_text, final_path)
+            ocr_result: OCRResult = await run_in_threadpool(
+                ocr_service.extract, final_path
+            )
         except OCRUnavailableError as exc:
             final_path.unlink(missing_ok=True)
             raise HTTPException(
@@ -171,7 +197,9 @@ def create_app() -> FastAPI:
             receipt_id=receipt_id,
             content_type=content_type,
             size_bytes=size,
-            ocr_text=ocr_text,
+            ocr_engine=ocr_result.engine,
+            ocr_confidence=ocr_result.confidence,
+            ocr_text=ocr_result.text,
         )
 
     return api

@@ -9,8 +9,9 @@ The application now provides a secure FastAPI receipt-intake and OCR boundary:
 - `GET /health` for service health checks.
 - `POST /receipts/upload` for authenticated JPEG/PNG uploads.
 - A 5 MB default size limit, file-signature checks, generated storage names, and cleanup of rejected uploads.
-- Local Tesseract OCR with a configurable executable, language, page segmentation mode, and timeout.
-- Automated tests that mock Tesseract, so tests do not require OCR installation or consume API credits.
+- PaddleOCR text detection and recognition, including orientation correction, image unwarping, and recognition confidence.
+- Configurable Tesseract fallback with a bounded subprocess timeout.
+- Automated tests that mock both providers, so tests do not download models, require OCR installation, or consume API credits.
 
 LLM extraction, vendor lookup, classification, confidence gating, SQLite persistence, Firebase Authentication, Telegram/OpenClaw integration, and a review UI remain TODOs.
 
@@ -19,7 +20,7 @@ LLM extraction, vendor lookup, classification, confidence gating, SQLite persist
 The hackathon gateway accepts text prompts but did not receive images during testing. Receipt images must therefore be processed locally before the LLM call:
 
 1. Receive and validate a receipt image.
-2. Run local Tesseract OCR.
+2. Run local PaddleOCR, or Tesseract when selected as the fallback.
 3. Send OCR text to the text-only LLM gateway for structured extraction.
 4. Apply a deterministic vendor mapping when one is safe.
 5. Classify unmatched or mixed-purpose expenses with the LLM.
@@ -29,14 +30,14 @@ Business purpose should be optional input. Missing context must lower confidence
 
 ## Local setup (Windows PowerShell)
 
-Requirements: Python 3.11+ and [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki).
+Requirements: Python 3.11. PaddleOCR is the default provider; [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) is an optional fallback.
 
 ```powershell
 git clone https://github.com/yipkaio/expense-classification-agent.git
 cd expense-classification-agent
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[test]"
+python -m pip install -e ".[test,ocr-paddle]"
 Copy-Item .env.example .env
 ```
 
@@ -48,6 +49,10 @@ $env:APP_API_KEY = $apiKey
 Set-Clipboard -Value $apiKey
 $env:UPLOAD_DIR = "data/uploads"
 $env:MAX_UPLOAD_BYTES = "5242880"
+$env:OCR_ENGINE = "paddle"
+$env:PADDLE_LANGUAGE = "en"
+$env:PADDLE_DEVICE = "cpu"
+$env:PADDLE_MIN_CONFIDENCE = "0.50"
 $env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"
 $env:TESSERACT_LANGUAGE = "eng"
 $env:TESSERACT_PSM = "6"
@@ -56,7 +61,9 @@ $env:OCR_TIMEOUT_SECONDS = "30"
 uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs`, paste the copied `APP_API_KEY` value into the `X-API-Key` request header, and submit a JPEG or PNG receipt. A successful response includes the raw `ocr_text`; it does not call the LLM gateway or consume tokens.
+Open `http://127.0.0.1:8000/docs`, paste the copied `APP_API_KEY` value into the `X-API-Key` request header, and submit a JPEG or PNG receipt. A successful response includes `ocr_engine`, Paddle's average `ocr_confidence`, and the raw `ocr_text`; it does not call the LLM gateway or consume tokens. PaddleOCR downloads its model files on the first real OCR request and caches one pipeline instance per application process.
+
+To use the existing Tesseract fallback instead, set `$env:OCR_ENGINE = "tesseract"` before starting Uvicorn. Tesseract does not expose a recognition confidence through this integration, so `ocr_confidence` will be `null`.
 
 Run the tests with:
 
