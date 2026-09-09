@@ -11,9 +11,11 @@ The application now provides a secure FastAPI receipt-intake and OCR boundary:
 - A 5 MB default size limit, file-signature checks, generated storage names, and cleanup of rejected uploads.
 - PaddleOCR text detection and recognition, including orientation correction, image unwarping, and recognition confidence.
 - Configurable Tesseract fallback with a bounded subprocess timeout.
-- Automated tests that mock both providers, so tests do not download models, require OCR installation, or consume API credits.
+- Structured receipt extraction through the organiser's text-only LLM gateway.
+- Strict receipt and line-item schemas plus deterministic amount reconciliation checks.
+- Automated tests that mock both OCR providers and the gateway, so tests do not download models, require OCR installation, make network calls, or consume API credits.
 
-LLM extraction, vendor lookup, classification, confidence gating, SQLite persistence, Firebase Authentication, Telegram/OpenClaw integration, and a review UI remain TODOs.
+Vendor lookup, expense classification, confidence gating, SQLite persistence, Firebase Authentication, Telegram/OpenClaw integration, and a review UI remain TODOs.
 
 ## Confirmed pipeline
 
@@ -21,7 +23,7 @@ The hackathon gateway accepts text prompts but did not receive images during tes
 
 1. Receive and validate a receipt image.
 2. Run local PaddleOCR, or Tesseract when selected as the fallback.
-3. Send OCR text to the text-only LLM gateway for structured extraction.
+3. Send OCR text to the text-only LLM gateway and validate the returned receipt JSON.
 4. Apply a deterministic vendor mapping when one is safe.
 5. Classify unmatched or mixed-purpose expenses with the LLM.
 6. Auto-file results at or above the confidence threshold; otherwise send them to review.
@@ -58,11 +60,19 @@ $env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"
 $env:TESSERACT_LANGUAGE = "eng"
 $env:TESSERACT_PSM = "6"
 $env:OCR_TIMEOUT_SECONDS = "30"
+$secureGatewayKey = Read-Host "Paste LLM gateway API key (hidden)" -AsSecureString
+$env:LLM_GATEWAY_API_KEY = [System.Net.NetworkCredential]::new(
+    "", $secureGatewayKey
+).Password
+$env:LLM_GATEWAY_URL = "https://api.softwaresystems.app"
+$env:LLM_MODEL = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+$env:LLM_TIMEOUT_SECONDS = "120"
+$env:LLM_MAX_OUTPUT_TOKENS = "800"
 
 & $python -m uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs`, paste the copied `APP_API_KEY` value into the `X-API-Key` request header, and submit a JPEG or PNG receipt. A successful response includes `ocr_engine`, Paddle's average `ocr_confidence`, and the raw `ocr_text`; it does not call the LLM gateway or consume tokens. PaddleOCR downloads its model files on the first real OCR request and caches one pipeline instance per application process.
+Open `http://127.0.0.1:8000/docs`, paste the copied `APP_API_KEY` value into the `X-API-Key` request header, and submit a JPEG or PNG receipt. A successful response has status `extraction_complete` and includes `ocr_engine`, Paddle's average `ocr_confidence`, the raw `ocr_text`, and validated `extracted_data`. Each successful OCR upload now makes one paid extraction call to the organiser gateway. PaddleOCR downloads its model files on the first real OCR request and caches one pipeline instance per application process.
 
 To use the existing Tesseract fallback instead, set `$env:OCR_ENGINE = "tesseract"` before starting Uvicorn. Tesseract does not expose a recognition confidence through this integration, so `ocr_confidence` will be `null`.
 
@@ -109,4 +119,6 @@ $python = ".\.venv311\Scripts\python.exe"
 
 The confirmed endpoint is `POST https://api.softwaresystems.app/api/chat` using the `X-API-Key` header and model `global.anthropic.claude-sonnet-4-5-20250929-v1:0`. Keep these values in environment variables; never commit the real API key.
 
-The gateway integration is deliberately not implemented yet. The next milestone will send OCR text for validated structured extraction and will test that integration with mocked gateway responses before any real credits are consumed.
+The extraction client sends only OCR text, requests deterministic JSON with an 800-token default output allowance, and validates every response against strict Pydantic models. Optional JSON Markdown fences are accepted, while empty, truncated, malformed, or schema-invalid responses are rejected. Required-field and arithmetic inconsistencies set `needs_review` without silently changing the extracted amounts.
+
+Gateway errors use controlled API responses: `502` for invalid model output, `503` when the service is unavailable, and `504` for timeouts. The uploaded receipt image is retained when LLM extraction fails so it can be recovered once persistence and the review queue are implemented. Automated tests use a mocked HTTP transport and never call the live gateway.

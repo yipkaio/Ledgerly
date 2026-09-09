@@ -7,6 +7,7 @@ TEST_KEY = "test-key-that-is-longer-than-32-characters"
 
 def configured_settings(monkeypatch, **values: str) -> Settings:
     monkeypatch.setenv("APP_API_KEY", TEST_KEY)
+    monkeypatch.setenv("LLM_GATEWAY_API_KEY", "test-gateway-key")
     for name, value in values.items():
         monkeypatch.setenv(name, value)
     return Settings.from_environment()
@@ -37,3 +38,34 @@ def test_invalid_paddle_confidence_is_rejected(monkeypatch, value: str) -> None:
 def test_invalid_paddle_device_is_rejected(monkeypatch, value: str) -> None:
     with pytest.raises(ConfigurationError):
         configured_settings(monkeypatch, PADDLE_DEVICE=value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://api.example.test",
+        "https://user:password@example.test",
+        "https://example.test?secret=value",
+        "https://example.test/custom/path",
+        "not-a-url",
+    ],
+)
+def test_insecure_or_malformed_gateway_url_is_rejected(
+    monkeypatch, value: str
+) -> None:
+    with pytest.raises(ConfigurationError):
+        configured_settings(monkeypatch, LLM_GATEWAY_URL=value)
+
+
+def test_empty_gateway_key_is_rejected(monkeypatch) -> None:
+    monkeypatch.setenv("APP_API_KEY", TEST_KEY)
+    monkeypatch.setenv("LLM_GATEWAY_API_KEY", "")
+
+    with pytest.raises(ConfigurationError):
+        Settings.from_environment()
+
+
+@pytest.mark.parametrize("value", ["99", "4001", "not-a-number"])
+def test_invalid_gateway_output_limit_is_rejected(monkeypatch, value: str) -> None:
+    with pytest.raises(ConfigurationError):
+        configured_settings(monkeypatch, LLM_MAX_OUTPUT_TOKENS=value)

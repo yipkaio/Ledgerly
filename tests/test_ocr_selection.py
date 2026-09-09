@@ -9,6 +9,7 @@ TEST_KEY = "test-key-that-is-longer-than-32-characters"
 
 def settings(monkeypatch, engine: str) -> Settings:
     monkeypatch.setenv("APP_API_KEY", TEST_KEY)
+    monkeypatch.setenv("LLM_GATEWAY_API_KEY", "test-gateway-key")
     monkeypatch.setenv("OCR_ENGINE", engine)
     return Settings.from_environment()
 

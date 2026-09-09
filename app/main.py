@@ -14,6 +14,14 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from app.config import ConfigurationError, Settings
+from app.extraction import (
+    ExtractionResponseError,
+    ExtractionTimeoutError,
+    ExtractionUnavailableError,
+    GatewayReceiptExtractor,
+    ReceiptExtraction,
+    ReceiptExtractor,
+)
 from app.ocr import (
     OCRNoTextError,
     OCRProcessingError,
@@ -39,7 +47,8 @@ class ReceiptProcessed(BaseModel):
     ocr_engine: str
     ocr_confidence: float | None
     ocr_text: str
-    status: str = "ocr_complete"
+    extracted_data: ReceiptExtraction
+    status: str = "extraction_complete"
 
 
 def get_settings() -> Settings:
@@ -95,6 +104,18 @@ def get_ocr_service(
     )
 
 
+def get_receipt_extractor(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ReceiptExtractor:
+    return GatewayReceiptExtractor(
+        base_url=settings.llm_gateway_url,
+        api_key=settings.llm_gateway_api_key,
+        model=settings.llm_model,
+        timeout_seconds=settings.llm_timeout_seconds,
+        max_output_tokens=settings.llm_max_output_tokens,
+    )
+
+
 def has_expected_signature(content_type: str, prefix: bytes) -> bool:
     return any(
         prefix.startswith(signature) for signature in IMAGE_TYPES[content_type][1]
@@ -122,6 +143,9 @@ def create_app() -> FastAPI:
         receipt: Annotated[UploadFile, File(description="JPEG or PNG receipt")],
         settings: Annotated[Settings, Depends(require_api_key)],
         ocr_service: Annotated[OCRService, Depends(get_ocr_service)],
+        receipt_extractor: Annotated[
+            ReceiptExtractor, Depends(get_receipt_extractor)
+        ],
     ) -> ReceiptProcessed:
         content_type = (receipt.content_type or "").lower()
         if content_type not in IMAGE_TYPES:
@@ -193,6 +217,24 @@ def create_app() -> FastAPI:
                 detail="Receipt text could not be extracted",
             ) from exc
 
+        try:
+            extracted_data = await receipt_extractor.extract(ocr_result.text)
+        except ExtractionTimeoutError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Receipt extraction timed out",
+            ) from exc
+        except ExtractionUnavailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Receipt extraction service is unavailable",
+            ) from exc
+        except ExtractionResponseError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Receipt extraction returned an invalid response",
+            ) from exc
+
         return ReceiptProcessed(
             receipt_id=receipt_id,
             content_type=content_type,
@@ -200,6 +242,7 @@ def create_app() -> FastAPI:
             ocr_engine=ocr_result.engine,
             ocr_confidence=ocr_result.confidence,
             ocr_text=ocr_result.text,
+            extracted_data=extracted_data,
         )
 
     return api

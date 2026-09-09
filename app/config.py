@@ -6,6 +6,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 TESSERACT_LANGUAGE_PATTERN = re.compile(r"[A-Za-z]{3}(?:\+[A-Za-z]{3})*")
 PADDLE_LANGUAGE_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,31}")
@@ -30,6 +31,11 @@ class Settings:
     tesseract_language: str
     tesseract_psm: int
     ocr_timeout_seconds: int
+    llm_gateway_url: str
+    llm_gateway_api_key: str
+    llm_model: str
+    llm_timeout_seconds: int
+    llm_max_output_tokens: int
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -74,6 +80,38 @@ class Settings:
             "OCR_TIMEOUT_SECONDS", "30", 1, 300
         )
 
+        llm_gateway_url = os.getenv(
+            "LLM_GATEWAY_URL", "https://api.softwaresystems.app"
+        ).strip()
+        parsed_gateway_url = urlsplit(llm_gateway_url)
+        if (
+            parsed_gateway_url.scheme != "https"
+            or not parsed_gateway_url.hostname
+            or parsed_gateway_url.username is not None
+            or parsed_gateway_url.password is not None
+            or parsed_gateway_url.path not in ("", "/")
+            or parsed_gateway_url.query
+            or parsed_gateway_url.fragment
+        ):
+            raise ConfigurationError("LLM_GATEWAY_URL must be a secure HTTPS URL")
+
+        llm_gateway_api_key = os.getenv("LLM_GATEWAY_API_KEY", "").strip()
+        if not llm_gateway_api_key:
+            raise ConfigurationError("LLM_GATEWAY_API_KEY must not be empty")
+
+        llm_model = os.getenv(
+            "LLM_MODEL", "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+        ).strip()
+        if not llm_model or len(llm_model) > 200:
+            raise ConfigurationError("LLM_MODEL must contain 1 to 200 characters")
+
+        llm_timeout_seconds = cls._bounded_integer(
+            "LLM_TIMEOUT_SECONDS", "120", 1, 300
+        )
+        llm_max_output_tokens = cls._bounded_integer(
+            "LLM_MAX_OUTPUT_TOKENS", "800", 100, 4000
+        )
+
         upload_dir = Path(os.getenv("UPLOAD_DIR", "data/uploads"))
         return cls(
             app_api_key=api_key,
@@ -87,6 +125,11 @@ class Settings:
             tesseract_language=language,
             tesseract_psm=tesseract_psm,
             ocr_timeout_seconds=ocr_timeout_seconds,
+            llm_gateway_url=llm_gateway_url,
+            llm_gateway_api_key=llm_gateway_api_key,
+            llm_model=llm_model,
+            llm_timeout_seconds=llm_timeout_seconds,
+            llm_max_output_tokens=llm_max_output_tokens,
         )
 
     @staticmethod

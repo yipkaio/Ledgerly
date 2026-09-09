@@ -9,6 +9,8 @@ description = "Secure receipt intake API for an AI expense-classification pipeli
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115,<1.0",
+    "httpx>=0.28,<1.0",
+    "pydantic>=2.10,<3.0",
     "python-multipart>=0.0.18,<1.0",
     "uvicorn[standard]>=0.34,<1.0",
 ]
@@ -20,7 +22,6 @@ ocr-paddle = [
     "paddlepaddle==3.2.2",
 ]
 test = [
-    "httpx>=0.28,<1.0",
     "pytest>=8.3,<9.0",
 ]
 
