@@ -26,6 +26,11 @@ Quantity = Annotated[
     Field(gt=0, allow_inf_nan=False, max_digits=12, decimal_places=3),
     PlainSerializer(lambda value: float(value), return_type=float, when_used="json"),
 ]
+Percentage = Annotated[
+    Decimal,
+    Field(ge=0, le=100, allow_inf_nan=False, max_digits=5, decimal_places=2),
+    PlainSerializer(lambda value: float(value), return_type=float, when_used="json"),
+]
 ReviewReason = Annotated[str, Field(min_length=1, max_length=300)]
 
 ARITHMETIC_TOLERANCE = Decimal("0.02")
@@ -57,6 +62,8 @@ class ReceiptLineItem(BaseModel):
     description: Annotated[str | None, Field(max_length=500)]
     quantity: Quantity | None
     unit_price: Money | None
+    discount_percent: Percentage | None = None
+    discount_amount: NonNegativeMoney | None = None
     line_total: Money | None
 
 
@@ -223,6 +230,44 @@ class GatewayReceiptExtractor:
             reasons.append(f"Required fields are missing: {', '.join(missing)}")
 
         if receipt.line_items:
+            for index, item in enumerate(receipt.line_items, start=1):
+                if (
+                    item.quantity is None
+                    or item.unit_price is None
+                    or item.line_total is None
+                ):
+                    continue
+
+                gross_amount = item.quantity * item.unit_price
+                expected_line_total = gross_amount
+
+                if item.discount_amount is not None:
+                    expected_line_total -= item.discount_amount
+                    if item.discount_percent is not None:
+                        percentage_discount = (
+                            gross_amount * item.discount_percent / Decimal("100")
+                        )
+                        if (
+                            abs(percentage_discount - item.discount_amount)
+                            > ARITHMETIC_TOLERANCE
+                        ):
+                            reasons.append(
+                                f"Line item {index} discount percentage does not "
+                                "match its discount amount"
+                            )
+                elif item.discount_percent is not None:
+                    expected_line_total -= (
+                        gross_amount * item.discount_percent / Decimal("100")
+                    )
+
+                if (
+                    abs(expected_line_total - item.line_total)
+                    > ARITHMETIC_TOLERANCE
+                ):
+                    reasons.append(
+                        f"Line item {index} price and discount do not match its total"
+                    )
+
             if any(item.line_total is None for item in receipt.line_items):
                 reasons.append("One or more line items have no line total")
             elif receipt.subtotal is not None:
@@ -290,6 +335,9 @@ Correct obvious OCR errors only when repeated text or receipt arithmetic support
 correction. Use null when uncertain. Use ISO 4217 currency codes and YYYY-MM-DD dates.
 Monetary values and quantities must be JSON numbers. rounding_adjustment must be signed.
 Extract every visible line item. total_amount is the final rounded amount payable.
+For each line item, unit_price is the price before its line discount and line_total is
+the amount after that discount. Set discount_percent and discount_amount to null when
+they are not explicitly printed. Do not invent a discount merely to reconcile amounts.
 Set needs_review to true when required fields are missing or values are ambiguous.
 
 Return exactly this object shape:
@@ -306,6 +354,8 @@ Return exactly this object shape:
       "description": null,
       "quantity": null,
       "unit_price": null,
+      "discount_percent": null,
+      "discount_amount": null,
       "line_total": null
     }}
   ],

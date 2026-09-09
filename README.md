@@ -12,7 +12,7 @@ The application now provides a secure FastAPI receipt-intake and OCR boundary:
 - PaddleOCR text detection and recognition, including orientation correction, image unwarping, and recognition confidence.
 - Configurable Tesseract fallback with a bounded subprocess timeout.
 - Structured receipt extraction through the organiser's text-only LLM gateway.
-- Strict receipt and line-item schemas plus deterministic amount reconciliation checks.
+- Strict receipt and line-item schemas, optional explicit discounts, and deterministic amount reconciliation checks.
 - Automated tests that mock both OCR providers and the gateway, so tests do not download models, require OCR installation, make network calls, or consume API credits.
 
 Vendor lookup, expense classification, confidence gating, SQLite persistence, Firebase Authentication, Telegram/OpenClaw integration, and a review UI remain TODOs.
@@ -119,6 +119,6 @@ $python = ".\.venv311\Scripts\python.exe"
 
 The confirmed endpoint is `POST https://api.softwaresystems.app/api/chat` using the `X-API-Key` header and model `global.anthropic.claude-sonnet-4-5-20250929-v1:0`. Keep these values in environment variables; never commit the real API key.
 
-The extraction client sends only OCR text, requests deterministic JSON with an 800-token default output allowance, and validates every response against strict Pydantic models. Optional JSON Markdown fences are accepted, while empty, truncated, malformed, or schema-invalid responses are rejected. Required-field and arithmetic inconsistencies set `needs_review` without silently changing the extracted amounts.
+The extraction client sends only OCR text, requests deterministic JSON with an 800-token default output allowance, and validates every response against strict Pydantic models. Line-item `discount_percent` and `discount_amount` values are optional and remain `null` unless printed on the receipt. Optional JSON Markdown fences are accepted, while empty, truncated, malformed, or schema-invalid responses are rejected. Required-field, discount, and arithmetic inconsistencies set `needs_review` without silently changing the extracted amounts.
 
 Gateway errors use controlled API responses: `502` for invalid model output, `503` when the service is unavailable, and `504` for timeouts. The uploaded receipt image is retained when LLM extraction fails so it can be recovered once persistence and the review queue are implemented. Automated tests use a mocked HTTP transport and never call the live gateway.

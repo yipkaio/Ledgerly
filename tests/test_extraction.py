@@ -102,7 +102,13 @@ def test_extract_sends_ocr_text_and_returns_validated_receipt() -> None:
     assert "MR DIY\\nTOTAL RM 33.90" in body["messages"][0]["content"]
     assert result.vendor == "MR D.I.Y. (JOHOR) SDN BHD"
     assert str(result.total_amount) == "33.9"
+    assert result.line_items[0].discount_percent is None
+    assert result.line_items[0].discount_amount is None
     assert result.needs_review is False
+    prompt = body["messages"][0]["content"]
+    assert '"discount_percent": null' in prompt
+    assert '"discount_amount": null' in prompt
+    assert "Do not invent a discount" in prompt
 
 
 def test_json_markdown_fence_is_accepted() -> None:
@@ -206,6 +212,102 @@ def test_tax_reconciliation_supports_taxed_receipts() -> None:
 
     assert result.needs_review is False
     assert result.review_reasons == []
+
+
+@pytest.mark.parametrize(
+    "discount_fields",
+    [
+        {"discount_percent": 5.69},
+        {"discount_amount": 0.20},
+        {"discount_percent": 5.69, "discount_amount": 0.20},
+    ],
+)
+def test_explicit_optional_discount_reconciles_line_total(discount_fields) -> None:
+    receipt = deepcopy(valid_receipt())
+    receipt["line_items"] = [
+        {
+            "description": "JIANYU STEEL RULER 30CM THICK",
+            "quantity": 1,
+            "unit_price": 3.50,
+            **discount_fields,
+            "line_total": 3.30,
+        }
+    ]
+    receipt["subtotal"] = 3.30
+    receipt["tax_amount"] = 0.00
+    receipt["total_before_rounding"] = 3.30
+    receipt["rounding_adjustment"] = 0.00
+    receipt["total_amount"] = 3.30
+    receipt["cash_tendered"] = None
+    receipt["change_amount"] = None
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=gateway_response(receipt))
+
+    result = asyncio.run(extractor_for(handler).extract("discounted receipt"))
+
+    assert result.needs_review is False
+    assert result.review_reasons == []
+    assert str(result.line_items[0].line_total) == "3.3"
+
+
+def test_unexplained_line_discount_is_flagged_for_review() -> None:
+    receipt = deepcopy(valid_receipt())
+    receipt["line_items"][0]["line_total"] = 18.80
+    receipt["subtotal"] = 33.72
+    receipt["total_before_rounding"] = 33.72
+    receipt["total_amount"] = 33.70
+    receipt["cash_tendered"] = None
+    receipt["change_amount"] = None
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=gateway_response(receipt))
+
+    result = asyncio.run(extractor_for(handler).extract("unexplained discount"))
+
+    assert result.needs_review is True
+    assert (
+        "Line item 1 price and discount do not match its total"
+        in result.review_reasons
+    )
+
+
+def test_inconsistent_discount_percentage_and_amount_are_flagged() -> None:
+    receipt = deepcopy(valid_receipt())
+    receipt["line_items"][0].update(
+        {
+            "discount_percent": 10.00,
+            "discount_amount": 0.20,
+            "line_total": 18.80,
+        }
+    )
+    receipt["subtotal"] = 33.72
+    receipt["total_before_rounding"] = 33.72
+    receipt["total_amount"] = 33.70
+    receipt["cash_tendered"] = None
+    receipt["change_amount"] = None
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=gateway_response(receipt))
+
+    result = asyncio.run(extractor_for(handler).extract("inconsistent discount"))
+
+    assert result.needs_review is True
+    assert (
+        "Line item 1 discount percentage does not match its discount amount"
+        in result.review_reasons
+    )
+
+
+def test_discount_percentage_over_one_hundred_is_rejected() -> None:
+    receipt = deepcopy(valid_receipt())
+    receipt["line_items"][0]["discount_percent"] = 100.01
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=gateway_response(receipt))
+
+    with pytest.raises(ExtractionResponseError):
+        asyncio.run(extractor_for(handler).extract("invalid discount"))
 
 
 def test_missing_required_fields_are_flagged_for_review() -> None:
