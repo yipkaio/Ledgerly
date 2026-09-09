@@ -109,6 +109,7 @@ def test_extract_sends_ocr_text_and_returns_validated_receipt() -> None:
     assert '"discount_percent": null' in prompt
     assert '"discount_amount": null' in prompt
     assert "Do not invent a discount" in prompt
+    assert "exactly one of those two interpretations reconciles" in prompt
 
 
 def test_json_markdown_fence_is_accepted() -> None:
@@ -270,6 +271,113 @@ def test_unexplained_line_discount_is_flagged_for_review() -> None:
         "Line item 1 price and discount do not match its total"
         in result.review_reasons
     )
+
+
+def test_uniquely_reconciling_swapped_price_and_discount_are_repaired() -> None:
+    receipt = deepcopy(valid_receipt())
+    receipt["line_items"] = [
+        {
+            "description": "JIANYU STELL RULER 30CM THICK",
+            "quantity": 1,
+            "unit_price": 5.69,
+            "discount_percent": 3.50,
+            "discount_amount": None,
+            "line_total": 3.30,
+        },
+        {
+            "description": "LAMINATE FILM",
+            "quantity": 1,
+            "unit_price": 1.30,
+            "discount_percent": 0.00,
+            "discount_amount": None,
+            "line_total": 1.30,
+        },
+    ]
+    receipt["subtotal"] = 4.60
+    receipt["tax_amount"] = 0.28
+    receipt["total_before_rounding"] = 4.88
+    receipt["rounding_adjustment"] = 0.02
+    receipt["total_amount"] = 4.90
+    receipt["cash_tendered"] = 4.90
+    receipt["change_amount"] = 0.00
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=gateway_response(receipt))
+
+    result = asyncio.run(extractor_for(handler).extract("TEO HENG receipt"))
+
+    repaired_item = result.line_items[0]
+    assert str(repaired_item.unit_price) == "3.5"
+    assert str(repaired_item.discount_percent) == "5.69"
+    assert str(result.line_items[1].unit_price) == "1.3"
+    assert str(result.line_items[1].discount_percent) == "0.0"
+    assert result.needs_review is True
+    assert (
+        "Line item 1 unit price and discount percentage were swapped based on "
+        "arithmetic"
+        in result.review_reasons
+    )
+    assert (
+        "Line item 1 price and discount do not match its total"
+        not in result.review_reasons
+    )
+
+
+def test_non_reconciling_swap_is_not_applied() -> None:
+    receipt = deepcopy(valid_receipt())
+    receipt["line_items"][0].update(
+        {
+            "unit_price": 9.00,
+            "discount_percent": 3.50,
+            "line_total": 3.30,
+        }
+    )
+    receipt["subtotal"] = 18.02
+    receipt["total_before_rounding"] = 18.02
+    receipt["total_amount"] = 18.00
+    receipt["cash_tendered"] = None
+    receipt["change_amount"] = None
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=gateway_response(receipt))
+
+    result = asyncio.run(extractor_for(handler).extract("ambiguous columns"))
+
+    assert str(result.line_items[0].unit_price) == "9.0"
+    assert str(result.line_items[0].discount_percent) == "3.5"
+    assert result.needs_review is True
+    assert (
+        "Line item 1 price and discount do not match its total"
+        in result.review_reasons
+    )
+    assert not any("were swapped" in reason for reason in result.review_reasons)
+
+
+def test_explicit_discount_amount_prevents_column_swap() -> None:
+    receipt = deepcopy(valid_receipt())
+    receipt["line_items"][0].update(
+        {
+            "unit_price": 5.69,
+            "discount_percent": 3.50,
+            "discount_amount": 2.39,
+            "line_total": 3.30,
+        }
+    )
+    receipt["subtotal"] = 18.02
+    receipt["total_before_rounding"] = 18.02
+    receipt["total_amount"] = 18.00
+    receipt["cash_tendered"] = None
+    receipt["change_amount"] = None
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=gateway_response(receipt))
+
+    result = asyncio.run(extractor_for(handler).extract("explicit amount"))
+
+    assert str(result.line_items[0].unit_price) == "5.69"
+    assert str(result.line_items[0].discount_percent) == "3.5"
+    assert result.needs_review is True
+    assert not any("were swapped" in reason for reason in result.review_reasons)
 
 
 def test_inconsistent_discount_percentage_and_amount_are_flagged() -> None:
