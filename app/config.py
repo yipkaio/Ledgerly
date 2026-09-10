@@ -37,6 +37,7 @@ class Settings:
     llm_timeout_seconds: int
     llm_max_output_tokens: int
     classification_confidence_threshold: float
+    database_path: Path = Path("data/expenses.db")
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -116,10 +117,15 @@ class Settings:
             "CLASSIFICATION_CONFIDENCE_THRESHOLD", "0.80", 0.0, 1.0
         )
 
+        database_path = os.getenv("DATABASE_PATH", "data/expenses.db").strip()
+        if not database_path or "\x00" in database_path or database_path == ":memory:":
+            raise ConfigurationError("DATABASE_PATH must be a persistent file path")
+
         upload_dir = Path(os.getenv("UPLOAD_DIR", "data/uploads"))
         return cls(
             app_api_key=api_key,
             upload_dir=upload_dir,
+            database_path=Path(database_path),
             max_upload_bytes=max_upload_bytes,
             ocr_engine=ocr_engine,
             paddle_language=paddle_language,

@@ -17,7 +17,71 @@ The application now provides a secure FastAPI receipt-processing pipeline:
 - A fixed-category expense classifier for unmatched vendors, with optional business purpose and a configurable confidence gate.
 - Automated tests that mock both OCR providers and both gateway agents, so tests do not download models, require OCR installation, make network calls, or consume API credits.
 
-SQLite persistence, Firebase Authentication, Telegram/OpenClaw integration, and a review UI remain TODOs.
+SQLite persistence and authenticated receipt history are implemented. Firebase Authentication, Telegram/OpenClaw integration, manual review actions, and a review UI remain TODOs.
+
+## SQLite persistence and receipt history
+
+Set `DATABASE_PATH=data/expenses.db` in `.env` (the default). Python's built-in
+SQLite driver is used; no database server or new dependency is required. On first
+database use, schema version 1 and the three initial vendor mappings are created
+transactionally. Existing mappings are not overwritten on restart. The runtime
+lookup reads `vendor_category_mappings`; the dictionary in `app/classification.py`
+is now the initial seed and legacy lookup helper, not the upload lookup source.
+
+Tables: `receipts` (metadata, OCR, extraction JSON and timestamps), `line_items`
+(ordered item JSON), `classifications` (decision and result JSON), and
+`vendor_category_mappings`. JSON preserves the existing validated response fields;
+this is not yet a reporting schema with separately indexed monetary fields.
+Foreign keys are enabled on every connection. Final extraction, line items and
+classification are committed together. No transaction stays open during OCR or
+gateway calls. Database operations run outside the async event loop.
+
+All history endpoints require the same `X-API-Key` as upload:
+
+- `GET /receipts/{receipt_id}` returns saved evidence, extraction, classification,
+  safe error information and `processing_status`. Unknown IDs return 404.
+- `GET /receipts?limit=20&offset=0` returns newest-first metadata, a total count,
+  and pagination. Maximum page size is 100; OCR text is excluded from list results.
+- `GET /receipts?decision=REVIEW_QUEUE` filters saved review decisions.
+- `GET /receipts?processing_status=FAILED` finds failed processing attempts.
+
+`processing_status` is `PROCESSING`, `COMPLETED`, `REVIEW_QUEUE`, or `FAILED`.
+The existing upload response remains `status: processing_complete` for backwards
+compatibility. `AUTO_FILED` is an internal decision, not submission to an external
+accounting system. `REVIEW_QUEUE` does not mean a human has approved the expense.
+
+After a validated image is saved, a processing record is created before OCR runs.
+OCR evidence is saved before extraction. Controlled processing failures return the
+existing safe error body plus `X-Receipt-ID` so the failure can be retrieved.
+OCR-failed images are still removed; extraction-failed images are retained.
+Validation failures and dependency initialization failures before the handler runs
+do not create records. A failed database write never returns processing success.
+If the database remains unavailable, or the process is killed, a record may remain
+`PROCESSING`; it is not automatically retried or marked failed on restart.
+
+### Verify and inspect
+
+Upload through `/docs`, copy `receipt_id`, restart Uvicorn, then call the new
+GET endpoint with that ID and your app key. The saved result should still exist.
+You can open `data/expenses.db` with a SQLite database viewer to inspect tables.
+Automated tests use isolated temporary databases and mock all OCR/gateway calls.
+
+### Security and backup limits
+
+This is a single trusted workspace: anyone with the shared app key can see all
+receipts. Keep Uvicorn local until individual authentication/authorization is
+implemented. No public file-download, deletion, or mapping-write API is added.
+Internal filesystem paths and raw exception messages are excluded from history.
+The database and uploaded images contain sensitive data: restrict filesystem
+access and never commit them. SQLite files and sidecars are ignored by Git.
+
+For a consistent MVP backup, stop Uvicorn and copy both the database and upload
+directory to protected backup storage; restore them together. Do not copy only
+the database while writes are running. Use a local persistent disk, not a network
+share or temporary container filesystem. There is a five-second lock timeout;
+heavy concurrent writes can return 503. Existing uploads made before this commit
+are not automatically imported, and duplicate detection and retry jobs remain
+future work. Tests against SQLite do not claim PostgreSQL compatibility.
 
 ## Confirmed pipeline
 
