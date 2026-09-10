@@ -4,7 +4,7 @@ A hackathon MVP for turning receipt images into structured, reviewable business 
 
 ## Current status
 
-The application now provides a secure FastAPI receipt-intake and OCR boundary:
+The application now provides a secure FastAPI receipt-processing pipeline:
 
 - `GET /health` for service health checks.
 - `POST /receipts/upload` for authenticated JPEG/PNG uploads.
@@ -13,9 +13,11 @@ The application now provides a secure FastAPI receipt-intake and OCR boundary:
 - Configurable Tesseract fallback with a bounded subprocess timeout.
 - Structured receipt extraction through the organiser's text-only LLM gateway.
 - Strict receipt and line-item schemas, optional explicit discounts, and deterministic amount reconciliation checks.
-- Automated tests that mock both OCR providers and the gateway, so tests do not download models, require OCR installation, make network calls, or consume API credits.
+- Exact vendor-to-category lookup before AI classification.
+- A fixed-category expense classifier for unmatched vendors, with optional business purpose and a configurable confidence gate.
+- Automated tests that mock both OCR providers and both gateway agents, so tests do not download models, require OCR installation, make network calls, or consume API credits.
 
-Vendor lookup, expense classification, confidence gating, SQLite persistence, Firebase Authentication, Telegram/OpenClaw integration, and a review UI remain TODOs.
+SQLite persistence, Firebase Authentication, Telegram/OpenClaw integration, and a review UI remain TODOs.
 
 ## Confirmed pipeline
 
@@ -44,37 +46,18 @@ $python = ".\.venv311\Scripts\python.exe"
 Copy-Item .env.example .env
 ```
 
-Set secrets only in the current shell or an ignored `.env` file. The application currently reads environment variables directly, so load them before startup:
+Store local secrets in the ignored `.env` file created above. Generate `APP_API_KEY` once, paste it into `.env`, add the organiser-provided `LLM_GATEWAY_API_KEY`, and never commit either value:
 
 ```powershell
-$apiKey = [guid]::NewGuid().ToString("N")
-$env:APP_API_KEY = $apiKey
-Set-Clipboard -Value $apiKey
-$env:UPLOAD_DIR = "data/uploads"
-$env:MAX_UPLOAD_BYTES = "5242880"
-$env:OCR_ENGINE = "paddle"
-$env:PADDLE_LANGUAGE = "en"
-$env:PADDLE_DEVICE = "cpu"
-$env:PADDLE_MIN_CONFIDENCE = "0.50"
-$env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"
-$env:TESSERACT_LANGUAGE = "eng"
-$env:TESSERACT_PSM = "6"
-$env:OCR_TIMEOUT_SECONDS = "30"
-$secureGatewayKey = Read-Host "Paste LLM gateway API key (hidden)" -AsSecureString
-$env:LLM_GATEWAY_API_KEY = [System.Net.NetworkCredential]::new(
-    "", $secureGatewayKey
-).Password
-$env:LLM_GATEWAY_URL = "https://api.softwaresystems.app"
-$env:LLM_MODEL = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
-$env:LLM_TIMEOUT_SECONDS = "120"
-$env:LLM_MAX_OUTPUT_TOKENS = "800"
+[guid]::NewGuid().ToString("N") | Set-Clipboard
+notepad .env
 
-& $python -m uvicorn app.main:app --reload
+& $python -m uvicorn app.main:app --reload --env-file .env
 ```
 
-Open `http://127.0.0.1:8000/docs`, paste the copied `APP_API_KEY` value into the `X-API-Key` request header, and submit a JPEG or PNG receipt. A successful response has status `extraction_complete` and includes `ocr_engine`, Paddle's average `ocr_confidence`, the raw `ocr_text`, and validated `extracted_data`. Each successful OCR upload now makes one paid extraction call to the organiser gateway. PaddleOCR downloads its model files on the first real OCR request and caches one pipeline instance per application process.
+Open `http://127.0.0.1:8000/docs`, paste the saved `APP_API_KEY` value into the `X-API-Key` request header, and submit a JPEG or PNG receipt. `business_purpose` is optional. A successful response has status `processing_complete` and includes OCR evidence, validated `extracted_data`, and a confidence-gated `classification`. Each successful upload makes one extraction call; only unmatched vendors make an additional classification call. PaddleOCR downloads its model files on the first real OCR request and caches one pipeline instance per application process.
 
-To use the existing Tesseract fallback instead, set `$env:OCR_ENGINE = "tesseract"` before starting Uvicorn. Tesseract does not expose a recognition confidence through this integration, so `ocr_confidence` will be `null`.
+To use the existing Tesseract fallback instead, change `OCR_ENGINE=tesseract` in `.env` and restart Uvicorn. Tesseract does not expose a recognition confidence through this integration, so `ocr_confidence` will be `null`.
 
 ## OCR engine comparison
 
@@ -87,14 +70,12 @@ Both OCR engines were tested locally on the same 263,222-byte JPEG receipt using
 
 PaddleOCR is the default because accurate vendor and amount recognition is more important than raw OCR speed for downstream vendor lookup and structured expense extraction. Tesseract remains available as a faster, lightweight alternative and fallback.
 
-Choose an engine before starting Uvicorn:
+Choose an engine in `.env` before starting Uvicorn:
 
-```powershell
-$env:OCR_ENGINE = "paddle"       # Accuracy-focused default
+```dotenv
+OCR_ENGINE=paddle       # Accuracy-focused default
 # or
-$env:OCR_ENGINE = "tesseract"    # Faster alternative
-
-& $python -m uvicorn app.main:app --reload
+OCR_ENGINE=tesseract    # Faster alternative
 ```
 
 These results are an indicative comparison from one receipt, not a comprehensive benchmark or a claim that PaddleOCR is always more accurate. PaddleOCR's value is its average recognition confidence across accepted text lines; it is not an accounting-field accuracy score and cannot be compared directly with the current Tesseract response, which does not include confidence.
@@ -122,3 +103,9 @@ The confirmed endpoint is `POST https://api.softwaresystems.app/api/chat` using 
 The extraction client sends only OCR text, requests deterministic JSON with an 800-token default output allowance, and validates every response against strict Pydantic models. Line-item `discount_percent` and `discount_amount` values are optional and remain `null` unless printed on the receipt. If OCR column order causes `unit_price` and `discount_percent` to be reversed, the application swaps them only when the original calculation fails and the swapped calculation uniquely reconciles within the two-cent tolerance. Every such correction sets `needs_review` and records an audit reason. Optional JSON Markdown fences are accepted, while empty, truncated, malformed, or schema-invalid responses are rejected. Required-field, discount, and arithmetic inconsistencies set `needs_review` without silently changing the extracted amounts.
 
 Gateway errors use controlled API responses: `502` for invalid model output, `503` when the service is unavailable, and `504` for timeouts. The uploaded receipt image is retained when LLM extraction fails so it can be recovered once persistence and the review queue are implemented. Automated tests use a mocked HTTP transport and never call the live gateway.
+
+## Expense classification
+
+The backend first checks a small set of manually validated, exact vendor mappings. Vendor names are normalized for case and punctuation, but substring matches are prohibited so broad retailers such as MR D.I.Y. are not mapped accidentally. Unmatched vendors are sent to the classification agent with the extracted receipt and optional business purpose.
+
+The agent must select one fixed category and return a confidence score from zero to one. `CLASSIFICATION_CONFIDENCE_THRESHOLD` defaults to `0.80`. Extraction-review flags, classifier-review flags, or confidence below the threshold produce `REVIEW_QUEUE`; only a clean result at or above the threshold produces `AUTO_FILED`. Invalid or unavailable classification responses also produce a safe review decision rather than losing the accepted receipt.

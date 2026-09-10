@@ -69,3 +69,23 @@ def test_empty_gateway_key_is_rejected(monkeypatch) -> None:
 def test_invalid_gateway_output_limit_is_rejected(monkeypatch, value: str) -> None:
     with pytest.raises(ConfigurationError):
         configured_settings(monkeypatch, LLM_MAX_OUTPUT_TOKENS=value)
+
+
+def test_classification_confidence_threshold_defaults_to_eighty_percent(
+    monkeypatch,
+) -> None:
+    settings = configured_settings(monkeypatch)
+
+    assert settings.classification_confidence_threshold == 0.80
+
+
+@pytest.mark.parametrize("value", ["-0.01", "1.01", "not-a-number", "nan"])
+def test_invalid_classification_confidence_threshold_is_rejected(
+    monkeypatch,
+    value: str,
+) -> None:
+    with pytest.raises(ConfigurationError):
+        configured_settings(
+            monkeypatch,
+            CLASSIFICATION_CONFIDENCE_THRESHOLD=value,
+        )

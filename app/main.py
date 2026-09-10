@@ -9,10 +9,23 @@ from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
+from app.classification import (
+    ClassificationOutcome,
+    ClassificationResponseError,
+    ClassificationSource,
+    ClassificationSuggestion,
+    ClassificationTimeoutError,
+    ClassificationUnavailableError,
+    ExpenseClassifier,
+    GatewayExpenseClassifier,
+    apply_confidence_gate,
+    failed_classification_outcome,
+    lookup_vendor_category,
+)
 from app.config import ConfigurationError, Settings
 from app.extraction import (
     ExtractionResponseError,
@@ -48,7 +61,9 @@ class ReceiptProcessed(BaseModel):
     ocr_confidence: float | None
     ocr_text: str
     extracted_data: ReceiptExtraction
-    status: str = "extraction_complete"
+    business_purpose: str | None
+    classification: ClassificationOutcome
+    status: str = "processing_complete"
 
 
 def get_settings() -> Settings:
@@ -116,6 +131,18 @@ def get_receipt_extractor(
     )
 
 
+def get_expense_classifier(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ExpenseClassifier:
+    return GatewayExpenseClassifier(
+        base_url=settings.llm_gateway_url,
+        api_key=settings.llm_gateway_api_key,
+        model=settings.llm_model,
+        timeout_seconds=settings.llm_timeout_seconds,
+        max_output_tokens=settings.llm_max_output_tokens,
+    )
+
+
 def has_expected_signature(content_type: str, prefix: bytes) -> bool:
     return any(
         prefix.startswith(signature) for signature in IMAGE_TYPES[content_type][1]
@@ -146,6 +173,16 @@ def create_app() -> FastAPI:
         receipt_extractor: Annotated[
             ReceiptExtractor, Depends(get_receipt_extractor)
         ],
+        expense_classifier: Annotated[
+            ExpenseClassifier, Depends(get_expense_classifier)
+        ],
+        business_purpose: Annotated[
+            str | None,
+            Form(
+                max_length=500,
+                description="Optional business reason or project for this expense",
+            ),
+        ] = None,
     ) -> ReceiptProcessed:
         content_type = (receipt.content_type or "").lower()
         if content_type not in IMAGE_TYPES:
@@ -235,6 +272,52 @@ def create_app() -> FastAPI:
                 detail="Receipt extraction returned an invalid response",
             ) from exc
 
+        normalized_business_purpose = (
+            business_purpose.strip() if business_purpose else None
+        ) or None
+        lookup_category = lookup_vendor_category(extracted_data.vendor)
+        if lookup_category is None:
+            lookup_category = lookup_vendor_category(extracted_data.legal_entity)
+
+        if lookup_category is not None:
+            suggestion = ClassificationSuggestion(
+                category=lookup_category,
+                confidence=1,
+                reason="Matched a validated exact vendor-to-category rule",
+                needs_review=False,
+                review_reasons=[],
+            )
+            classification = apply_confidence_gate(
+                extracted_data,
+                suggestion,
+                ClassificationSource.VENDOR_LOOKUP,
+                settings.classification_confidence_threshold,
+            )
+        else:
+            try:
+                suggestion = await expense_classifier.classify(
+                    extracted_data,
+                    normalized_business_purpose,
+                )
+                classification = apply_confidence_gate(
+                    extracted_data,
+                    suggestion,
+                    ClassificationSource.LLM,
+                    settings.classification_confidence_threshold,
+                )
+            except ClassificationTimeoutError:
+                classification = failed_classification_outcome(
+                    "Expense classification timed out"
+                )
+            except ClassificationUnavailableError:
+                classification = failed_classification_outcome(
+                    "Expense classification service is unavailable"
+                )
+            except ClassificationResponseError:
+                classification = failed_classification_outcome(
+                    "Expense classification returned an invalid response"
+                )
+
         return ReceiptProcessed(
             receipt_id=receipt_id,
             content_type=content_type,
@@ -243,6 +326,8 @@ def create_app() -> FastAPI:
             ocr_confidence=ocr_result.confidence,
             ocr_text=ocr_result.text,
             extracted_data=extracted_data,
+            business_purpose=normalized_business_purpose,
+            classification=classification,
         )
 
     return api

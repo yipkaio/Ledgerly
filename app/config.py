@@ -36,6 +36,7 @@ class Settings:
     llm_model: str
     llm_timeout_seconds: int
     llm_max_output_tokens: int
+    classification_confidence_threshold: float
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -111,6 +112,9 @@ class Settings:
         llm_max_output_tokens = cls._bounded_integer(
             "LLM_MAX_OUTPUT_TOKENS", "800", 100, 4000
         )
+        classification_confidence_threshold = cls._bounded_float(
+            "CLASSIFICATION_CONFIDENCE_THRESHOLD", "0.80", 0.0, 1.0
+        )
 
         upload_dir = Path(os.getenv("UPLOAD_DIR", "data/uploads"))
         return cls(
@@ -130,6 +134,9 @@ class Settings:
             llm_model=llm_model,
             llm_timeout_seconds=llm_timeout_seconds,
             llm_max_output_tokens=llm_max_output_tokens,
+            classification_confidence_threshold=(
+                classification_confidence_threshold
+            ),
         )
 
     @staticmethod
