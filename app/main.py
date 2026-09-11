@@ -28,7 +28,7 @@ from app.classification import (
     apply_confidence_gate,
     failed_classification_outcome,
 )
-from app.config import ConfigurationError, Settings
+from app.config import ConfigurationError, Settings, api_docs_enabled
 from app.extraction import (
     ExtractionResponseError,
     ExtractionTimeoutError,
@@ -107,11 +107,14 @@ def get_ocr_service(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> OCRService:
     if settings.ocr_engine == "paddle":
-        return get_paddle_ocr_service(
-            settings.paddle_language,
-            settings.paddle_device,
-            settings.paddle_min_confidence,
-        )
+        try:
+            return get_paddle_ocr_service(
+                settings.paddle_language,
+                settings.paddle_device,
+                settings.paddle_min_confidence,
+            )
+        except OCRUnavailableError as exc:
+            raise HTTPException(status_code=503, detail="OCR service is unavailable") from exc
 
     return TesseractOCRService(
         executable=settings.tesseract_cmd,
@@ -152,10 +155,14 @@ def has_expected_signature(content_type: str, prefix: bytes) -> bool:
 
 
 def create_app() -> FastAPI:
+    docs_enabled = api_docs_enabled()
     api = FastAPI(
         title="Expense Classification Agent",
         version="0.1.0",
         description="Receipt intake for the OCR and expense-classification pipeline.",
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
     )
 
     @api.exception_handler(DatabaseError)

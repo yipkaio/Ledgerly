@@ -2,6 +2,14 @@
 
 A hackathon MVP for turning receipt images into structured, reviewable business expenses.
 
+## Docker backend
+
+Docker packaging is available for the existing backend, including both OCR
+engines, persistent SQLite/upload/cache volumes, a non-root runtime and private
+localhost access. See [Docker setup and testing](docs/docker.md) for Windows,
+container smoke tests, backups and a private Lightsail trial. Docker does not
+require the UI to be completed. No AWS resources are provisioned by these files.
+
 ## Current status
 
 The application now provides a secure FastAPI receipt-processing pipeline:

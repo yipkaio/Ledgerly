@@ -1,0 +1,20 @@
+# Isolated test project: no .env, production volumes, network or paid calls.
+name: expense-agent-tests
+services:
+  tests:
+    build:
+      context: .
+      target: test
+    platform: linux/amd64
+    environment:
+      RUN_CONTAINER_TESTS: "1"
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m,mode=1777
+      - /home/expense:rw,nosuid,size=64m,uid=10001,gid=10001
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true

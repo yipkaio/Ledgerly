@@ -18,6 +18,13 @@ class ConfigurationError(RuntimeError):
     """Raised when required application configuration is invalid."""
 
 
+def api_docs_enabled() -> bool:
+    value = os.getenv("API_DOCS_ENABLED", "true").strip().lower()
+    if value not in {"true", "false"}:
+        raise ConfigurationError("API_DOCS_ENABLED must be true or false")
+    return value == "true"
+
+
 @dataclass(frozen=True)
 class Settings:
     app_api_key: str

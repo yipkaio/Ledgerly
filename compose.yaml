@@ -1,0 +1,43 @@
+name: expense-agent
+
+services:
+  api:
+    image: expense-agent:local
+    build:
+      context: .
+      target: runtime
+    platform: linux/amd64
+    env_file:
+      - .env
+    environment:
+      # Override Windows paths from the existing .env with container paths.
+      UPLOAD_DIR: /app/data/uploads
+      DATABASE_PATH: /app/data/expenses.db
+      TESSERACT_CMD: /usr/bin/tesseract
+      PADDLE_DEVICE: cpu
+      API_DOCS_ENABLED: ${API_DOCS_ENABLED:-true}
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - receipt-data:/app/data
+      - paddle-cache:/home/expense
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 330s
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  receipt-data:
+  paddle-cache:

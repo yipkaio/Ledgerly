@@ -1,0 +1,8 @@
+# Allowlist: credentials, local data, Git history and virtualenvs never enter the build context.
+**
+!Dockerfile
+!pyproject.toml
+!app/
+!app/**/*.py
+!tests/
+!tests/**/*.py
