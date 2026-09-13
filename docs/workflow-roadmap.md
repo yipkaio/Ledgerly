@@ -18,13 +18,16 @@ are not payments, ledger postings or a deduplicated financial report.
 
 History stays paginated at 20 records per page. Hover the **eye button** beside a
 receipt for a compact preview anchored to that row, with a short opening delay and
-fade/scale animation. Click or press Enter/Space for keyboard and touch use. Escape,
+fade animation. Click or press Enter/Space for keyboard and touch use. Escape,
 the close button or clicking outside closes it. **Open full receipt** opens the saved
 evidence and review form. Reduced-motion preferences disable the transition.
 
 Previews request protected originals only when opened, with the app key in a header.
-They do not rerun OCR or LLM extraction. The image area reserves its height while
-loading so lower-row previews do not jump when image dimensions arrive. Images
+They do not rerun OCR or LLM extraction. Previews never scroll: vendor title and
+amount stay in a fixed header and the entire image scales to fit the remaining
+space. Card height and side are chosen on opening rather than recalculated from
+image dimensions. Only one card is open at a time. Animation changes opacity only;
+scrolling the list or resizing dismisses the preview. Images
 stay mounted throughout the closing fade; afterward unfinished reads are aborted
 and blob URLs revoked. Images are not written to browser storage or preloaded for every row.
 The original endpoint can transfer up to the configured upload limit; bounded

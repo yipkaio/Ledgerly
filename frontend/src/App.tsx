@@ -24,7 +24,10 @@ import {
 import { amount, ApiError, message, request, rowStatus } from "@/lib/api";
 import type { Page } from "@/lib/api";
 import { Notice, Status } from "@/components/feedback";
-import { ReceiptPreview } from "@/components/receipt-preview";
+import {
+  ReceiptPreview,
+  ReceiptPreviewProvider,
+} from "@/components/receipt-preview";
 const Dashboard = lazy(() =>
   import("@/components/dashboard").then((m) => ({ default: m.Dashboard })),
 );
@@ -312,71 +315,73 @@ function Workspace({
               )}
               {page && (
                 <div className="panel overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Vendor / receipt</TableHead>
-                        <TableHead>Uploaded</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>
-                          <span className="sr-only">Actions</span>
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {page.items.map((row) => (
-                        <TableRow key={row.receipt_id}>
-                          <TableCell>
-                            <p className="font-medium">
-                              {row.vendor || "Vendor unavailable"}
-                            </p>
-                            <p className="muted font-mono text-xs">
-                              {row.receipt_id.slice(0, 8)}
-                            </p>
-                          </TableCell>
-                          <TableCell>
-                            {new Date(row.created_at).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">
-                            {amount(row.total_amount, row.currency)}
-                          </TableCell>
-                          <TableCell>
-                            <Status value={rowStatus(row)} />
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center justify-end gap-1">
-                              <ReceiptPreview
-                                row={row}
-                                token={token}
-                                onOpen={() => setSelected(row.receipt_id)}
-                              />
-                              <Button
-                                variant="outline"
-                                onClick={() => setSelected(row.receipt_id)}
-                                aria-label={`Open receipt ${row.vendor || row.receipt_id}`}
-                              >
-                                Open
-                                <ArrowRight />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {!page.items.length && (
+                  <ReceiptPreviewProvider>
+                    <Table>
+                      <TableHeader>
                         <TableRow>
-                          <TableCell
-                            colSpan={5}
-                            className="py-12 text-center text-muted-foreground"
-                          >
-                            {view === "reviews"
-                              ? "No receipts are waiting for review."
-                              : "No receipts yet. Upload one to get started."}
-                          </TableCell>
+                          <TableHead>Vendor / receipt</TableHead>
+                          <TableHead>Uploaded</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>
+                            <span className="sr-only">Actions</span>
+                          </TableHead>
                         </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {page.items.map((row) => (
+                          <TableRow key={row.receipt_id}>
+                            <TableCell>
+                              <p className="font-medium">
+                                {row.vendor || "Vendor unavailable"}
+                              </p>
+                              <p className="muted font-mono text-xs">
+                                {row.receipt_id.slice(0, 8)}
+                              </p>
+                            </TableCell>
+                            <TableCell>
+                              {new Date(row.created_at).toLocaleDateString()}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap">
+                              {amount(row.total_amount, row.currency)}
+                            </TableCell>
+                            <TableCell>
+                              <Status value={rowStatus(row)} />
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center justify-end gap-1">
+                                <ReceiptPreview
+                                  row={row}
+                                  token={token}
+                                  onOpen={() => setSelected(row.receipt_id)}
+                                />
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setSelected(row.receipt_id)}
+                                  aria-label={`Open receipt ${row.vendor || row.receipt_id}`}
+                                >
+                                  Open
+                                  <ArrowRight />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {!page.items.length && (
+                          <TableRow>
+                            <TableCell
+                              colSpan={5}
+                              className="py-12 text-center text-muted-foreground"
+                            >
+                              {view === "reviews"
+                                ? "No receipts are waiting for review."
+                                : "No receipts yet. Upload one to get started."}
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </ReceiptPreviewProvider>
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
                     <p className="muted">
                       {page.total

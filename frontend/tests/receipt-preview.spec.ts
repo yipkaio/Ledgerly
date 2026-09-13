@@ -8,7 +8,7 @@ const png = Buffer.from(
   "base64",
 );
 
-async function setup(page: Page) {
+async function setup(page: Page, longTitle = "") {
   await page.addInitScript(() => {
     const resources = { created: [] as string[], revoked: [] as string[] };
     Reflect.set(window, "previewResources", resources);
@@ -26,7 +26,10 @@ async function setup(page: Page) {
   });
   const rows = Array.from({ length: 20 }, (_, i) => ({
     receipt_id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
-    vendor: `Receipt ${String(i + 1).padStart(2, "0")}`,
+    vendor:
+      i === 0 && longTitle
+        ? longTitle
+        : `Receipt ${String(i + 1).padStart(2, "0")}`,
     created_at: "2026-09-13T12:00:00Z",
     total_amount: i + 1,
     currency: "MYR",
@@ -132,6 +135,106 @@ test("twelve successive slow-image previews keep their size and placement", asyn
   )) as { created: string[]; revoked: string[] };
   expect(resources.created.length).toBeGreaterThanOrEqual(12);
   expect(resources.revoked.sort()).toEqual(resources.created.sort());
+});
+
+test("short-screen preview never scrolls and keeps a long vendor title fixed", async ({
+  page,
+}) => {
+  const title = "A VERY LONG VENDOR AND RECEIPT TITLE ".repeat(8).trim();
+  await page.setViewportSize({ width: 375, height: 420 });
+  await setup(page, title);
+  await page.route(/\/receipts\/[^/]+\/image$/, (route) =>
+    route.fulfill({ contentType: "image/png", body: png }),
+  );
+  for (const height of [420, 360]) {
+    await page.setViewportSize({ width: 375, height });
+    await page
+      .getByRole("button", { name: `Preview receipt ${title}`, exact: true })
+      .click();
+    const card = page.getByRole("dialog", {
+      name: `Receipt preview for ${title}`,
+      exact: true,
+    });
+    await expect(
+      card.getByAltText("Quick preview of original receipt"),
+    ).toBeVisible();
+    await card.evaluate(async (element) => {
+      await Promise.all(
+        element.getAnimations().map((animation) => animation.finished),
+      );
+    });
+    const header = card.locator('[data-slot="preview-header"]');
+    const before = await header.boundingBox();
+    const layout = await card.evaluate((element) => {
+      element.scrollTop = 100;
+      return {
+        overflow: getComputedStyle(element).overflowY,
+        scrollTop: element.scrollTop,
+        overflowSize: element.scrollHeight - element.clientHeight,
+      };
+    });
+    expect(layout.overflow).toBe("hidden");
+    expect(layout.scrollTop).toBe(0);
+    expect(layout.overflowSize).toBeLessThanOrEqual(1);
+    expect(await header.boundingBox()).toEqual(before);
+    await expect(card.getByRole("heading")).toHaveAttribute("title", title);
+    const box = await card.boundingBox(),
+      footer = await card
+        .getByRole("button", { name: "Open full receipt" })
+        .boundingBox();
+    expect(before!.height).toBe(48);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(height);
+    expect(footer!.y + footer!.height).toBeLessThanOrEqual(
+      box!.y + box!.height,
+    );
+    await page.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
+  }
+});
+
+test("hovering a sixth receipt replaces a pinned preview without overlapping open cards", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.route(/\/receipts\/[^/]+\/image$/, (route) =>
+    route.fulfill({ contentType: "image/png", body: png }),
+  );
+  await page
+    .getByRole("button", { name: "Preview receipt Receipt 01", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Close receipt preview" }),
+  ).toBeFocused();
+  await page
+    .getByRole("button", { name: "Preview receipt Receipt 06", exact: true })
+    .hover();
+  const card = page.getByRole("dialog", {
+    name: "Receipt preview for Receipt 06",
+    exact: true,
+  });
+  await expect(
+    card.getByAltText("Quick preview of original receipt"),
+  ).toBeVisible();
+  await expect(page.locator('.receipt-preview[data-state="open"]')).toHaveCount(
+    1,
+  );
+  await expect(
+    page.getByRole("dialog", {
+      name: "Receipt preview for Receipt 01",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await card.evaluate(async (element) => {
+    await Promise.all(
+      element.getAnimations().map((animation) => animation.finished),
+    );
+  });
+  expect(
+    await card.evaluate((element) => getComputedStyle(element).transform),
+  ).toBe("none");
+  await page.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
 });
 
 test("closing animation retains the loaded image until the preview unmounts", async ({

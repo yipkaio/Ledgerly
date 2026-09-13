@@ -55,9 +55,14 @@ an animated private preview, or use click/Enter on keyboard and touch devices.
 See [workflow behavior and planned features](workflow-roadmap.md) for duplicate
 uploads, audited amendments, selected Excel export and PDFs.
 
-Previews reserve image space while loading and keep the loaded image through the
-closing animation. Closing completes before unfinished requests and image URLs
-are released, preventing jumping and disappearing images during repeated use.
+Previews do not scroll. A fixed header keeps the vendor title, amount and close
+button visible; long titles are shortened visually, with the full title available
+on hover and to screen readers. The complete receipt image fits beneath the header.
+Card height and placement are chosen when opening, and animation only changes
+opacity. One preview is open at a time, including previews opened by click or
+keyboard. Scrolling the history list or resizing the window dismisses the card.
+The image stays mounted through the closing fade, then requests and image URLs
+are released. Use **Open full receipt** for detailed inspection.
 
 1. Connect with the chosen server's app key. All key holders share one workspace;
    this is not individual user authentication.
