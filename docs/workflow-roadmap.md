@@ -23,8 +23,10 @@ the close button or clicking outside closes it. **Open full receipt** opens the 
 evidence and review form. Reduced-motion preferences disable the transition.
 
 Previews request protected originals only when opened, with the app key in a header.
-They do not rerun OCR or LLM extraction. Closing aborts unfinished reads and revokes
-blob URLs. Images are not written to browser storage or preloaded for every row.
+They do not rerun OCR or LLM extraction. The image area reserves its height while
+loading so lower-row previews do not jump when image dimensions arrive. Images
+stay mounted throughout the closing fade; afterward unfinished reads are aborted
+and blob URLs revoked. Images are not written to browser storage or preloaded for every row.
 The original endpoint can transfer up to the configured upload limit; bounded
 server-generated thumbnails would further reduce transfers for large images.
 

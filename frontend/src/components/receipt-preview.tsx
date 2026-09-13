@@ -20,11 +20,13 @@ export function ReceiptPreview({
   const hovered = useRef(false);
   function cancel() {
     if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
   }
   function schedule(value: boolean) {
     cancel();
     timer.current = setTimeout(
       () => {
+        timer.current = null;
         if (value) hovered.current = true;
         setOpen(value);
       },
@@ -107,7 +109,9 @@ export function ReceiptPreview({
               </Button>
             </Popover.Close>
           </div>
-          {open && <PreviewImage id={row.receipt_id} token={token} />}
+          {/* Radix keeps content mounted during exit. Keep the image and its URL
+              alive for that entire animation, then clean up on actual unmount. */}
+          <PreviewImage id={row.receipt_id} token={token} />
           <Button
             variant="outline"
             className="mt-3 w-full"
@@ -158,7 +162,7 @@ function PreviewImage({ id, token }: { id: string; token: string }) {
     };
   }, [id, token]);
   return (
-    <div className="flex min-h-40 items-center justify-center overflow-hidden rounded-lg border bg-muted p-2">
+    <div className="flex h-64 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted p-2">
       {error ? (
         <p className="muted p-4">
           Preview unavailable. Open the saved record for details.
@@ -168,7 +172,7 @@ function PreviewImage({ id, token }: { id: string; token: string }) {
           src={image}
           alt="Quick preview of original receipt"
           loading="lazy"
-          className="max-h-64 max-w-full object-contain"
+          className="max-h-full max-w-full object-contain"
           onError={() => setError(true)}
         />
       ) : (

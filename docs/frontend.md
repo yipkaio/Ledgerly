@@ -55,6 +55,10 @@ an animated private preview, or use click/Enter on keyboard and touch devices.
 See [workflow behavior and planned features](workflow-roadmap.md) for duplicate
 uploads, audited amendments, selected Excel export and PDFs.
 
+Previews reserve image space while loading and keep the loaded image through the
+closing animation. Closing completes before unfinished requests and image URLs
+are released, preventing jumping and disappearing images during repeated use.
+
 1. Connect with the chosen server's app key. All key holders share one workspace;
    this is not individual user authentication.
 2. Choose **Upload receipt**. Select a JPEG or PNG up to 5 MB. Enter an optional
