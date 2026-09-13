@@ -10,7 +10,7 @@ from typing import Annotated
 from uuid import UUID, uuid4
 from typing import Literal
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, Query, status
+from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, Query, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
@@ -183,18 +183,49 @@ def create_app() -> FastAPI:
     async def review_invalid_handler(request, exc):
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
-    @api.get("/reviews", tags=["reviews"])
+    @api.get("/reviews", tags=["reviews"], summary="1. List receipts awaiting human review",
+             description="Read only. Copy a receipt_id, then use GET /receipts/{receipt_id}. Empty items means no pending receipts on THIS server. Local port 8000 and the AWS tunnel port 18000 use separate databases. Finalized, AUTO_FILED, FAILED and PROCESSING receipts are excluded.")
     async def reviews(settings: Annotated[Settings, Depends(require_api_key)],
                       limit: Annotated[int, Query(ge=1, le=100)] = 20,
                       offset: Annotated[int, Query(ge=0)] = 0) -> dict:
         return await run_in_threadpool(pending_reviews, ReceiptStore(settings.database_path), limit, offset)
 
-    @api.post("/receipts/{receipt_id}/review", tags=["reviews"])
-    async def review(receipt_id: UUID, body: ReviewRequest,
+    @api.post("/receipts/{receipt_id}/review", tags=["reviews"],
+              summary="3. Finalize approval or rejection (writes data)",
+              description="""**Final decisions cannot currently be undone or reopened. Use disposable records for testing.**
+
+1. First GET the receipt detail and check `review` is null and `review_version` is 0.
+2. Compare the original image with vendor, date, currency, EVERY line item, discounts, tax and totals. The image is not served by this API; use your original upload.
+3. Read all extraction AND classification reasons. Establish business purpose; explain the category and any corrections in `note`. If uncertain, leave it pending rather than approving.
+4. Generate a new request UUID in PowerShell: `[guid]::NewGuid().ToString()`. It is not the receipt ID or an API key.
+5. Choose an example below and replace ALL REPLACE_ values. For approval replace `corrected_data: null` with the COMPLETE `extracted_data` object from GET, editing only verified fields. Choose the justified category. For rejection omit corrections, category and override.
+6. Set `evidence_confirmed` to true only after inspection. Click Execute ONCE and read **Server response**, not Curl (which includes your secret key).
+7. Verify GET receipt detail, GET receipt reviews, and GET /reviews. Finalized receipts leave the pending queue; original processing_status stays historical. `review.decision` is the human result.
+
+Review currencies currently supported: SGD, MYR, USD, EUR, GBP, AUD. Unknown optional values remain null; never invent zero or discounts. Vendor, date, currency and total are required for approval. Zero totals are allowed when verified. `override_reason` is only for a documented remaining arithmetic discrepancy, not a way to bypass missing fields, unsupported currency or placeholders. Arithmetic uses a 0.02 tolerance and cannot establish business purpose or truth of the receipt.
+
+On timeout, GET the receipt first, then retry the SAME UUID and identical payload if needed. A new UUID does not reopen a finalized receipt. Existing invalid approvals are not repaired by this update. Review names are self-reported under the shared app key; no vendor rule is learned and no payment/accounting posting occurs.""",
+              responses={200: {"description": "Decision saved, or identical retry returned; inspect decision and review_version."},
+                         401: {"description": "Missing/wrong APP_API_KEY for this server; do not use the gateway key."},
+                         404: {"description": "Receipt not found on this server."},
+                         409: {"description": "Not pending, already finalized, stale version, or request ID reused with different content. GET detail before retrying."},
+                         422: {"description": "Invalid request or unresolved validation issues; correct the request, do not blindly override."},
+                         503: {"description": "Database unavailable or authentication not configured. Inspect detail; GET receipt before retrying."}})
+    async def review(receipt_id: UUID, body: Annotated[ReviewRequest, Body(openapi_examples={
+        "approve": {"summary": "Approval template: replace UUID, text, category and complete extraction",
+                    "value": {"request_id": "REPLACE_WITH_NEW_UUID", "expected_version": 0, "decision": "APPROVED",
+                              "reviewer": "REPLACE_WITH_YOUR_NAME", "note": "REPLACE_WITH_EVIDENCE_AND_BUSINESS_PURPOSE",
+                              "evidence_confirmed": False, "corrected_data": None, "category": "Office Supplies"}},
+        "reject": {"summary": "Rejection template: replace UUID and text; inspect image first",
+                   "value": {"request_id": "REPLACE_WITH_NEW_UUID", "expected_version": 0, "decision": "REJECTED",
+                             "reviewer": "REPLACE_WITH_YOUR_NAME", "note": "REPLACE_WITH_REJECTION_REASON",
+                             "evidence_confirmed": False}}
+    })],
                      settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
         return await run_in_threadpool(submit_review, ReceiptStore(settings.database_path), str(receipt_id), body)
 
-    @api.get("/receipts/{receipt_id}/reviews", tags=["reviews"])
+    @api.get("/receipts/{receipt_id}/reviews", tags=["reviews"], summary="4. Inspect saved review audit (read only)",
+             description="Empty items means no review yet. A saved event includes before (original AI evidence), final_data, decision, reviewer and timestamp. Rejection has no final_data. History cannot be edited or deleted through this API.")
     async def history(receipt_id: UUID,
                       settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
         return await run_in_threadpool(review_history, ReceiptStore(settings.database_path), str(receipt_id))
@@ -211,7 +242,8 @@ def create_app() -> FastAPI:
             ReceiptStore(settings.database_path).list, decision, processing_status, limit, offset
         )
 
-    @api.get("/receipts/{receipt_id}", tags=["receipts"])
+    @api.get("/receipts/{receipt_id}", tags=["receipts"], summary="2. View receipt and copy extraction (read only)",
+             description="This GET has no JSON request body and does not approve anything. Enter receipt_id and APP_API_KEY. Copy extracted_data from Server response for an approval, not the whole response or Curl. Check review and review_version before submitting. Original processing_status/classification remain historical; review.decision is the saved human decision.")
     async def get_receipt(
         receipt_id: UUID,
         settings: Annotated[Settings, Depends(require_api_key)],

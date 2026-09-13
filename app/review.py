@@ -1,13 +1,33 @@
 """Private, single-workspace human review. Original AI evidence is immutable here."""
 
 import json
+import re
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.classification import ExpenseCategory
 from app.extraction import ReceiptExtraction, GatewayReceiptExtractor
+
+# Explicit MVP scope, not a complete currency registry. Never convert unknown codes.
+SUPPORTED_REVIEW_CURRENCIES = frozenset({"SGD", "MYR", "USD", "EUR", "GBP", "AUD"})
+
+
+def reject_placeholder(value):
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if (not normalized or re.fullmatch(r"(?:string)+(?:s|st|str|stri|strin)?", normalized)
+                or normalized in {"placeholder", "todo", "your name", "replace me"}
+                or normalized.startswith("replace_")):
+            raise ValueError("Replace placeholder or blank text with verified information; use null for absent optional receipt fields")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key != "review_reasons":
+                reject_placeholder(item)
+    elif isinstance(value, list):
+        for item in value:
+            reject_placeholder(item)
 
 
 class ReviewConflict(ValueError):
@@ -25,15 +45,28 @@ class ReviewInvalid(ValueError):
 class ReviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    request_id: UUID
-    expected_version: Annotated[int, Field(strict=True, ge=0)]
+    request_id: UUID = Field(description="Generate a new UUID for each decision. Reuse the same UUID and identical payload only for retries.")
+    expected_version: Annotated[int, Field(strict=True, ge=0, description="Copy review_version from receipt detail. Only pending version 0 can be finalized.")]
     decision: Literal["APPROVED", "REJECTED"]
     reviewer: Annotated[str, Field(min_length=1, max_length=100)]
     note: Annotated[str, Field(min_length=1, max_length=2000)]
-    evidence_confirmed: Literal[True]
-    corrected_data: ReceiptExtraction | None = None
+    evidence_confirmed: Literal[True] = Field(description="Set true only after checking the original receipt image. This cannot verify that you actually viewed it.")
+    corrected_data: ReceiptExtraction | None = Field(default=None, description="Approval: copy the COMPLETE extracted_data from GET receipt detail, then correct verified fields. Rejection: omit.")
     category: ExpenseCategory | None = None
     override_reason: Annotated[str | None, Field(min_length=10, max_length=2000)] = None
+
+    @field_validator("evidence_confirmed", mode="before")
+    @classmethod
+    def require_actual_confirmation(cls, value):
+        if value is not True:
+            raise ValueError("evidence_confirmed must be the JSON boolean true")
+        return value
+
+    @field_validator("reviewer", "note", "override_reason")
+    @classmethod
+    def reject_example_text(cls, value):
+        reject_placeholder(value)
+        return value
 
     @model_validator(mode="after")
     def check_decision(self):
@@ -41,6 +74,13 @@ class ReviewRequest(BaseModel):
             raise ValueError("Approval requires complete corrected_data and category")
         if self.decision == "REJECTED" and (self.corrected_data is not None or self.category is not None or self.override_reason is not None):
             raise ValueError("Rejection accepts a note, not corrections or overrides")
+        if self.corrected_data is not None:
+            data = self.corrected_data
+            reject_placeholder(data.model_dump(mode="json"))
+            if any(value is None for value in (data.vendor, data.date, data.currency, data.total_amount)):
+                raise ValueError("Approval requires vendor, date, currency and total_amount; override_reason cannot bypass these requirements")
+            if data.currency not in SUPPORTED_REVIEW_CURRENCIES:
+                raise ValueError("Unsupported review currency. Supported: " + ", ".join(sorted(SUPPORTED_REVIEW_CURRENCIES)))
         return self
 
 

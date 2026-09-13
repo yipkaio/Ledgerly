@@ -29,6 +29,12 @@ SQLite persistence, authenticated receipt history, and human approval/rejection 
 
 ## SQLite persistence and receipt history
 
+For manual review, follow the numbered Swagger endpoints and the
+[review walkthrough and troubleshooting table](docs/reviews.md). Review templates
+must be edited before submission. Approvals reject obvious placeholders, missing
+essential fields and currencies outside the documented MVP subset. Final decisions
+cannot currently be reopened; use disposable receipts for tests.
+
 Set `DATABASE_PATH=data/expenses.db` in `.env` (the default). Python's built-in
 SQLite driver is used; no database server or new dependency is required. On first
 database use, schema version 2 and the three initial vendor mappings are created

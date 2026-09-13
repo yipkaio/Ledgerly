@@ -155,3 +155,71 @@ def test_existing_v1_migrates_without_changing_evidence(tmp_path):
         assert db.execute('PRAGMA user_version').fetchone()[0] == 2
         assert db.execute('SELECT image_path FROM receipts').fetchone()[0] == 'secret'
         assert db.execute('SELECT count(*) FROM vendor_category_mappings').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('field,value', [
+    ('reviewer', 'string'), ('note', ' STRING '), ('override_reason', 'stringstri'),
+    ('evidence_confirmed', 1), ('evidence_confirmed', 'true'),
+    ('vendor', ''), ('vendor', None), ('currency', 'XKO'), ('currency', None),
+    ('date', None), ('total_amount', None), ('branch', 'string'),
+])
+def test_review_guards_cannot_be_overridden(monkeypatch, tmp_path, field, value):
+    client, original, body, _ = setup_review(monkeypatch, tmp_path)
+    body['override_reason'] = 'Checked printed discrepancy against original image'
+    if field in {'reviewer', 'note', 'override_reason', 'evidence_confirmed'}:
+        body[field] = value
+    else:
+        body['corrected_data'][field] = value
+    rid = original['receipt_id']
+    assert client.post(f'/receipts/{rid}/review', headers=HEADERS, json=body).status_code == 422
+    assert client.get(f'/receipts/{rid}', headers=HEADERS).json()['review'] is None
+    assert client.get(f'/receipts/{rid}/reviews', headers=HEADERS).json()['items'] == []
+    assert client.get('/reviews', headers=HEADERS).json()['total'] == 1
+
+
+def test_reported_swagger_placeholder_approval_rejected(monkeypatch, tmp_path):
+    client, original, body, _ = setup_review(monkeypatch, tmp_path)
+    body.update(request_id='3fa85f64-5717-4562-b3fc-2c963f66afa6', reviewer='string',
+                note='string', override_reason='stringstri', category='Meals and Entertainment')
+    data = body['corrected_data']
+    for field in ('vendor', 'legal_entity', 'company_registration_number', 'branch', 'receipt_number', 'payment_method'):
+        data[field] = 'string'
+    data.update(currency='XKO', date='2026-09-13', line_items=[dict(description='string', quantity=1,
+                unit_price=0, discount_percent=100, discount_amount=0, line_total=0)])
+    for field in ('subtotal', 'tax_amount', 'total_before_rounding', 'rounding_adjustment',
+                  'total_amount', 'cash_tendered', 'change_amount'):
+        data[field] = 0
+    rid = original['receipt_id']
+    assert client.post(f'/receipts/{rid}/review', headers=HEADERS, json=body).status_code == 422
+    assert client.get(f'/receipts/{rid}/reviews', headers=HEADERS).json()['items'] == []
+
+
+def test_verified_zero_total_is_allowed(monkeypatch, tmp_path):
+    client, original, body, _ = setup_review(monkeypatch, tmp_path)
+    body['note'] = 'Verified complimentary item and zero payable total on receipt'
+    data = body['corrected_data']
+    data['line_items'] = [dict(description='Complimentary sample', quantity=1, unit_price=0, line_total=0)]
+    for field in ('subtotal', 'tax_amount', 'total_before_rounding', 'rounding_adjustment',
+                  'total_amount', 'cash_tendered', 'change_amount'):
+        data[field] = 0
+    assert client.post(f"/receipts/{original['receipt_id']}/review", headers=HEADERS, json=body).status_code == 200
+
+
+def test_swagger_templates_are_safe_and_errors_documented(monkeypatch, tmp_path):
+    client, original, _, _ = setup_review(monkeypatch, tmp_path)
+    operation = client.get('/openapi.json').json()['paths']['/receipts/{receipt_id}/review']['post']
+    assert {'200', '401', '404', '409', '422', '503'} <= operation['responses'].keys()
+    examples = operation['requestBody']['content']['application/json']['examples']
+    assert set(examples) == {'approve', 'reject'}
+    for example in examples.values():
+        response = client.post(f"/receipts/{original['receipt_id']}/review", headers=HEADERS, json=example['value'])
+        assert response.status_code == 422
+    assert client.get('/reviews', headers=HEADERS).json()['total'] == 1
+
+
+def test_nonqueued_receipt_cannot_be_finalized(monkeypatch, tmp_path):
+    client, original, body, store = setup_review(monkeypatch, tmp_path)
+    with store.connect() as db:
+        db.execute("UPDATE receipts SET processing_status='COMPLETED' WHERE receipt_id=?", (original['receipt_id'],))
+    assert client.post(f"/receipts/{original['receipt_id']}/review", headers=HEADERS, json=body).status_code == 409
+    assert store.get(original['receipt_id'])['review'] is None
