@@ -62,6 +62,39 @@ const png = Buffer.from(
 async function setup(page: Page, mode = "success") {
   let review: Record<string, unknown> | null = null;
   const requests: ReviewRequest[] = [];
+  await page.route("**/dashboard", (route) =>
+    route.fulfill({
+      json: {
+        total_receipts: 21,
+        counts: {
+          AUTO_FILED: 19,
+          APPROVED: 0,
+          REJECTED: 1,
+          REVIEW_QUEUE: 1,
+          PROCESSING: 0,
+          FAILED: 0,
+        },
+        accepted_missing_value: 0,
+        generated_at: "2026-09-13T14:00:00Z",
+        currencies: [
+          {
+            currency: "MYR",
+            total_cents: 3390,
+            receipt_count: 18,
+            categories: [{ category: "Office Supplies", total_cents: 3390 }],
+            months: [{ month: "2019-01", total_cents: 3390 }],
+          },
+          {
+            currency: "SGD",
+            total_cents: 1000,
+            receipt_count: 1,
+            categories: [{ category: "Utilities", total_cents: 1000 }],
+            months: [{ month: "2026-09", total_cents: 1000 }],
+          },
+        ],
+      },
+    }),
+  );
   await page.route(/\/(receipts|reviews)(\/?|\?.*)$/, async (route) => {
     const url = new URL(route.request().url());
     const row = {
@@ -148,6 +181,12 @@ async function setup(page: Page, mode = "success") {
   await page.getByLabel("App API key").fill(key);
   await page.getByRole("button", { name: "Connect to workspace" }).click();
   await expect(
+    page.getByRole("heading", { name: "Main dashboard" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Receipt history", exact: true })
+    .click();
+  await expect(
     page.getByRole("heading", { name: "Receipt history" }),
   ).toBeVisible();
   return requests;
@@ -192,6 +231,83 @@ test("approval edits, automatic UUID, final audit and no persistent key", async 
   ).toEqual([0, 0]);
   await page.getByRole("button", { name: "Disconnect" }).click();
   await expect(page.getByLabel("App API key")).toHaveValue("");
+});
+
+test("dashboard totals stay separate by currency and links open the queue", async ({
+  page,
+}) => {
+  await setup(page);
+  await page
+    .getByRole("button", { name: "Main dashboard", exact: true })
+    .click();
+  await expect(
+    page.getByText("MYR 33.90", { exact: true }).first(),
+  ).toBeVisible();
+  await page.getByLabel("Currency", { exact: true }).selectOption("SGD");
+  await expect(
+    page.getByText("SGD 10.00", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(page.getByText("MYR 33.90", { exact: true })).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page
+    .getByRole("button", { name: /Pending reviews.*Waiting for/ })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Pending reviews" }),
+  ).toBeVisible();
+});
+
+test("anchored preview loads on hover and closes with Escape", async ({
+  page,
+}) => {
+  await setup(page);
+  let images = 0;
+  page.on("request", (req) => {
+    if (req.url().endsWith("/image")) images += 1;
+  });
+  expect(images).toBe(0);
+  await page.getByRole("button", { name: "Preview receipt MR D.I.Y." }).hover();
+  await expect(
+    page.getByAltText("Quick preview of original receipt"),
+  ).toBeVisible();
+  // React StrictMode aborts the first effect during development; production loads once.
+  expect(images).toBeGreaterThanOrEqual(1);
+  expect(images).toBeLessThanOrEqual(2);
+  const preview = page.getByRole("dialog", {
+    name: "Receipt preview for MR D.I.Y.",
+  });
+  const box = await preview.boundingBox();
+  expect(box?.width).toBeLessThanOrEqual(288);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(preview).not.toBeVisible();
+});
+
+test("preview supports keyboard and small screens without relying on hover", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await setup(page);
+  const trigger = page.getByRole("button", {
+    name: "Preview receipt MR D.I.Y.",
+  });
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByAltText("Quick preview of original receipt"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Close receipt preview" }),
+  ).toBeFocused();
+  const box = await page
+    .getByRole("dialog", { name: "Receipt preview for MR D.I.Y." })
+    .boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(375);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.getByRole("button", { name: "Open full receipt" }).click();
+  await expect(page.getByLabel("Vendor *")).toHaveValue("MR D.I.Y.");
 });
 test("rejection excludes corrected fields and preserves the audit", async ({
   page,

@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from app.images import receipt_image
 from app.database import DatabaseError, ReceiptStore
+from app.dashboard import dashboard_summary
 from app.review import (ReviewRequest, ReviewConflict, ReviewNotFound, ReviewInvalid,
                         pending_reviews, review_history, submit_review)
 
@@ -231,6 +232,12 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
     async def history(receipt_id: UUID,
                       settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
         return await run_in_threadpool(review_history, ReceiptStore(settings.database_path), str(receipt_id))
+
+    @api.get('/dashboard', tags=['dashboard'], summary='Workspace counts and accepted expense totals',
+             description='Read only and authenticated. Human decisions take precedence. Amounts include APPROVED and AUTO_FILED receipts only, grouped by currency; rejected, pending, failed and processing records are excluded from expense totals. Integer cents avoid adding binary floating-point amounts. Trends use receipt dates and show up to the latest 12 months with accepted receipts per currency, not upload dates. These are workflow totals, not accounting postings.',
+             responses={401: {'description': 'Missing or wrong app key'}, 503: {'description': 'Database or configuration unavailable'}})
+    async def dashboard(settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
+        return await run_in_threadpool(dashboard_summary, ReceiptStore(settings.database_path))
 
     @api.get("/receipts", tags=["receipts"])
     async def list_receipts(
@@ -481,7 +488,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
     @api.middleware('http')
     async def privacy_headers(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(('/receipts', '/reviews', '/ui')):
+        if request.url.path.startswith(('/receipts', '/reviews', '/dashboard', '/ui')):
             response.headers['X-Content-Type-Options'] = 'nosniff'
             response.headers['Referrer-Policy'] = 'no-referrer'
             if not request.url.path.startswith('/ui/assets/'):

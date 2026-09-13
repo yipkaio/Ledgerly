@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   ArrowRight,
   LoaderCircle,
+  LayoutDashboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,10 @@ import {
 import { amount, ApiError, message, request, rowStatus } from "@/lib/api";
 import type { Page } from "@/lib/api";
 import { Notice, Status } from "@/components/feedback";
+import { ReceiptPreview } from "@/components/receipt-preview";
+const Dashboard = lazy(() =>
+  import("@/components/dashboard").then((m) => ({ default: m.Dashboard })),
+);
 const ReceiptDetail = lazy(() =>
   import("@/components/receipt-detail").then((m) => ({
     default: m.ReceiptDetail,
@@ -112,7 +117,9 @@ function Workspace({
   token: string;
   disconnect: () => void;
 }) {
-  const [view, setView] = useState<"history" | "reviews" | "upload">("history"),
+  const [view, setView] = useState<
+      "dashboard" | "history" | "reviews" | "upload"
+    >("dashboard"),
     [selected, setSelected] = useState<string | null>(null),
     [offset, setOffset] = useState(0),
     [page, setPage] = useState<Page | null>(null),
@@ -122,7 +129,7 @@ function Workspace({
     [dirty, setDirty] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    if (view === "upload" || selected) return;
+    if (view === "upload" || view === "dashboard" || selected) return;
     const controller = new AbortController();
     // oxlint-disable-next-line react/set-state-in-effect -- Reset status for this cancellable API read.
     setBusy(true);
@@ -180,7 +187,7 @@ function Workspace({
             href="/ui/"
             onClick={(event) => {
               event.preventDefault();
-              navigate("history");
+              navigate("dashboard");
             }}
             className="flex items-center gap-2 text-lg font-semibold"
           >
@@ -205,9 +212,10 @@ function Workspace({
         <nav aria-label="Workspace" className="mb-7 flex flex-wrap gap-2">
           {(
             [
-              ["history", History, "Receipt history"],
-              ["reviews", ListChecks, "Pending reviews"],
+              ["dashboard", LayoutDashboard, "Main dashboard"],
               ["upload", Upload, "Upload receipt"],
+              ["reviews", ListChecks, "Pending reviews"],
+              ["history", History, "Receipt history"],
             ] as const
           ).map(([id, Icon, label]) => (
             <Button
@@ -232,11 +240,13 @@ function Workspace({
               >
                 {selected
                   ? "Review receipt"
-                  : view === "upload"
-                    ? "Upload receipt"
-                    : view === "reviews"
-                      ? "Pending reviews"
-                      : "Receipt history"}
+                  : view === "dashboard"
+                    ? "Main dashboard"
+                    : view === "upload"
+                      ? "Upload receipt"
+                      : view === "reviews"
+                        ? "Pending reviews"
+                        : "Receipt history"}
               </h1>
             </div>
             {selected && (
@@ -263,6 +273,10 @@ function Workspace({
                   if (view === "reviews") setOffset(0);
                 }}
               />
+            </Suspense>
+          ) : view === "dashboard" ? (
+            <Suspense fallback={<p role="status">Loading dashboard…</p>}>
+              <Dashboard token={token} navigate={navigate} />
             </Suspense>
           ) : view === "upload" ? (
             <UploadForm
@@ -331,14 +345,21 @@ function Workspace({
                             <Status value={rowStatus(row)} />
                           </TableCell>
                           <TableCell>
-                            <Button
-                              variant="outline"
-                              onClick={() => setSelected(row.receipt_id)}
-                              aria-label={`Open receipt ${row.vendor || row.receipt_id}`}
-                            >
-                              Open
-                              <ArrowRight />
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              <ReceiptPreview
+                                row={row}
+                                token={token}
+                                onOpen={() => setSelected(row.receipt_id)}
+                              />
+                              <Button
+                                variant="outline"
+                                onClick={() => setSelected(row.receipt_id)}
+                                aria-label={`Open receipt ${row.vendor || row.receipt_id}`}
+                              >
+                                Open
+                                <ArrowRight />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}

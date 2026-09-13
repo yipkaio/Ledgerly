@@ -29,6 +29,13 @@ SQLite persistence, authenticated receipt history, and human approval/rejection 
 
 ## SQLite persistence and receipt history
 
+The workspace starts with **Main dashboard**, followed by **Upload receipt**,
+**Pending reviews**, and **Receipt history**. The dashboard provides saved counts,
+accepted expense totals, category charts and monthly trends by currency. History
+has animated, authenticated previews beside each receipt. See the
+[workflow roadmap](docs/workflow-roadmap.md) for current duplicate behavior and the
+planned audited amendments, selected Excel export and PDF ingestion features.
+
 For manual review, follow the numbered Swagger endpoints and the
 [review walkthrough and troubleshooting table](docs/reviews.md). Review templates
 must be edited before submission. Approvals reject obvious placeholders, missing
@@ -65,6 +72,7 @@ All history endpoints require the same `X-API-Key` as upload:
 - `GET /reviews` returns the outstanding human-review queue, excluding finalized reviews.
 - `POST /receipts/{receipt_id}/review` approves or rejects a queued receipt.
 - `GET /receipts/{receipt_id}/reviews` returns its review audit history.
+- `GET /dashboard` returns authenticated counts and accepted totals by currency.
 - `GET /receipts?processing_status=FAILED` finds failed processing attempts.
 
 `processing_status` is `PROCESSING`, `COMPLETED`, `REVIEW_QUEUE`, or `FAILED`.

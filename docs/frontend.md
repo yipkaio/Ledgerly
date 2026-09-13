@@ -29,7 +29,7 @@ npm run dev
 ```
 
 Open http://127.0.0.1:5173/ui/. Run the backend separately on localhost port 8000
-using your Python environment and `.env`. Vite proxies `/receipts` and `/reviews`
+using your Python environment and `.env`. Vite proxies `/receipts`, `/reviews` and `/dashboard`
 to that backend, so the same server key applies. This uses your local database.
 
 To build and check the frontend:
@@ -48,6 +48,13 @@ dist, browser test reports, local data, or credentials.
 
 ## Review a receipt
 
+After connecting, **Main dashboard** shows saved counts and accepted expense charts
+separately for each currency. Navigation then offers **Upload receipt**, **Pending
+reviews**, and **Receipt history**. Hover the eye button beside a history row for
+an animated private preview, or use click/Enter on keyboard and touch devices.
+See [workflow behavior and planned features](workflow-roadmap.md) for duplicate
+uploads, audited amendments, selected Excel export and PDFs.
+
 1. Connect with the chosen server's app key. All key holders share one workspace;
    this is not individual user authentication.
 2. Choose **Upload receipt**. Select a JPEG or PNG up to 5 MB. Enter an optional
@@ -57,7 +64,7 @@ dist, browser test reports, local data, or credentials.
    are paginated in groups of 20. A missing vendor or amount means processing did
    not extract it; inspect the saved record for errors.
 4. Compare the **Original receipt** with all fields, items, discounts, tax, and
-   rounding. The original image loads only when a receipt is opened. Open full size
+   rounding. The original image loads only when a receipt or preview is opened. Open full size
    when needed. Read both extraction and classification review reasons.
 5. Correct verified fields. Empty optional fields remain null. Currency, vendor,
    date and total are required for approval. Discount fields are optional, and zero

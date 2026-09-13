@@ -1,7 +1,7 @@
 # Run the backend with Docker
 
 This packages the existing backend for local testing and a private Lightsail
-trial. It does not create AWS resources or add the UI, Telegram, or HTTPS.
+trial. It includes the receipt UI; it does not create AWS resources or add Telegram or HTTPS.
 The initial packaging was prepared in a workspace without Docker: host tests and
 YAML checks passed, but image build, native container tests and container recreation
 must still be verified using the commands below before deployment.

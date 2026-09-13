@@ -70,6 +70,36 @@
 .skip-link {
   @apply sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:p-3;
 }
+.receipt-preview {
+  transform-origin: var(--radix-popover-content-transform-origin);
+  max-height: var(--radix-popover-content-available-height);
+  overflow-y: auto;
+}
+.receipt-preview[data-state="open"] {
+  animation: preview-enter 160ms ease-out;
+}
+.receipt-preview[data-state="closed"] {
+  animation: preview-exit 120ms ease-in;
+}
+@keyframes preview-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes preview-exit {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
