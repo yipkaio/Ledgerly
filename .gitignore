@@ -10,3 +10,9 @@ data/uploads/
 *.db-journal
 *.db-wal
 *.db-shm
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/.env*
+*.tsbuildinfo

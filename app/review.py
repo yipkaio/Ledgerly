@@ -99,7 +99,10 @@ def pending_reviews(store, limit: int, offset: int) -> dict:
         db.execute("BEGIN")
         source = " FROM receipts r WHERE processing_status='REVIEW_QUEUE' AND NOT EXISTS (SELECT 1 FROM receipt_reviews v WHERE v.receipt_id=r.receipt_id)"
         total = db.execute("SELECT count(*)" + source).fetchone()[0]
-        rows = db.execute("SELECT receipt_id, created_at, 0 AS review_version" + source +
+        rows = db.execute("SELECT receipt_id, created_at, 0 AS review_version, "
+                          "json_extract(extraction_json, '$.vendor') AS vendor, "
+                          "json_extract(extraction_json, '$.total_amount') AS total_amount, "
+                          "json_extract(extraction_json, '$.currency') AS currency" + source +
                           " ORDER BY created_at, receipt_id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
     return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
 

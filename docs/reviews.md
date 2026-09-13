@@ -2,7 +2,8 @@
 
 All three routes require `X-API-Key`: `GET /reviews?limit=20&offset=0`,
 `POST /receipts/{receipt_id}/review`, and `GET /receipts/{receipt_id}/reviews`.
-No OCR or LLM calls are made by review actions. Use the SSH tunnel and `/docs`.
+No OCR or LLM calls are made by review actions. Use the SSH tunnel and `/docs`,
+or follow the [receipt workspace guide](frontend.md) to review in `/ui/`.
 
 ## Start here in Swagger
 
@@ -29,7 +30,8 @@ Generate a new request ID in Windows PowerShell:
 ```
 
 `receipt_id` selects the receipt; `request_id` identifies this submission. Neither
-is an API key. A UI should generate request IDs automatically in the future.
+is an API key. The `/ui/` workspace generates request IDs automatically and
+retains an identical payload for retry after an uncertain response.
 
 In POST, select the **approve** or **reject** example from the Examples dropdown.
 The templates intentionally fail validation until edited: replace every REPLACE_
@@ -62,8 +64,9 @@ proof that a reviewer supplied truthful information.
 ## Submit and verify
 
 1. List `/reviews`, then retrieve a queued receipt with `GET /receipts/{id}`.
-2. Compare the original image with OCR and extracted fields. Image viewing through
-   the API is not included in this commit; use the original image you uploaded.
+2. Compare the original image with OCR and extracted fields. Use the authenticated
+   GET `/receipts/{id}/image` endpoint or the image viewer in `/ui/`. Missing retained
+   images return 404; do not approve without checking the original evidence.
 3. Submit a new UUID `request_id`, `expected_version: 0`, `decision: APPROVED`,
    a nonblank `reviewer` and `note`, and `evidence_confirmed: true`.
    Include the entire corrected extraction as `corrected_data` (copy the returned

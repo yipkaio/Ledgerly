@@ -1,0 +1,508 @@
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import {
+  FileCheck2,
+  Upload,
+  ListChecks,
+  History,
+  LogOut,
+  ArrowLeft,
+  ArrowRight,
+  LoaderCircle,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { amount, ApiError, message, request, rowStatus } from "@/lib/api";
+import type { Page } from "@/lib/api";
+import { Notice, Status } from "@/components/feedback";
+const ReceiptDetail = lazy(() =>
+  import("@/components/receipt-detail").then((m) => ({
+    default: m.ReceiptDetail,
+  })),
+);
+
+export default function App() {
+  const [token, setToken] = useState(""),
+    [draft, setDraft] = useState(""),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  async function connect(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await request<Page>("/receipts?limit=1", draft.trim());
+      setToken(draft.trim());
+      setDraft("");
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (token)
+    return (
+      <Workspace
+        token={token}
+        disconnect={() => {
+          setToken("");
+          setDraft("");
+          setError("");
+        }}
+      />
+    );
+  return (
+    <main className="mx-auto flex min-h-screen max-w-md items-center px-5 py-12">
+      <div className="w-full">
+        <div className="mb-8 flex items-center gap-3">
+          <FileCheck2 className="size-9 text-primary" />
+          <span className="text-xl font-semibold">Ledgerly</span>
+        </div>
+        <h1 className="text-3xl font-semibold tracking-tight">
+          Your receipt workspace
+        </h1>
+        <p className="muted mt-3 mb-8">
+          Upload expenses, check the evidence, and keep a clear record of every
+          decision.
+        </p>
+        <form onSubmit={connect} className="panel space-y-5 p-6">
+          <div>
+            <label htmlFor="app-key" className="field-label">
+              App API key
+            </label>
+            <Input
+              id="app-key"
+              type="password"
+              autoComplete="off"
+              required
+              minLength={32}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+            <p className="muted mt-2">
+              Use this server’s APP_API_KEY. The key stays in memory until you
+              disconnect or reload. Use only on a trusted device.
+            </p>
+          </div>
+          {error && <Notice error>{error}</Notice>}
+          <Button className="w-full" disabled={busy}>
+            {busy && <LoaderCircle className="animate-spin" />}Connect to
+            workspace
+          </Button>
+        </form>
+        <p className="muted mt-5">
+          Shared workspace access · Reviewer names are self reported.
+        </p>
+      </div>
+    </main>
+  );
+}
+function Workspace({
+  token,
+  disconnect,
+}: {
+  token: string;
+  disconnect: () => void;
+}) {
+  const [view, setView] = useState<"history" | "reviews" | "upload">("history"),
+    [selected, setSelected] = useState<string | null>(null),
+    [offset, setOffset] = useState(0),
+    [page, setPage] = useState<Page | null>(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [refresh, setRefresh] = useState(0),
+    [dirty, setDirty] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (view === "upload" || selected) return;
+    const controller = new AbortController();
+    // oxlint-disable-next-line react/set-state-in-effect -- Reset status for this cancellable API read.
+    setBusy(true);
+    setError("");
+    setPage(null);
+    request<Page>(
+      `${view === "reviews" ? "/reviews" : "/receipts"}?limit=20&offset=${offset}`,
+      token,
+      { signal: controller.signal },
+    )
+      .then((result) => {
+        if (!controller.signal.aborted) setPage(result);
+      })
+      .catch((e) => {
+        if (!controller.signal.aborted) setError(message(e));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setBusy(false);
+      });
+    return () => controller.abort();
+  }, [token, view, offset, selected, refresh]);
+  useEffect(() => {
+    heading.current?.focus();
+  }, [view, selected]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (dirty) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  function discardChanges() {
+    if (dirty && !window.confirm("Discard unsaved review changes?"))
+      return false;
+    setDirty(false);
+    return true;
+  }
+  function navigate(next: typeof view) {
+    if (!discardChanges()) return;
+    setSelected(null);
+    setView(next);
+    setOffset(0);
+  }
+  return (
+    <>
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
+      <header className="border-b bg-white">
+        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-8">
+          <a
+            href="/ui/"
+            onClick={(event) => {
+              event.preventDefault();
+              navigate("history");
+            }}
+            className="flex items-center gap-2 text-lg font-semibold"
+          >
+            <FileCheck2 className="size-7 text-primary" />
+            Ledgerly
+          </a>
+          <div className="flex items-center gap-3">
+            <span className="muted hidden sm:inline">Receipt workspace</span>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                if (discardChanges()) disconnect();
+              }}
+            >
+              <LogOut />
+              Disconnect
+            </Button>
+          </div>
+        </div>
+      </header>
+      <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-8">
+        <nav aria-label="Workspace" className="mb-7 flex flex-wrap gap-2">
+          {(
+            [
+              ["history", History, "Receipt history"],
+              ["reviews", ListChecks, "Pending reviews"],
+              ["upload", Upload, "Upload receipt"],
+            ] as const
+          ).map(([id, Icon, label]) => (
+            <Button
+              key={id}
+              variant={view === id ? "default" : "outline"}
+              aria-current={view === id ? "page" : undefined}
+              onClick={() => navigate(id)}
+            >
+              <Icon />
+              {label}
+            </Button>
+          ))}
+        </nav>
+        <main id="main">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="muted mb-1">EXPENSE OPERATIONS</p>
+              <h1
+                ref={heading}
+                tabIndex={-1}
+                className="text-3xl font-semibold tracking-tight"
+              >
+                {selected
+                  ? "Review receipt"
+                  : view === "upload"
+                    ? "Upload receipt"
+                    : view === "reviews"
+                      ? "Pending reviews"
+                      : "Receipt history"}
+              </h1>
+            </div>
+            {selected && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (discardChanges()) setSelected(null);
+                }}
+              >
+                <ArrowLeft />
+                Back to list
+              </Button>
+            )}
+          </div>
+          {selected ? (
+            <Suspense fallback={<p role="status">Loading review tools…</p>}>
+              <ReceiptDetail
+                key={selected}
+                id={selected}
+                token={token}
+                onDirty={setDirty}
+                saved={() => {
+                  setRefresh((n) => n + 1);
+                  if (view === "reviews") setOffset(0);
+                }}
+              />
+            </Suspense>
+          ) : view === "upload" ? (
+            <UploadForm
+              token={token}
+              open={(id) => {
+                setView("history");
+                setOffset(0);
+                setSelected(id);
+              }}
+            />
+          ) : (
+            <>
+              <p className="muted mb-5">
+                {view === "reviews"
+                  ? "Check the original receipt and business purpose before making a final decision."
+                  : "Human decisions take precedence over the original automated classification."}
+              </p>
+              {busy && (
+                <p role="status" className="muted py-8">
+                  Loading receipts…
+                </p>
+              )}
+              {error && (
+                <Notice error>
+                  {error}{" "}
+                  <Button
+                    variant="outline"
+                    onClick={() => setRefresh((n) => n + 1)}
+                  >
+                    Try again
+                  </Button>
+                </Notice>
+              )}
+              {page && (
+                <div className="panel overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Vendor / receipt</TableHead>
+                        <TableHead>Uploaded</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>
+                          <span className="sr-only">Actions</span>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {page.items.map((row) => (
+                        <TableRow key={row.receipt_id}>
+                          <TableCell>
+                            <p className="font-medium">
+                              {row.vendor || "Vendor unavailable"}
+                            </p>
+                            <p className="muted font-mono text-xs">
+                              {row.receipt_id.slice(0, 8)}
+                            </p>
+                          </TableCell>
+                          <TableCell>
+                            {new Date(row.created_at).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {amount(row.total_amount, row.currency)}
+                          </TableCell>
+                          <TableCell>
+                            <Status value={rowStatus(row)} />
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="outline"
+                              onClick={() => setSelected(row.receipt_id)}
+                              aria-label={`Open receipt ${row.vendor || row.receipt_id}`}
+                            >
+                              Open
+                              <ArrowRight />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {!page.items.length && (
+                        <TableRow>
+                          <TableCell
+                            colSpan={5}
+                            className="py-12 text-center text-muted-foreground"
+                          >
+                            {view === "reviews"
+                              ? "No receipts are waiting for review."
+                              : "No receipts yet. Upload one to get started."}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
+                    <p className="muted">
+                      {page.total
+                        ? `${offset + 1}–${Math.min(offset + 20, page.total)} of ${page.total}`
+                        : "0 receipts"}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        disabled={offset === 0 || busy}
+                        onClick={() => setOffset((n) => Math.max(0, n - 20))}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={offset + 20 >= page.total || busy}
+                        onClick={() => setOffset((n) => n + 20)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </main>
+        <footer className="muted mt-10 border-t pt-4">
+          Evidence first. Every human decision keeps the original extraction and
+          an audit record.
+        </footer>
+      </div>
+    </>
+  );
+}
+function UploadForm({
+  token,
+  open,
+}: {
+  token: string;
+  open: (id: string) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null),
+    [purpose, setPurpose] = useState(""),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [failedId, setFailedId] = useState<string | null>(null);
+  const active = useRef(true),
+    submitting = useRef(false);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (submitting.current) return;
+    setError("");
+    setFailedId(null);
+    if (
+      !file ||
+      !["image/jpeg", "image/png"].includes(file.type) ||
+      file.size > 5242880
+    ) {
+      setError("Choose a JPEG or PNG image up to 5 MB.");
+      return;
+    }
+    submitting.current = true;
+    setBusy(true);
+    const body = new FormData();
+    body.set("receipt", file);
+    if (purpose.trim()) body.set("business_purpose", purpose.trim());
+    try {
+      const result = await request<{ receipt_id: string }>(
+        "/receipts/upload",
+        token,
+        { method: "POST", body, timeoutMs: 330000 },
+      );
+      if (active.current) open(result.receipt_id);
+    } catch (err) {
+      if (!active.current) return;
+      setError(
+        message(err) +
+          " Check history before uploading again; processing may already have started.",
+      );
+      if (err instanceof ApiError) setFailedId(err.receiptId);
+    } finally {
+      submitting.current = false;
+      if (active.current) setBusy(false);
+    }
+  }
+  return (
+    <form onSubmit={submit} className="panel max-w-2xl space-y-6 p-6">
+      <div className="rounded-lg border border-dashed bg-muted p-6">
+        <Upload className="mb-3 size-7 text-primary" />
+        <label htmlFor="receipt-file" className="field-label">
+          Receipt image
+        </label>
+        <Input
+          id="receipt-file"
+          type="file"
+          accept="image/jpeg,image/png"
+          required
+          disabled={busy}
+          onChange={(e) => setFile(e.target.files?.[0] || null)}
+        />
+        <p className="muted mt-2">
+          JPEG or PNG · Up to 5 MB · One receipt per upload
+        </p>
+      </div>
+      <div>
+        <label htmlFor="purpose" className="field-label">
+          Business purpose (optional)
+        </label>
+        <Textarea
+          id="purpose"
+          maxLength={500}
+          value={purpose}
+          disabled={busy}
+          onChange={(e) => setPurpose(e.target.value)}
+          placeholder="For example: cleaning supplies for the office"
+        />
+        <p className="muted mt-2">
+          Explain how the purchase is used. Missing purpose may require human
+          review.
+        </p>
+      </div>
+      {error && (
+        <Notice error>
+          {error}
+          {failedId && (
+            <Button variant="outline" onClick={() => open(failedId)}>
+              View saved processing record
+            </Button>
+          )}
+        </Notice>
+      )}
+      <Button disabled={busy || !file}>
+        {busy ? <LoaderCircle className="animate-spin" /> : <Upload />}
+        {busy ? "Processing receipt…" : "Upload and process"}
+      </Button>
+      <p className="muted">
+        OCR runs on the server. Extraction and classification may use gateway
+        credits. Keep this page open while processing.
+      </p>
+    </form>
+  );
+}

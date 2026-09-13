@@ -1,4 +1,11 @@
 # syntax=docker/dockerfile:1
+FROM node:24-bookworm-slim AS frontend-build
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 FROM python:3.11-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -24,6 +31,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY app/ ./app/
 RUN python -m pip install '.[ocr-paddle]' && python -m pip check
+COPY --from=frontend-build /build/dist /app/frontend/dist
 
 USER 10001:10001
 EXPOSE 8000

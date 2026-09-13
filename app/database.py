@@ -133,13 +133,17 @@ class ReceiptStore:
              limit: int, offset: int) -> dict:
         where = " WHERE (? IS NULL OR c.decision=?) AND (? IS NULL OR r.processing_status=?)"
         args = (decision, decision, processing_status, processing_status)
-        source = " FROM receipts r LEFT JOIN classifications c USING(receipt_id)"
+        source = " FROM receipts r LEFT JOIN classifications c USING(receipt_id) LEFT JOIN receipt_reviews v USING(receipt_id)"
         with self.connect() as db:
             # Keep count and page in the same read snapshot.
             db.execute("BEGIN")
             total = db.execute("SELECT count(*)" + source + where, args).fetchone()[0]
             rows = db.execute("SELECT r.receipt_id, r.content_type, r.size_bytes, "
-                              "r.processing_status, r.created_at, r.updated_at, c.decision"
+                              "r.processing_status, r.created_at, r.updated_at, c.decision, "
+                              "COALESCE(json_extract(v.result_json, '$.final_data.vendor'), json_extract(r.extraction_json, '$.vendor')) AS vendor, "
+                              "COALESCE(json_extract(v.result_json, '$.final_data.total_amount'), json_extract(r.extraction_json, '$.total_amount')) AS total_amount, "
+                              "COALESCE(json_extract(v.result_json, '$.final_data.currency'), json_extract(r.extraction_json, '$.currency')) AS currency, "
+                              "json_extract(v.result_json, '$.decision') AS review_decision"
                               + source + where + " ORDER BY r.created_at DESC, r.receipt_id DESC LIMIT ? OFFSET ?",
                               args + (limit, offset)).fetchall()
         return {'items': [dict(row) for row in rows], 'total': total, 'limit': limit, 'offset': offset}

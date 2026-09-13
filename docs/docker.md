@@ -95,7 +95,13 @@ health, authentication, hidden Swagger, UID 10001, and SQLite/image/cache surviv
 across container recreation. It removes only its own test resources afterward.
 The stored receipt is a synthetic failure fixture, not an LLM result.
 
-For a real workflow check, upload through `/docs`, copy the ID, run
+The Docker build now builds the React frontend in a separate Node stage and
+copies only its static output into the Python runtime. Node and npm are absent
+from the final image. Open `/ui/` for the receipt workspace, even with Swagger
+disabled; all receipt data and images still require the app key. See the
+[frontend guide](frontend.md) for development, review steps and private AWS access.
+
+For a real workflow check, upload through `/ui/` or `/docs`, copy the ID, run
 `docker compose up -d --force-recreate api`, and retrieve the same ID again. A real
 upload uses the normal paid extraction/classification calls. The first Paddle
 request downloads model weights and can be much slower than later requests.

@@ -13,7 +13,9 @@ from typing import Literal
 from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, Query, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from app.images import receipt_image
 from app.database import DatabaseError, ReceiptStore
 from app.review import (ReviewRequest, ReviewConflict, ReviewNotFound, ReviewInvalid,
                         pending_reviews, review_history, submit_review)
@@ -195,7 +197,7 @@ def create_app() -> FastAPI:
               description="""**Final decisions cannot currently be undone or reopened. Use disposable records for testing.**
 
 1. First GET the receipt detail and check `review` is null and `review_version` is 0.
-2. Compare the original image with vendor, date, currency, EVERY line item, discounts, tax and totals. The image is not served by this API; use your original upload.
+2. Compare the original image with vendor, date, currency, EVERY line item, discounts, tax and totals. Use the authenticated GET /receipts/{receipt_id}/image endpoint or the /ui/ receipt workspace.
 3. Read all extraction AND classification reasons. Establish business purpose; explain the category and any corrections in `note`. If uncertain, leave it pending rather than approving.
 4. Generate a new request UUID in PowerShell: `[guid]::NewGuid().ToString()`. It is not the receipt ID or an API key.
 5. Choose an example below and replace ALL REPLACE_ values. For approval replace `corrected_data: null` with the COMPLETE `extracted_data` object from GET, editing only verified fields. Choose the justified category. For rejection omit corrections, category and override.
@@ -465,6 +467,36 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
                 headers={"X-Receipt-ID": receipt_id},
             ) from exc
 
+    @api.get('/receipts/{receipt_id}/image', tags=['receipts'], summary='View original receipt image (authenticated)',
+             response_class=Response,
+             description='Read only. Use the app key and saved receipt UUID. Returns the retained JPEG or PNG, never a database-supplied file path. Missing or invalid images return 404; do not approve without checking original evidence. The /ui/ workspace handles authenticated image loading for you.',
+             responses={200: {'description': 'Original JPEG or PNG', 'content': {'image/jpeg': {}, 'image/png': {}}},
+                        401: {'description': 'Missing or wrong app key'},
+                        404: {'description': 'Receipt or retained image unavailable'},
+                        503: {'description': 'Database or app configuration unavailable'}})
+    async def image(receipt_id: UUID, settings: Annotated[Settings, Depends(require_api_key)]):
+        return await run_in_threadpool(receipt_image, ReceiptStore(settings.database_path),
+                                       settings.upload_dir, str(receipt_id), settings.max_upload_bytes)
+
+    @api.middleware('http')
+    async def privacy_headers(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith(('/receipts', '/reviews', '/ui')):
+            response.headers['X-Content-Type-Options'] = 'nosniff'
+            response.headers['Referrer-Policy'] = 'no-referrer'
+            if not request.url.path.startswith('/ui/assets/'):
+                response.headers['Cache-Control'] = 'no-store'
+        if request.url.path.startswith('/ui'):
+            response.headers['Content-Security-Policy'] = (
+                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' blob:; connect-src 'self'; base-uri 'none'; "
+                "frame-ancestors 'none'; object-src 'none'"
+            )
+        return response
+
+    frontend_dist = Path(__file__).resolve().parent.parent / 'frontend' / 'dist'
+    if frontend_dist.is_dir():
+        api.mount('/ui', StaticFiles(directory=frontend_dist, html=True), name='ui')
     return api
 
 

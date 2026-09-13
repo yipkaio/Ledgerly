@@ -7,8 +7,8 @@ A hackathon MVP for turning receipt images into structured, reviewable business 
 Docker packaging is available for the existing backend, including both OCR
 engines, persistent SQLite/upload/cache volumes, a non-root runtime and private
 localhost access. See [Docker setup and testing](docs/docker.md) for Windows,
-container smoke tests, backups and a private Lightsail trial. Docker does not
-require the UI to be completed. No AWS resources are provisioned by these files.
+container smoke tests, backups and a private Lightsail trial. The Docker image
+includes the built review UI at `/ui/`. No AWS resources are provisioned by these files.
 
 ## Current status
 
@@ -25,7 +25,7 @@ The application now provides a secure FastAPI receipt-processing pipeline:
 - A fixed-category expense classifier for unmatched vendors, with optional business purpose and a configurable confidence gate.
 - Automated tests that mock both OCR providers and both gateway agents, so tests do not download models, require OCR installation, make network calls, or consume API credits.
 
-SQLite persistence, authenticated receipt history, and human approval/rejection with an audit record are implemented. See [Human review API](docs/reviews.md) for payloads, validation, and migration precautions. Firebase Authentication, Telegram/OpenClaw integration, and a review UI remain TODOs.
+SQLite persistence, authenticated receipt history, and human approval/rejection with an audit record are implemented. The React + TypeScript review workspace now supports uploads, paginated history, pending reviews, protected original images, verified corrections, confirmation dialogs and audit viewing. Follow the [frontend setup and review guide](docs/frontend.md). See [Human review API](docs/reviews.md) for manual payloads, validation, and migration precautions. Firebase Authentication and Telegram/OpenClaw integration remain TODOs.
 
 ## SQLite persistence and receipt history
 
