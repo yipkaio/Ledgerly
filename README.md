@@ -25,16 +25,21 @@ The application now provides a secure FastAPI receipt-processing pipeline:
 - A fixed-category expense classifier for unmatched vendors, with optional business purpose and a configurable confidence gate.
 - Automated tests that mock both OCR providers and both gateway agents, so tests do not download models, require OCR installation, make network calls, or consume API credits.
 
-SQLite persistence and authenticated receipt history are implemented. Firebase Authentication, Telegram/OpenClaw integration, manual review actions, and a review UI remain TODOs.
+SQLite persistence, authenticated receipt history, and human approval/rejection with an audit record are implemented. See [Human review API](docs/reviews.md) for payloads, validation, and migration precautions. Firebase Authentication, Telegram/OpenClaw integration, and a review UI remain TODOs.
 
 ## SQLite persistence and receipt history
 
 Set `DATABASE_PATH=data/expenses.db` in `.env` (the default). Python's built-in
 SQLite driver is used; no database server or new dependency is required. On first
-database use, schema version 1 and the three initial vendor mappings are created
+database use, schema version 2 and the three initial vendor mappings are created
 transactionally. Existing mappings are not overwritten on restart. The runtime
 lookup reads `vendor_category_mappings`; the dictionary in `app/classification.py`
 is now the initial seed and legacy lookup helper, not the upload lookup source.
+
+Existing version-1 databases migrate transactionally on first use. Back up the
+database and uploads before upgrading; the previous application cannot read
+schema version 2. Human decisions live in `receipt_reviews` and `review_audit`,
+separately from the original AI evidence.
 
 Tables: `receipts` (metadata, OCR, extraction JSON and timestamps), `line_items`
 (ordered item JSON), `classifications` (decision and result JSON), and
@@ -51,12 +56,17 @@ All history endpoints require the same `X-API-Key` as upload:
 - `GET /receipts?limit=20&offset=0` returns newest-first metadata, a total count,
   and pagination. Maximum page size is 100; OCR text is excluded from list results.
 - `GET /receipts?decision=REVIEW_QUEUE` filters saved review decisions.
+- `GET /reviews` returns the outstanding human-review queue, excluding finalized reviews.
+- `POST /receipts/{receipt_id}/review` approves or rejects a queued receipt.
+- `GET /receipts/{receipt_id}/reviews` returns its review audit history.
 - `GET /receipts?processing_status=FAILED` finds failed processing attempts.
 
 `processing_status` is `PROCESSING`, `COMPLETED`, `REVIEW_QUEUE`, or `FAILED`.
 The existing upload response remains `status: processing_complete` for backwards
 compatibility. `AUTO_FILED` is an internal decision, not submission to an external
 accounting system. `REVIEW_QUEUE` does not mean a human has approved the expense.
+These original processing fields remain historical after review. Receipt detail
+includes a separate `review` result and `review_version`; use `/reviews` for pending work.
 
 After a validated image is saved, a processing record is created before OCR runs.
 OCR evidence is saved before extraction. Controlled processing failures return the

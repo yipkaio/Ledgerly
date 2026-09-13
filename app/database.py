@@ -31,10 +31,10 @@ class ReceiptStore:
             connection.execute("PRAGMA foreign_keys=ON")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             # Serialize first-use schema creation, without write-locking normal reads.
-            if version == 0:
+            if version in (0, 1):
                 connection.execute("BEGIN IMMEDIATE")
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise DatabaseError("Unsupported database schema version")
             if version == 0:
                 for statement in SCHEMA:
@@ -44,6 +44,11 @@ class ReceiptStore:
                     [(name, category.value) for name, category in DEFAULT_VENDOR_CATEGORIES.items()],
                 )
                 connection.execute("PRAGMA user_version=1")
+            if version in (0, 1):
+                from app.review import REVIEW_SCHEMA
+                for statement in REVIEW_SCHEMA:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version=2")
             connection.commit()
             with connection:
                 yield connection
@@ -119,6 +124,9 @@ class ReceiptStore:
                     "SELECT item_json FROM line_items WHERE receipt_id=? ORDER BY position", (receipt_id,))]
             classification = db.execute("SELECT result_json FROM classifications WHERE receipt_id=?", (receipt_id,)).fetchone()
             result['classification'] = json.loads(classification[0]) if classification else None
+            review = db.execute("SELECT result_json FROM receipt_reviews WHERE receipt_id=?", (receipt_id,)).fetchone()
+            result['review'] = json.loads(review[0]) if review else None
+            result['review_version'] = 1 if review else 0
             return result
 
     def list(self, decision: str | None, processing_status: str | None,

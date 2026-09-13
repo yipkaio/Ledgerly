@@ -214,6 +214,7 @@ class GatewayReceiptExtractor:
     def _apply_deterministic_checks(
         cls,
         receipt: ReceiptExtraction,
+        *, repair_swaps: bool = True,
     ) -> ReceiptExtraction:
         reasons = list(receipt.review_reasons)
 
@@ -232,7 +233,7 @@ class GatewayReceiptExtractor:
 
         normalized_items: list[ReceiptLineItem] = []
         for index, item in enumerate(receipt.line_items, start=1):
-            repaired_item = cls._repair_swapped_price_and_discount(item)
+            repaired_item = cls._repair_swapped_price_and_discount(item) if repair_swaps else None
             if repaired_item is not None:
                 item = repaired_item
                 reasons.append(

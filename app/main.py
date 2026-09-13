@@ -15,6 +15,8 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from app.database import DatabaseError, ReceiptStore
+from app.review import (ReviewRequest, ReviewConflict, ReviewNotFound, ReviewInvalid,
+                        pending_reviews, review_history, submit_review)
 
 from app.classification import (
     ClassificationOutcome,
@@ -168,6 +170,34 @@ def create_app() -> FastAPI:
     @api.exception_handler(DatabaseError)
     async def database_error_handler(request, exc):
         return JSONResponse(status_code=503, content={"detail": "Receipt database is unavailable"})
+
+    @api.exception_handler(ReviewConflict)
+    async def review_conflict_handler(request, exc):
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @api.exception_handler(ReviewNotFound)
+    async def review_missing_handler(request, exc):
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @api.exception_handler(ReviewInvalid)
+    async def review_invalid_handler(request, exc):
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @api.get("/reviews", tags=["reviews"])
+    async def reviews(settings: Annotated[Settings, Depends(require_api_key)],
+                      limit: Annotated[int, Query(ge=1, le=100)] = 20,
+                      offset: Annotated[int, Query(ge=0)] = 0) -> dict:
+        return await run_in_threadpool(pending_reviews, ReceiptStore(settings.database_path), limit, offset)
+
+    @api.post("/receipts/{receipt_id}/review", tags=["reviews"])
+    async def review(receipt_id: UUID, body: ReviewRequest,
+                     settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
+        return await run_in_threadpool(submit_review, ReceiptStore(settings.database_path), str(receipt_id), body)
+
+    @api.get("/receipts/{receipt_id}/reviews", tags=["reviews"])
+    async def history(receipt_id: UUID,
+                      settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
+        return await run_in_threadpool(review_history, ReceiptStore(settings.database_path), str(receipt_id))
 
     @api.get("/receipts", tags=["receipts"])
     async def list_receipts(
