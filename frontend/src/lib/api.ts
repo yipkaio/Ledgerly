@@ -59,6 +59,21 @@ export type Review = {
   validation_issues: string[];
   request_id: string;
 };
+export type Amendment = {
+  receipt_id: string;
+  record_version: number;
+  request_id: string;
+  event_type: "AMENDMENT";
+  reviewer: string;
+  identity_source: string;
+  amended_at: string;
+  reason: string;
+  evidence_confirmed: true;
+  final_data: Extraction;
+  category: string;
+  validation_issues: string[];
+  override_reason: string | null;
+};
 export type Receipt = {
   receipt_id: string;
   processing_status: string;
@@ -71,6 +86,11 @@ export type Receipt = {
   classification: Classification | null;
   review: Review | null;
   review_version: number;
+  amendment: Amendment | null;
+  record_version: number;
+  effective_data: Extraction | null;
+  effective_category: string | null;
+  duplicate_candidates: string[];
 };
 export type Row = {
   receipt_id: string;
@@ -97,6 +117,16 @@ export type ReviewRequest = {
   evidence_confirmed: true;
   category?: string;
   corrected_data?: Extraction;
+  override_reason?: string;
+};
+export type AmendmentRequest = {
+  request_id: string;
+  expected_version: number;
+  reviewer: string;
+  reason: string;
+  evidence_confirmed: true;
+  final_data: Extraction;
+  category: string;
   override_reason?: string;
 };
 export class ApiError extends Error {

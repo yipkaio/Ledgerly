@@ -17,6 +17,7 @@ The application now provides a secure FastAPI receipt-processing pipeline:
 - `GET /health` for service health checks.
 - `POST /receipts/upload` for authenticated JPEG/PNG uploads.
 - A 5 MB default size limit, file-signature checks, generated storage names, and cleanup of rejected uploads.
+- SHA-256 exact-duplicate blocking before OCR/LLM work, plus strict post-extraction duplicate warnings.
 - PaddleOCR text detection and recognition, including orientation correction, image unwarping, and recognition confidence.
 - Configurable Tesseract fallback with a bounded subprocess timeout.
 - Structured receipt extraction through the organiser's text-only LLM gateway.
@@ -25,7 +26,7 @@ The application now provides a secure FastAPI receipt-processing pipeline:
 - A fixed-category expense classifier for unmatched vendors, with optional business purpose and a configurable confidence gate.
 - Automated tests that mock both OCR providers and both gateway agents, so tests do not download models, require OCR installation, make network calls, or consume API credits.
 
-SQLite persistence, authenticated receipt history, and human approval/rejection with an audit record are implemented. The React + TypeScript review workspace now supports uploads, paginated history, pending reviews, protected original images, verified corrections, confirmation dialogs and audit viewing. Follow the [frontend setup and review guide](docs/frontend.md). See [Human review API](docs/reviews.md) for manual payloads, validation, and migration precautions. Firebase Authentication and Telegram/OpenClaw integration remain TODOs.
+SQLite persistence, authenticated receipt history, human approval/rejection, and append-only amendments are implemented. The React + TypeScript workspace supports uploads, paginated history, pending reviews, protected originals, verified corrections, confirmation dialogs, amendments and audit viewing. Follow the [frontend setup and review guide](docs/frontend.md). See [Human review API](docs/reviews.md) for manual payloads, validation, and migration precautions. Firebase Authentication and Telegram/OpenClaw integration remain TODOs.
 
 ## SQLite persistence and receipt history
 
@@ -33,25 +34,25 @@ The workspace starts with **Main dashboard**, followed by **Upload receipt**,
 **Pending reviews**, and **Receipt history**. The dashboard provides saved counts,
 accepted expense totals, category charts and monthly trends by currency. History
 has animated, authenticated previews beside each receipt. See the
-[workflow roadmap](docs/workflow-roadmap.md) for current duplicate behavior and the
-planned audited amendments, selected Excel export and PDF ingestion features.
+[workflow roadmap](docs/workflow-roadmap.md) for current duplicate and amendment
+behavior and the planned selected Excel export and PDF ingestion features.
 
 For manual review, follow the numbered Swagger endpoints and the
 [review walkthrough and troubleshooting table](docs/reviews.md). Review templates
 must be edited before submission. Approvals reject obvious placeholders, missing
-essential fields and currencies outside the documented MVP subset. Final decisions
-cannot currently be reopened; use disposable receipts for tests.
+essential fields and currencies outside the documented MVP subset. Approved
+records can be corrected with append-only amendments; rejected records cannot be reopened.
 
 Set `DATABASE_PATH=data/expenses.db` in `.env` (the default). Python's built-in
 SQLite driver is used; no database server or new dependency is required. On first
-database use, schema version 2 and the three initial vendor mappings are created
+database use, schema version 3 and the three initial vendor mappings are created
 transactionally. Existing mappings are not overwritten on restart. The runtime
 lookup reads `vendor_category_mappings`; the dictionary in `app/classification.py`
 is now the initial seed and legacy lookup helper, not the upload lookup source.
 
 Existing version-1 databases migrate transactionally on first use. Back up the
 database and uploads before upgrading; the previous application cannot read
-schema version 2. Human decisions live in `receipt_reviews` and `review_audit`,
+schema version 3. Human decisions and amendments live in append-only audit tables,
 separately from the original AI evidence.
 
 Tables: `receipts` (metadata, OCR, extraction JSON and timestamps), `line_items`
@@ -72,6 +73,8 @@ All history endpoints require the same `X-API-Key` as upload:
 - `GET /reviews` returns the outstanding human-review queue, excluding finalized reviews.
 - `POST /receipts/{receipt_id}/review` approves or rejects a queued receipt.
 - `GET /receipts/{receipt_id}/reviews` returns its review audit history.
+- `POST /receipts/{receipt_id}/amendments` creates a new effective accepted version.
+- `GET /receipts/{receipt_id}/amendments` returns immutable amendment history.
 - `GET /dashboard` returns authenticated counts and accepted totals by currency.
 - `GET /receipts?processing_status=FAILED` finds failed processing attempts.
 
@@ -80,7 +83,7 @@ The existing upload response remains `status: processing_complete` for backwards
 compatibility. `AUTO_FILED` is an internal decision, not submission to an external
 accounting system. `REVIEW_QUEUE` does not mean a human has approved the expense.
 These original processing fields remain historical after review. Receipt detail
-includes a separate `review` result and `review_version`; use `/reviews` for pending work.
+includes review, amendment, effective-value and version fields; use `/reviews` for pending work.
 
 After a validated image is saved, a processing record is created before OCR runs.
 OCR evidence is saved before extraction. Controlled processing failures return the

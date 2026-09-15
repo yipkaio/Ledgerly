@@ -33,40 +33,30 @@ and blob URLs revoked. Images are not written to browser storage or preloaded fo
 The original endpoint can transfer up to the configured upload limit; bounded
 server-generated thumbnails would further reduce transfers for large images.
 
-## Duplicate receipts: next correctness milestone
+## Duplicate receipts (implemented)
 
-Every current upload creates a new ID and runs OCR/extraction again. Identical
-uploads can consume gateway credits again and create duplicate expenses. The
-dashboard reports those records individually. Review request UUIDs protect decision
-retries; they do not deduplicate uploads.
+The server hashes each validated upload while streaming it to disk. An exact binary
+match returns 409 with `existing_receipt_id` before OCR or gateway calls. A unique
+database index also closes the concurrent-upload race.
 
-Planned behavior:
+After extraction, potential matches use vendor, receipt number, date, currency and
+payable total. A new photo or recompressed image has a different file hash and needs
+this second check. It cannot prevent the initial extraction charge because the
+identity fields are not known before extraction. Legitimate recurring invoices with
+different dates or numbers are not duplicates merely because vendor and amount repeat.
+The candidate is sent to review and links the prior receipt ID. A dedicated
+confirmed/not-duplicate disposition remains a later refinement.
 
-- Hash validated file bytes and reserve that hash transactionally before paid
-  processing. Concurrent identical uploads must link to the existing record rather
-  than both starting gateway calls. Display its saved status, including processing
-  or failure. Retrying a failed stage must be explicit.
-- After extraction, flag potential matches using vendor, receipt number, date,
-  currency and payable total. A new photo/recompressed image has a different file
-  hash and needs this second check. This check cannot prevent its initial extraction
-  charge because the match fields are not yet known before extraction.
-- Show both records for confirmation; legitimate recurring invoices with different
-  dates/numbers are not duplicates merely because vendor and amount repeat.
-- Record a duplicate disposition while retaining evidence and history. Change the
-  business purpose through an amendment rather than another upload.
+## Editing filed receipts: audited amendments (implemented)
 
-## Editing filed receipts: audited amendments
-
-Bookkeepers should be able to correct an auto-filed or approved receipt. The current
-endpoint accepts one final decision for a queued receipt; filed/finalized records
-remain read-only. Removing its pending check alone would break the existing model.
-
-Add **Amend receipt** with reviewer, reason, current version, idempotent request ID,
-and validated final fields/category. Preserve original OCR, AI extraction, earlier
-human decisions and every amendment. Reject stale versions when two people edit the
-same record. Lists, dashboard and exports must read the latest effective version.
-Reopening/rejection reversals need recorded transitions. A shared app key does not
-establish reviewer roles; individual authentication remains separate future work.
+Auto-filed and approved receipts can be corrected through **Save amendment** or
+`POST /receipts/{id}/amendments`. Every change requires reviewer, reason, evidence
+confirmation, current `record_version`, an idempotent request UUID, complete
+validated fields and category. Original OCR, AI extraction, review and every earlier
+amendment remain immutable. Stale concurrent edits return 409. Detail, history and
+dashboard use the newest effective version. Rejected/pending/failed receipts cannot
+be amended; reversal is a separate future transition. A shared app key still does
+not establish reviewer roles.
 
 ## Selected Excel export
 

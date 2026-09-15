@@ -16,11 +16,11 @@ from test_api import configured_client, TEST_KEY
 HEADERS = {"X-API-Key": TEST_KEY}
 
 
-def setup_review(monkeypatch, tmp_path):
+def setup_review(monkeypatch, tmp_path, image_bytes=b'\xff\xd8\xffdata'):
     client, _, extractor, _ = configured_client(monkeypatch, tmp_path)
     extractor.needs_review = True
     uploaded = client.post('/receipts/upload', headers=HEADERS,
-                           files={'receipt': ('a.jpg', b'\xff\xd8\xffdata', 'image/jpeg')}).json()
+                           files={'receipt': ('a.jpg', image_bytes, 'image/jpeg')}).json()
     body = dict(request_id=str(uuid4()), expected_version=0, decision='APPROVED',
                 reviewer='Local reviewer', note='Checked against original receipt image',
                 evidence_confirmed=True, corrected_data=uploaded['extracted_data'], category='Office Supplies')
@@ -152,7 +152,7 @@ def test_existing_v1_migrates_without_changing_evidence(tmp_path):
     store = ReceiptStore(path)
     assert store.get('old')['processing_status'] == 'FAILED'
     with store.connect() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 2
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 3
         assert db.execute('SELECT image_path FROM receipts').fetchone()[0] == 'secret'
         assert db.execute('SELECT count(*) FROM vendor_category_mappings').fetchone()[0] == 0
 

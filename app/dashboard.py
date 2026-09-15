@@ -6,11 +6,13 @@ from datetime import datetime, timezone
 
 EFFECTIVE = """WITH effective AS (
  SELECT COALESCE(json_extract(v.result_json, '$.decision'), c.decision, r.processing_status) AS state,
- COALESCE(json_extract(v.result_json, '$.final_data.total_amount'), json_extract(r.extraction_json, '$.total_amount')) AS amount,
- COALESCE(json_extract(v.result_json, '$.final_data.currency'), json_extract(r.extraction_json, '$.currency')) AS currency,
- COALESCE(json_extract(v.result_json, '$.category'), json_extract(c.result_json, '$.category')) AS category,
- COALESCE(json_extract(v.result_json, '$.final_data.date'), json_extract(r.extraction_json, '$.date')) AS date
+ COALESCE(json_extract(a.result_json, '$.final_data.total_amount'), json_extract(v.result_json, '$.final_data.total_amount'), json_extract(r.extraction_json, '$.total_amount')) AS amount,
+ COALESCE(json_extract(a.result_json, '$.final_data.currency'), json_extract(v.result_json, '$.final_data.currency'), json_extract(r.extraction_json, '$.currency')) AS currency,
+ COALESCE(json_extract(a.result_json, '$.category'), json_extract(v.result_json, '$.category'), json_extract(c.result_json, '$.category')) AS category,
+ COALESCE(json_extract(a.result_json, '$.final_data.date'), json_extract(v.result_json, '$.final_data.date'), json_extract(r.extraction_json, '$.date')) AS date
  FROM receipts r LEFT JOIN classifications c USING(receipt_id) LEFT JOIN receipt_reviews v USING(receipt_id)
+ LEFT JOIN receipt_amendments a ON a.receipt_id=r.receipt_id
+ AND a.version=(SELECT max(a2.version) FROM receipt_amendments a2 WHERE a2.receipt_id=r.receipt_id)
 ) """
 
 

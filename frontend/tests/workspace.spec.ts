@@ -1,7 +1,11 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import type { ReviewRequest } from "../src/lib/api";
+import type {
+  Amendment,
+  AmendmentRequest,
+  ReviewRequest,
+} from "../src/lib/api";
 const key = "test-only-key-not-a-real-secret-32-characters";
 const id = "1d898e3a-66fa-4651-bb71-ca85d0a7770f";
 const extraction = {
@@ -61,6 +65,7 @@ const png = Buffer.from(
 );
 async function setup(page: Page, mode = "success") {
   let review: Record<string, unknown> | null = null;
+  let amendment: Amendment | null = null;
   const requests: ReviewRequest[] = [];
   await page.route("**/dashboard", (route) =>
     route.fulfill({
@@ -117,7 +122,18 @@ async function setup(page: Page, mode = "success") {
   });
   await page.route(`**/receipts/${id}`, (route) =>
     route.fulfill({
-      json: { ...original, review, review_version: review ? 1 : 0 },
+      json: {
+        ...original,
+        review,
+        review_version: review ? 1 : 0,
+        amendment,
+        record_version: amendment ? 2 : review ? 1 : 0,
+        effective_data:
+          amendment?.final_data || review?.final_data || original.extracted_data,
+        effective_category:
+          amendment?.category || review?.category || original.classification.category,
+        duplicate_candidates: [],
+      },
     }),
   );
   await page.route(`**/receipts/${id}/image`, (route) =>
@@ -144,6 +160,22 @@ async function setup(page: Page, mode = "success") {
       },
     }),
   );
+  await page.route(`**/receipts/${id}/amendments`, async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: { items: amendment ? [amendment] : [] } });
+      return;
+    }
+    const payload = route.request().postDataJSON() as AmendmentRequest;
+    amendment = {
+      ...payload,
+      event_type: "AMENDMENT",
+      record_version: 2,
+      amended_at: "2026-09-13T15:00:00Z",
+      identity_source: "self_reported",
+      validation_issues: [],
+    } as Amendment;
+    await route.fulfill({ json: amendment });
+  });
   await page.route(`**/receipts/${id}/review`, async (route) => {
     const payload = route.request().postDataJSON() as ReviewRequest;
     requests.push(payload);
@@ -231,6 +263,27 @@ test("approval edits, automatic UUID, final audit and no persistent key", async 
   ).toEqual([0, 0]);
   await page.getByRole("button", { name: "Disconnect" }).click();
   await expect(page.getByLabel("App API key")).toHaveValue("");
+});
+
+test("approved receipt can be amended while earlier review remains visible", async ({
+  page,
+}) => {
+  await setup(page);
+  await open(page);
+  await page.getByRole("button", { name: "Approve receipt" }).click();
+  await page.getByRole("button", { name: "Confirm approval" }).click();
+  await expect(page.getByRole("button", { name: "Save amendment" })).toBeVisible();
+  await page.getByLabel("Vendor *").fill("Amended MR D.I.Y.");
+  await page.getByLabel("Reviewer name").fill("Yip Kai");
+  await page
+    .getByLabel("Amendment reason")
+    .fill("Corrected vendor wording after checking the original image.");
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Save amendment" }).click();
+  await page.getByRole("button", { name: "Confirm amendment" }).click();
+  await expect(page.getByText(/Effective data amended by Yip Kai/)).toBeVisible();
+  await expect(page.getByLabel("Vendor *")).toHaveValue("Amended MR D.I.Y.");
+  await expect(page.getByText("version 2", { exact: false })).toBeVisible();
 });
 
 test("dashboard totals stay separate by currency and links open the queue", async ({

@@ -52,8 +52,8 @@ After connecting, **Main dashboard** shows saved counts and accepted expense cha
 separately for each currency. Navigation then offers **Upload receipt**, **Pending
 reviews**, and **Receipt history**. Hover the eye button beside a history row for
 an animated private preview, or use click/Enter on keyboard and touch devices.
-See [workflow behavior and planned features](workflow-roadmap.md) for duplicate
-uploads, audited amendments, selected Excel export and PDFs.
+See [workflow behavior and planned features](workflow-roadmap.md) for implemented
+duplicate/amendment controls and the selected Excel export and PDF milestones.
 
 Previews do not scroll. A fixed header keeps the vendor title, amount and close
 button visible; long titles are shortened visually, with the full title available
@@ -68,7 +68,8 @@ are released. Use **Open full receipt** for detailed inspection.
    this is not individual user authentication.
 2. Choose **Upload receipt**. Select a JPEG or PNG up to 5 MB. Enter an optional
    business purpose, then click **Upload and process** once. Processing may consume
-   gateway credits. On a lost response, check history before uploading again.
+   gateway credits. On a lost response, check history before uploading again. An
+   exact duplicate returns the existing receipt ID without rerunning OCR/LLM.
 3. Open the saved receipt, or choose **Pending reviews**. History and pending lists
    are paginated in groups of 20. A missing vendor or amount means processing did
    not extract it; inspect the saved record for errors.
@@ -89,6 +90,9 @@ are released. Use **Open full receipt** for detailed inspection.
 8. Confirm once. The record reloads after saving; inspect **Review audit**. The
    original AI evidence stays intact and the human decision is final. Approved data
    and human status appear in history; finalized receipts leave the pending queue.
+9. Open an auto-filed or approved receipt to correct it. **Save amendment** creates
+   a new effective version; enter a specific reason and re-confirm the evidence.
+   Earlier versions stay in the audit and stale concurrent edits are rejected.
 
 For validation errors, correct the identified fields; edits are retained. An
 explicit override explanation is only for an evidence-supported remaining amount
