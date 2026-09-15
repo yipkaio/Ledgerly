@@ -9,10 +9,19 @@ import {
   ArrowRight,
   LoaderCircle,
   LayoutDashboard,
+  Download,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -21,7 +30,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { amount, ApiError, message, request, rowStatus } from "@/lib/api";
+import {
+  amount,
+  ApiError,
+  categories,
+  message,
+  request,
+  requestDownload,
+  rowStatus,
+} from "@/lib/api";
 import type { Page } from "@/lib/api";
 import { Notice, Status } from "@/components/feedback";
 import {
@@ -36,6 +53,28 @@ const ReceiptDetail = lazy(() =>
     default: m.ReceiptDetail,
   })),
 );
+
+type HistoryFilterValues = {
+  query: string;
+  category: string;
+  currency: string;
+  state: string;
+  date_from: string;
+  date_to: string;
+};
+const emptyFilters: HistoryFilterValues = {
+  query: "",
+  category: "",
+  currency: "",
+  state: "",
+  date_from: "",
+  date_to: "",
+};
+function filterParams(filters: HistoryFilterValues) {
+  return Object.fromEntries(
+    Object.entries(filters).filter(([, value]) => value.trim()),
+  );
+}
 
 export default function App() {
   const [token, setToken] = useState(""),
@@ -129,7 +168,11 @@ function Workspace({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [refresh, setRefresh] = useState(0),
-    [dirty, setDirty] = useState(false);
+    [dirty, setDirty] = useState(false),
+    [filterDraft, setFilterDraft] = useState(emptyFilters),
+    [filters, setFilters] = useState(emptyFilters),
+    [checked, setChecked] = useState<Set<string>>(new Set()),
+    [exportBusy, setExportBusy] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (view === "upload" || view === "dashboard" || selected) return;
@@ -138,8 +181,13 @@ function Workspace({
     setBusy(true);
     setError("");
     setPage(null);
+    const params = new URLSearchParams({ limit: "20", offset: String(offset) });
+    if (view === "history") {
+      for (const [key, value] of Object.entries(filterParams(filters)))
+        params.set(key, value);
+    }
     request<Page>(
-      `${view === "reviews" ? "/reviews" : "/receipts"}?limit=20&offset=${offset}`,
+      `${view === "reviews" ? "/reviews" : "/receipts"}?${params}`,
       token,
       { signal: controller.signal },
     )
@@ -153,7 +201,7 @@ function Workspace({
         if (!controller.signal.aborted) setBusy(false);
       });
     return () => controller.abort();
-  }, [token, view, offset, selected, refresh]);
+  }, [token, view, offset, selected, refresh, filters]);
   useEffect(() => {
     heading.current?.focus();
   }, [view, selected]);
@@ -178,6 +226,27 @@ function Workspace({
     setSelected(null);
     setView(next);
     setOffset(0);
+  }
+  async function exportExcel(allFiltered: boolean) {
+    if (!allFiltered && checked.size === 0) return;
+    setExportBusy(true);
+    setError("");
+    try {
+      const body = allFiltered
+        ? { filters: filterParams(filters) }
+        : { receipt_ids: [...checked] };
+      const result = await requestDownload("/receipts/export", token, body);
+      const url = URL.createObjectURL(result.blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = result.filename;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setExportBusy(false);
+    }
   }
   return (
     <>
@@ -297,6 +366,151 @@ function Workspace({
                   ? "Check the original receipt and business purpose before making a final decision."
                   : "Human decisions take precedence over the original automated classification."}
               </p>
+              {view === "history" && (
+                <form
+                  className="panel mb-5 grid gap-4 p-4 md:grid-cols-3 xl:grid-cols-6"
+                  aria-label="Receipt history filters"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setFilters({ ...filterDraft });
+                    setOffset(0);
+                    setChecked(new Set());
+                  }}
+                >
+                  <div className="md:col-span-2">
+                    <label htmlFor="history-search" className="field-label">
+                      Vendor, receipt number or ID
+                    </label>
+                    <Input
+                      id="history-search"
+                      maxLength={100}
+                      value={filterDraft.query}
+                      onChange={(event) =>
+                        setFilterDraft((old) => ({ ...old, query: event.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="history-category">
+                      Category
+                    </label>
+                    <Select
+                      value={filterDraft.category || "all"}
+                      onValueChange={(value) =>
+                        setFilterDraft((old) => ({
+                          ...old,
+                          category: value === "all" ? "" : value,
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="history-category">
+                        <SelectValue placeholder="All categories" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All categories</SelectItem>
+                        {categories.map((value) => (
+                          <SelectItem value={value} key={value}>
+                            {value}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="history-state">
+                      Status
+                    </label>
+                    <Select
+                      value={filterDraft.state || "all"}
+                      onValueChange={(value) =>
+                        setFilterDraft((old) => ({
+                          ...old,
+                          state: value === "all" ? "" : value,
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="history-state">
+                        <SelectValue placeholder="All statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All statuses</SelectItem>
+                        {[
+                          "AUTO_FILED",
+                          "APPROVED",
+                          "AMENDED",
+                          "REJECTED",
+                          "REVIEW_QUEUE",
+                          "PROCESSING",
+                          "FAILED",
+                        ].map((value) => (
+                          <SelectItem value={value} key={value}>
+                            {value.replaceAll("_", " ")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="history-currency">
+                      Currency
+                    </label>
+                    <Input
+                      id="history-currency"
+                      maxLength={3}
+                      placeholder="MYR"
+                      value={filterDraft.currency}
+                      onChange={(event) =>
+                        setFilterDraft((old) => ({
+                          ...old,
+                          currency: event.target.value.toUpperCase(),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <Button type="submit">Apply filters</Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      aria-label="Clear history filters"
+                      onClick={() => {
+                        setFilterDraft(emptyFilters);
+                        setFilters(emptyFilters);
+                        setOffset(0);
+                        setChecked(new Set());
+                      }}
+                    >
+                      <X />
+                    </Button>
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="history-date-from">
+                      Receipt date from
+                    </label>
+                    <Input
+                      id="history-date-from"
+                      type="date"
+                      value={filterDraft.date_from}
+                      onChange={(event) =>
+                        setFilterDraft((old) => ({ ...old, date_from: event.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="history-date-to">
+                      Receipt date to
+                    </label>
+                    <Input
+                      id="history-date-to"
+                      type="date"
+                      value={filterDraft.date_to}
+                      onChange={(event) =>
+                        setFilterDraft((old) => ({ ...old, date_to: event.target.value }))
+                      }
+                    />
+                  </div>
+                </form>
+              )}
               {busy && (
                 <p role="status" className="muted py-8">
                   Loading receipts…
@@ -315,10 +529,62 @@ function Workspace({
               )}
               {page && (
                 <div className="panel overflow-hidden">
+                  {view === "history" && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+                      <p className="muted" aria-live="polite">
+                        {checked.size} selected across pages
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          disabled={!checked.size || exportBusy}
+                          onClick={() => void exportExcel(false)}
+                        >
+                          <Download /> Export selected
+                        </Button>
+                        <Button
+                          variant="outline"
+                          disabled={!page.total || exportBusy}
+                          onClick={() => void exportExcel(true)}
+                        >
+                          <Download /> Export filtered ({page.total})
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          disabled={!checked.size || exportBusy}
+                          onClick={() => setChecked(new Set())}
+                        >
+                          Clear selection
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   <ReceiptPreviewProvider>
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          {view === "history" && (
+                            <TableHead className="w-12">
+                              <input
+                                type="checkbox"
+                                aria-label="Select all receipts on this page"
+                                checked={
+                                  !!page.items.length &&
+                                  page.items.every((row) => checked.has(row.receipt_id))
+                                }
+                                onChange={(event) => {
+                                  setChecked((old) => {
+                                    const next = new Set(old);
+                                    for (const row of page.items) {
+                                      if (event.target.checked) next.add(row.receipt_id);
+                                      else next.delete(row.receipt_id);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                              />
+                            </TableHead>
+                          )}
                           <TableHead>Vendor / receipt</TableHead>
                           <TableHead>Uploaded</TableHead>
                           <TableHead>Amount</TableHead>
@@ -331,6 +597,23 @@ function Workspace({
                       <TableBody>
                         {page.items.map((row) => (
                           <TableRow key={row.receipt_id}>
+                            {view === "history" && (
+                              <TableCell>
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Select receipt ${row.vendor || row.receipt_id}`}
+                                  checked={checked.has(row.receipt_id)}
+                                  onChange={(event) =>
+                                    setChecked((old) => {
+                                      const next = new Set(old);
+                                      if (event.target.checked) next.add(row.receipt_id);
+                                      else next.delete(row.receipt_id);
+                                      return next;
+                                    })
+                                  }
+                                />
+                              </TableCell>
+                            )}
                             <TableCell>
                               <p className="font-medium">
                                 {row.vendor || "Vendor unavailable"}
@@ -370,7 +653,7 @@ function Workspace({
                         {!page.items.length && (
                           <TableRow>
                             <TableCell
-                              colSpan={5}
+                              colSpan={view === "history" ? 6 : 5}
                               className="py-12 text-center text-muted-foreground"
                             >
                               {view === "reviews"
@@ -445,10 +728,10 @@ function UploadForm({
     setFailedId(null);
     if (
       !file ||
-      !["image/jpeg", "image/png"].includes(file.type) ||
+      !["image/jpeg", "image/png", "application/pdf"].includes(file.type) ||
       file.size > 5242880
     ) {
-      setError("Choose a JPEG or PNG image up to 5 MB.");
+      setError("Choose a JPEG, PNG, or PDF receipt up to 5 MB.");
       return;
     }
     submitting.current = true;
@@ -480,18 +763,18 @@ function UploadForm({
       <div className="rounded-lg border border-dashed bg-muted p-6">
         <Upload className="mb-3 size-7 text-primary" />
         <label htmlFor="receipt-file" className="field-label">
-          Receipt image
+          Receipt file
         </label>
         <Input
           id="receipt-file"
           type="file"
-          accept="image/jpeg,image/png"
+          accept="image/jpeg,image/png,application/pdf,.pdf"
           required
           disabled={busy}
           onChange={(e) => setFile(e.target.files?.[0] || null)}
         />
         <p className="muted mt-2">
-          JPEG or PNG · Up to 5 MB · One receipt per upload
+          JPEG, PNG, or PDF · Up to 5 MB · PDF up to 3 pages · One receipt per upload
         </p>
       </div>
       <div>

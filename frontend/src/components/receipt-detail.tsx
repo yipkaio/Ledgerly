@@ -22,6 +22,8 @@ import {
 import { ApiError, categories, message, request } from "@/lib/api";
 import type {
   Extraction,
+  Amendment,
+  AmendmentRequest,
   LineItem,
   Receipt,
   Review,
@@ -98,15 +100,22 @@ export function ReceiptDetail({
     [imageError, setImageError] = useState(""),
     [error, setError] = useState(""),
     [audit, setAudit] = useState<Review[]>([]),
+    [amendments, setAmendments] = useState<Amendment[]>([]),
     [revision, setRevision] = useState(0),
     [reviewer, setReviewer] = useState(""),
     [note, setNote] = useState(""),
     [category, setCategory] = useState(""),
     [evidence, setEvidence] = useState(false),
     [override, setOverride] = useState(""),
-    [confirm, setConfirm] = useState<"APPROVED" | "REJECTED" | null>(null),
+    [confirm, setConfirm] = useState<
+      "APPROVED" | "REJECTED" | "AMENDMENT" | null
+    >(null),
     [busy, setBusy] = useState(false),
-    [pending, setPending] = useState<ReviewRequest | null>(null),
+    [pending, setPending] = useState<
+      | { kind: "review"; payload: ReviewRequest }
+      | { kind: "amendment"; payload: AmendmentRequest }
+      | null
+    >(null),
     [stale, setStale] = useState(false);
   const form = useRef<HTMLFormElement>(null),
     submitting = useRef(false),
@@ -126,16 +135,13 @@ export function ReceiptDetail({
     setImage("");
     setImageError("");
     setAudit([]);
+    setAmendments([]);
     request<Receipt>(`/receipts/${id}`, token, { signal: controller.signal })
       .then((result) => {
         if (controller.signal.aborted) return;
         setReceipt(result);
-        setData(
-          structuredClone(result.review?.final_data || result.extracted_data),
-        );
-        setCategory(
-          result.review?.category || result.classification?.category || "",
-        );
+        setData(structuredClone(result.effective_data || result.extracted_data));
+        setCategory(result.effective_category || result.classification?.category || "");
         setPending(null);
         setStale(false);
         setEvidence(false);
@@ -156,6 +162,16 @@ export function ReceiptDetail({
       .catch((e) => {
         if (!controller.signal.aborted)
           setError(`Audit could not be loaded: ${message(e)}`);
+      });
+    request<{ items: Amendment[] }>(`/receipts/${id}/amendments`, token, {
+      signal: controller.signal,
+    })
+      .then((result) => {
+        if (!controller.signal.aborted) setAmendments(result.items);
+      })
+      .catch((e) => {
+        if (!controller.signal.aborted)
+          setError(`Amendment audit could not be loaded: ${message(e)}`);
       });
     fetch(`/receipts/${id}/image`, {
       headers: { "X-API-Key": token },
@@ -183,21 +199,34 @@ export function ReceiptDetail({
       if (imageURL) URL.revokeObjectURL(imageURL);
     };
   }, [id, token, revision, onDirty]);
-  const editable =
+  const reviewable =
     receipt?.processing_status === "REVIEW_QUEUE" && !receipt.review;
+  const amendable =
+    receipt?.processing_status === "COMPLETED" ||
+    receipt?.review?.decision === "APPROVED" ||
+    !!receipt?.amendment;
+  const editable = reviewable || amendable;
   const locked = busy || !!pending || stale || !editable;
-  async function submit(payload: ReviewRequest) {
+  async function submit(
+    submission:
+      | { kind: "review"; payload: ReviewRequest }
+      | { kind: "amendment"; payload: AmendmentRequest },
+  ) {
     if (submitting.current) return;
     submitting.current = true;
     setBusy(true);
     setError("");
-    setPending(payload);
+    setPending(submission);
     setConfirm(null);
     try {
-      await request<Review>(`/receipts/${id}/review`, token, {
+      const path =
+        submission.kind === "review"
+          ? `/receipts/${id}/review`
+          : `/receipts/${id}/amendments`;
+      await request<Review | Amendment>(path, token, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(submission.payload),
       });
       if (active.current) {
         saved();
@@ -221,8 +250,8 @@ export function ReceiptDetail({
       if (active.current) setBusy(false);
     }
   }
-  function prepare(decision: "APPROVED" | "REJECTED") {
-    if (decision === "APPROVED" && !form.current?.reportValidity()) return;
+  function prepare(decision: "APPROVED" | "REJECTED" | "AMENDMENT") {
+    if (decision !== "REJECTED" && !form.current?.reportValidity()) return;
     if (!reviewer.trim() || !note.trim() || !evidence) {
       setError(
         "Enter your name and a meaningful reason, and confirm that you checked the original receipt and purpose.",
@@ -230,7 +259,7 @@ export function ReceiptDetail({
       return;
     }
     if (
-      decision === "APPROVED" &&
+      decision !== "REJECTED" &&
       (!data?.currency ||
         !categories.includes(category as (typeof categories)[number]))
     ) {
@@ -241,6 +270,21 @@ export function ReceiptDetail({
   }
   function execute() {
     if (!confirm || !receipt) return;
+    if (confirm === "AMENDMENT" && data) {
+      const payload: AmendmentRequest = {
+        request_id: crypto.randomUUID(),
+        expected_version: receipt.record_version,
+        reviewer: reviewer.trim(),
+        reason: note.trim(),
+        evidence_confirmed: true,
+        final_data: structuredClone(data),
+        category,
+      };
+      if (override.trim()) payload.override_reason = override.trim();
+      void submit({ kind: "amendment", payload });
+      return;
+    }
+    if (confirm === "AMENDMENT") return;
     const payload: ReviewRequest = {
       request_id: crypto.randomUUID(),
       expected_version: receipt.review_version,
@@ -254,7 +298,7 @@ export function ReceiptDetail({
       payload.category = category;
       if (override.trim()) payload.override_reason = override.trim();
     }
-    void submit(payload);
+    void submit({ kind: "review", payload });
   }
   if (!receipt)
     return (
@@ -304,6 +348,7 @@ export function ReceiptDetail({
         <p className="muted break-all font-mono">{id}</p>
         <Status
           value={
+            (receipt.amendment ? "AMENDED" : null) ||
             receipt.review?.decision ||
             receipt.classification?.workflow_decision ||
             receipt.processing_status
@@ -317,7 +362,7 @@ export function ReceiptDetail({
           or reload to check what was saved.
           <div className="mt-2 flex flex-wrap gap-2">
             <Button onClick={() => void submit(pending)}>
-              Retry same decision
+              Retry same change
             </Button>
             <Button variant="outline" onClick={() => setRevision((n) => n + 1)}>
               Reload saved record
@@ -329,11 +374,28 @@ export function ReceiptDetail({
         <Notice>
           {receipt.review.decision === "APPROVED" ? "Approved" : "Rejected"} by{" "}
           {receipt.review.reviewer} on{" "}
-          {new Date(receipt.review.reviewed_at).toLocaleString()}. This decision
-          is final. The original extraction remains in the audit record.
+          {new Date(receipt.review.reviewed_at).toLocaleString()}. The decision
+          and original extraction remain in the audit record; approved data can
+          be amended below.
+        </Notice>
+      )}
+      {receipt.amendment && (
+        <Notice>
+          Effective data amended by {receipt.amendment.reviewer} on{" "}
+          {new Date(receipt.amendment.amended_at).toLocaleString()}. Version{" "}
+          {receipt.record_version}; every earlier version remains in the audit.
         </Notice>
       )}
       {receipt.error && <Notice error>{receipt.error}</Notice>}
+      {!!receipt.duplicate_candidates?.length && (
+        <Notice>
+          Possible duplicate detected. Compare this receipt with{" "}
+          {receipt.duplicate_candidates
+            .map((candidate) => candidate.slice(0, 8))
+            .join(", ")}
+          {" "}before accepting it.
+        </Notice>
+      )}
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <section
           className="panel min-w-0 p-5 lg:sticky lg:top-5"
@@ -356,6 +418,17 @@ export function ReceiptDetail({
           </div>
           {imageError ? (
             <Notice error>{imageError}</Notice>
+          ) : image && receipt.content_type === "application/pdf" ? (
+            <div className="h-[70vh] overflow-hidden rounded-lg bg-muted p-3">
+              <iframe
+                src={image}
+                title={`Original PDF receipt from ${receipt.extracted_data?.vendor || "uploaded vendor"}`}
+                className="h-full w-full rounded bg-white"
+                onError={() => {
+                  setImageError("The PDF could not be displayed. Use Open full size.");
+                }}
+              />
+            </div>
           ) : image ? (
             <div className="max-h-[70vh] overflow-auto rounded-lg bg-muted p-3">
               <img
@@ -371,7 +444,7 @@ export function ReceiptDetail({
             </div>
           ) : (
             <p role="status" className="muted">
-              Loading original image…
+              Loading original receipt…
             </p>
           )}
           <details className="mt-4">
@@ -424,13 +497,11 @@ export function ReceiptDetail({
             >
               <div>
                 <h2 className="text-lg font-semibold">
-                  {receipt.review?.final_data
-                    ? "Approved receipt data"
-                    : "Receipt data"}
+                  {amendable ? "Effective receipt data" : "Receipt data"}
                 </h2>
                 <p className="muted mt-1">
                   {editable
-                    ? "Correct fields against the image. Blank values stay null. * Required for approval."
+                    ? `Correct fields against the image. Blank values stay null. * Required for ${amendable ? "an amendment" : "approval"}.`
                     : "Read only. The original automated record is preserved."}
                 </p>
               </div>
@@ -604,7 +675,7 @@ export function ReceiptDetail({
               </h2>
               <div>
                 <label id="category-label" className="field-label">
-                  Final category (approval)
+                  Final category {amendable ? "(amendment)" : "(approval)"}
                 </label>
                 <Select
                   value={category}
@@ -637,7 +708,7 @@ export function ReceiptDetail({
               />
               <div>
                 <label htmlFor="review-note" className="field-label">
-                  Decision reason
+                  {amendable ? "Amendment reason" : "Decision reason"}
                 </label>
                 <Textarea
                   id="review-note"
@@ -648,7 +719,11 @@ export function ReceiptDetail({
                     setNote(e.target.value);
                     onDirty(true);
                   }}
-                  placeholder="Explain the business use, correction, or reason for rejection."
+                  placeholder={
+                    amendable
+                      ? "Explain exactly what changed and why."
+                      : "Explain the business use, correction, or reason for rejection."
+                  }
                 />
               </div>
               <details>
@@ -690,27 +765,29 @@ export function ReceiptDetail({
                 My decision is supported by this evidence.
               </label>
               <p className="muted">
-                Approve accepts the expense with your corrections. Reject
-                excludes the expense; it keeps the receipt and audit record.
-                These decisions cannot be reversed through this screen.
+                {amendable
+                  ? "Save amendment creates a new effective version. Original OCR, AI output, review and earlier amendments remain unchanged."
+                  : "Approve accepts the expense with your corrections. Reject excludes the expense; it keeps the receipt and audit record."}
               </p>
               <div className="flex flex-wrap gap-3">
                 <Button
                   disabled={
                     locked || !data || !category || !image || !!imageError
                   }
-                  onClick={() => prepare("APPROVED")}
+                  onClick={() => prepare(amendable ? "AMENDMENT" : "APPROVED")}
                 >
                   <FileCheck2 />
-                  Approve receipt
+                  {amendable ? "Save amendment" : "Approve receipt"}
                 </Button>
-                <Button
-                  variant="destructive"
-                  disabled={locked || !image || !!imageError}
-                  onClick={() => prepare("REJECTED")}
-                >
-                  Reject receipt
-                </Button>
+                {reviewable && (
+                  <Button
+                    variant="destructive"
+                    disabled={locked || !image || !!imageError}
+                    onClick={() => prepare("REJECTED")}
+                  >
+                    Reject receipt
+                  </Button>
+                )}
                 {error && !pending && (
                   <Button
                     variant="outline"
@@ -723,7 +800,7 @@ export function ReceiptDetail({
               </div>
               {busy && (
                 <p role="status" className="muted">
-                  Saving decision…
+                  Saving {amendable ? "amendment" : "decision"}…
                 </p>
               )}
             </section>
@@ -764,6 +841,19 @@ export function ReceiptDetail({
         ) : (
           <p className="muted mt-3">No human review has been recorded.</p>
         )}
+        {amendments.map((event) => (
+          <div key={event.request_id} className="mt-4 rounded-lg border p-4">
+            <div className="flex flex-wrap gap-3">
+              <Status value="AMENDED" />
+              <span className="text-sm font-medium">{event.reviewer}</span>
+              <span className="muted">
+                {new Date(event.amended_at).toLocaleString()} · version{" "}
+                {event.record_version}
+              </span>
+            </div>
+            <p className="mt-3 text-sm">{event.reason}</p>
+          </div>
+        ))}
       </section>
       <Dialog
         open={!!confirm}
@@ -774,15 +864,19 @@ export function ReceiptDetail({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {confirm === "APPROVED"
+              {confirm === "AMENDMENT"
+                ? "Save this amendment?"
+                : confirm === "APPROVED"
                 ? "Approve this expense?"
                 : "Reject this expense?"}
             </DialogTitle>
             <DialogDescription>
-              {confirm === "APPROVED"
+              {confirm === "AMENDMENT"
+                ? `Create version ${receipt.record_version + 1} as ${category}; earlier versions remain unchanged.`
+                : confirm === "APPROVED"
                 ? `Save the reviewed data as ${category}.`
                 : "Exclude this expense from accepted expenses and retain the original record."}{" "}
-              This final decision will be attributed to {reviewer}.
+              This change will be attributed to {reviewer}.
             </DialogDescription>
           </DialogHeader>
           <p className="rounded-lg bg-muted p-3 text-sm">{note}</p>
@@ -794,7 +888,12 @@ export function ReceiptDetail({
               variant={confirm === "REJECTED" ? "destructive" : "default"}
               onClick={execute}
             >
-              Confirm {confirm === "REJECTED" ? "rejection" : "approval"}
+              Confirm{" "}
+              {confirm === "REJECTED"
+                ? "rejection"
+                : confirm === "AMENDMENT"
+                  ? "amendment"
+                  : "approval"}
             </Button>
           </DialogFooter>
         </DialogContent>

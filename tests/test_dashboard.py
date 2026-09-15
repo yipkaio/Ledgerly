@@ -19,7 +19,7 @@ def test_dashboard_auth_empty_snapshot_and_privacy(monkeypatch, tmp_path):
 
 
 def test_dashboard_uses_human_final_values_and_excludes_rejections(monkeypatch, tmp_path):
-    client, original, body, _ = setup_review(monkeypatch, tmp_path)
+    client, original, body, _ = setup_review(monkeypatch, tmp_path, b'\xff\xd8\xffdifferent')
     assert client.get('/dashboard', headers=HEADERS).json()['counts']['REVIEW_QUEUE'] == 1
     assert client.get('/dashboard', headers=HEADERS).json()['currencies'] == []
     body['category'] = 'Repairs and Maintenance'

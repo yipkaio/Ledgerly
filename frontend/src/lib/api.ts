@@ -59,8 +59,24 @@ export type Review = {
   validation_issues: string[];
   request_id: string;
 };
+export type Amendment = {
+  receipt_id: string;
+  record_version: number;
+  request_id: string;
+  event_type: "AMENDMENT";
+  reviewer: string;
+  identity_source: string;
+  amended_at: string;
+  reason: string;
+  evidence_confirmed: true;
+  final_data: Extraction;
+  category: string;
+  validation_issues: string[];
+  override_reason: string | null;
+};
 export type Receipt = {
   receipt_id: string;
+  content_type: string;
   processing_status: string;
   created_at: string;
   business_purpose: string | null;
@@ -71,9 +87,15 @@ export type Receipt = {
   classification: Classification | null;
   review: Review | null;
   review_version: number;
+  amendment: Amendment | null;
+  record_version: number;
+  effective_data: Extraction | null;
+  effective_category: string | null;
+  duplicate_candidates: string[];
 };
 export type Row = {
   receipt_id: string;
+  content_type?: string;
   created_at: string;
   vendor?: string | null;
   total_amount?: number | null;
@@ -81,6 +103,10 @@ export type Row = {
   processing_status?: string;
   decision?: string | null;
   review_decision?: string | null;
+  workflow_state?: string;
+  receipt_number?: string | null;
+  receipt_date?: string | null;
+  category?: string | null;
 };
 export type Page = {
   items: Row[];
@@ -97,6 +123,16 @@ export type ReviewRequest = {
   evidence_confirmed: true;
   category?: string;
   corrected_data?: Extraction;
+  override_reason?: string;
+};
+export type AmendmentRequest = {
+  request_id: string;
+  expected_version: number;
+  reviewer: string;
+  reason: string;
+  evidence_confirmed: true;
+  final_data: Extraction;
+  category: string;
   override_reason?: string;
 };
 export class ApiError extends Error {
@@ -143,6 +179,37 @@ export async function request<T>(
     );
   }
   return response.json() as Promise<T>;
+}
+export async function requestDownload(
+  path: string,
+  token: string,
+  body: unknown,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "X-API-Key": token,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as {
+      detail?: string;
+    };
+    throw new ApiError(
+      payload.detail || `Export failed (${response.status})`,
+      response.status,
+    );
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = /filename="?([^";]+)"?/i.exec(disposition);
+  return {
+    blob: await response.blob(),
+    filename: match?.[1] || "receipt-history.xlsx",
+  };
 }
 export function message(error: unknown): string {
   if (error instanceof DOMException && error.name === "TimeoutError")

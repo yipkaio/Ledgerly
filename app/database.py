@@ -7,6 +7,15 @@ from pathlib import Path
 import sqlite3
 
 from app.classification import DEFAULT_VENDOR_CATEGORIES, ExpenseCategory, normalize_vendor_name
+from app.history import HISTORY_COLUMNS, HISTORY_CTE, HistoryFilters, filter_clause
+
+
+class DuplicateReceiptError(RuntimeError):
+    """An identical file is already retained in this workspace."""
+
+    def __init__(self, receipt_id: str):
+        super().__init__("Receipt file was already uploaded")
+        self.receipt_id = receipt_id
 
 
 class DatabaseError(RuntimeError):
@@ -31,10 +40,10 @@ class ReceiptStore:
             connection.execute("PRAGMA foreign_keys=ON")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             # Serialize first-use schema creation, without write-locking normal reads.
-            if version in (0, 1):
+            if version in (0, 1, 2):
                 connection.execute("BEGIN IMMEDIATE")
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2):
+            if version not in (0, 1, 2, 3):
                 raise DatabaseError("Unsupported database schema version")
             if version == 0:
                 for statement in SCHEMA:
@@ -49,6 +58,11 @@ class ReceiptStore:
                 for statement in REVIEW_SCHEMA:
                     connection.execute(statement)
                 connection.execute("PRAGMA user_version=2")
+            if version in (0, 1, 2):
+                from app.amendments import AMENDMENT_SCHEMA
+                for statement in DUPLICATE_SCHEMA + AMENDMENT_SCHEMA:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version=3")
             connection.commit()
             with connection:
                 yield connection
@@ -59,14 +73,59 @@ class ReceiptStore:
                 connection.close()
 
     def start(self, receipt_id: str, content_type: str, size: int, image_path: str,
-              business_purpose: str | None) -> None:
+              business_purpose: str | None, content_sha256: str | None = None) -> None:
         timestamp = now()
         with self.connect() as db:
+            try:
+                db.execute(
+                    "INSERT INTO receipts (receipt_id, content_type, size_bytes, image_path, "
+                    "business_purpose, content_sha256, processing_status, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'PROCESSING', ?, ?)",
+                    (receipt_id, content_type, size, image_path, business_purpose,
+                     content_sha256, timestamp, timestamp),
+                )
+            except sqlite3.IntegrityError:
+                duplicate = db.execute(
+                    "SELECT receipt_id FROM receipts WHERE content_sha256=?",
+                    (content_sha256,),
+                ).fetchone()
+                if duplicate:
+                    raise DuplicateReceiptError(duplicate[0])
+                raise
+
+    def probable_duplicates(self, receipt_id: str, extraction: dict) -> list[str]:
+        """Return strict identity matches; vendor+amount alone are never enough."""
+        required = (extraction.get("receipt_number"), extraction.get("date"),
+                    extraction.get("currency"), extraction.get("total_amount"))
+        vendor = extraction.get("vendor") or extraction.get("legal_entity")
+        if any(value is None for value in required) or not vendor:
+            return []
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT receipt_id, extraction_json FROM receipts "
+                "WHERE receipt_id<>? AND extraction_json IS NOT NULL "
+                "AND lower(trim(json_extract(extraction_json,'$.receipt_number')))=lower(trim(?)) "
+                "AND json_extract(extraction_json,'$.date')=? "
+                "AND json_extract(extraction_json,'$.currency')=? "
+                "AND abs(json_extract(extraction_json,'$.total_amount')-?)<=0.02 "
+                "ORDER BY created_at LIMIT 20",
+                (receipt_id, str(required[0]), str(required[1]), str(required[2]),
+                 float(required[3])),
+            ).fetchall()
+        wanted = normalize_vendor_name(vendor)
+        matches = []
+        for row in rows:
+            candidate = json.loads(row[1])
+            candidate_vendor = candidate.get("vendor") or candidate.get("legal_entity") or ""
+            if normalize_vendor_name(candidate_vendor) == wanted:
+                matches.append(row[0])
+        return matches
+
+    def save_duplicate_candidates(self, receipt_id: str, candidates: list[str]) -> None:
+        with self.connect() as db:
             db.execute(
-                "INSERT INTO receipts (receipt_id, content_type, size_bytes, image_path, "
-                "business_purpose, processing_status, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, 'PROCESSING', ?, ?)",
-                (receipt_id, content_type, size, image_path, business_purpose, timestamp, timestamp),
+                "UPDATE receipts SET duplicate_candidates_json=?, updated_at=? WHERE receipt_id=?",
+                (json.dumps(candidates), now(), receipt_id),
             )
 
     def save_ocr(self, receipt_id: str, text: str, engine: str, confidence: float | None) -> None:
@@ -127,25 +186,49 @@ class ReceiptStore:
             review = db.execute("SELECT result_json FROM receipt_reviews WHERE receipt_id=?", (receipt_id,)).fetchone()
             result['review'] = json.loads(review[0]) if review else None
             result['review_version'] = 1 if review else 0
+            candidates = result.pop('duplicate_candidates_json', None)
+            result['duplicate_candidates'] = json.loads(candidates) if candidates else []
+            amendment = db.execute(
+                "SELECT result_json FROM receipt_amendments WHERE receipt_id=? "
+                "ORDER BY version DESC LIMIT 1", (receipt_id,)
+            ).fetchone()
+            result['amendment'] = json.loads(amendment[0]) if amendment else None
+            result['record_version'] = (1 if review else 0) + db.execute(
+                "SELECT count(*) FROM receipt_amendments WHERE receipt_id=?", (receipt_id,)
+            ).fetchone()[0]
+            if result['amendment']:
+                result['effective_data'] = result['amendment']['final_data']
+                result['effective_category'] = result['amendment']['category']
+            elif result['review'] and result['review']['decision'] == 'APPROVED':
+                result['effective_data'] = result['review']['final_data']
+                result['effective_category'] = result['review']['category']
+            else:
+                result['effective_data'] = result['extracted_data']
+                result['effective_category'] = (result['classification'] or {}).get('category')
             return result
 
     def list(self, decision: str | None, processing_status: str | None,
-             limit: int, offset: int) -> dict:
-        where = " WHERE (? IS NULL OR c.decision=?) AND (? IS NULL OR r.processing_status=?)"
-        args = (decision, decision, processing_status, processing_status)
-        source = " FROM receipts r LEFT JOIN classifications c USING(receipt_id) LEFT JOIN receipt_reviews v USING(receipt_id)"
+             limit: int, offset: int, filters: HistoryFilters | None = None) -> dict:
+        filters = filters or HistoryFilters()
+        where, args = filter_clause(filters)
+        legacy = []
+        if decision is not None:
+            legacy.append("decision=?")
+            args += (decision,)
+        if processing_status is not None:
+            legacy.append("processing_status=?")
+            args += (processing_status,)
+        if legacy:
+            where += (" AND " if where else " WHERE ") + " AND ".join(legacy)
         with self.connect() as db:
             # Keep count and page in the same read snapshot.
             db.execute("BEGIN")
-            total = db.execute("SELECT count(*)" + source + where, args).fetchone()[0]
-            rows = db.execute("SELECT r.receipt_id, r.content_type, r.size_bytes, "
-                              "r.processing_status, r.created_at, r.updated_at, c.decision, "
-                              "COALESCE(json_extract(v.result_json, '$.final_data.vendor'), json_extract(r.extraction_json, '$.vendor')) AS vendor, "
-                              "COALESCE(json_extract(v.result_json, '$.final_data.total_amount'), json_extract(r.extraction_json, '$.total_amount')) AS total_amount, "
-                              "COALESCE(json_extract(v.result_json, '$.final_data.currency'), json_extract(r.extraction_json, '$.currency')) AS currency, "
-                              "json_extract(v.result_json, '$.decision') AS review_decision"
-                              + source + where + " ORDER BY r.created_at DESC, r.receipt_id DESC LIMIT ? OFFSET ?",
-                              args + (limit, offset)).fetchall()
+            total = db.execute(HISTORY_CTE + "SELECT count(*) FROM history" + where, args).fetchone()[0]
+            rows = db.execute(
+                HISTORY_CTE + "SELECT " + HISTORY_COLUMNS + " FROM history" + where
+                + " ORDER BY created_at DESC, receipt_id DESC LIMIT ? OFFSET ?",
+                args + (limit, offset),
+            ).fetchall()
         return {'items': [dict(row) for row in rows], 'total': total, 'limit': limit, 'offset': offset}
 
 
@@ -164,4 +247,11 @@ SCHEMA = (
     "CREATE INDEX receipt_history ON receipts(created_at DESC, receipt_id DESC)",
     "CREATE INDEX receipt_status ON receipts(processing_status)",
     "CREATE INDEX classification_decision ON classifications(decision)",
+)
+
+DUPLICATE_SCHEMA = (
+    "ALTER TABLE receipts ADD COLUMN content_sha256 TEXT",
+    "ALTER TABLE receipts ADD COLUMN duplicate_candidates_json TEXT",
+    "CREATE UNIQUE INDEX exact_receipt_content ON receipts(content_sha256) "
+    "WHERE content_sha256 IS NOT NULL",
 )

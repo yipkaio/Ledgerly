@@ -1,7 +1,8 @@
 # Human review (private MVP)
 
-All three routes require `X-API-Key`: `GET /reviews?limit=20&offset=0`,
-`POST /receipts/{receipt_id}/review`, and `GET /receipts/{receipt_id}/reviews`.
+All review and amendment routes require `X-API-Key`: `GET /reviews?limit=20&offset=0`,
+`POST /receipts/{receipt_id}/review`, `GET /receipts/{receipt_id}/reviews`, and
+`POST`/`GET /receipts/{receipt_id}/amendments`.
 No OCR or LLM calls are made by review actions. Use the SSH tunnel and `/docs`,
 or follow the [receipt workspace guide](frontend.md) to review in `/ui/`.
 
@@ -65,8 +66,8 @@ proof that a reviewer supplied truthful information.
 
 1. List `/reviews`, then retrieve a queued receipt with `GET /receipts/{id}`.
 2. Compare the original image with OCR and extracted fields. Use the authenticated
-   GET `/receipts/{id}/image` endpoint or the image viewer in `/ui/`. Missing retained
-   images return 404; do not approve without checking the original evidence.
+   GET `/receipts/{id}/image` endpoint or the file viewer in `/ui/`. Missing retained
+   files return 404; do not approve without checking the original evidence.
 3. Submit a new UUID `request_id`, `expected_version: 0`, `decision: APPROVED`,
    a nonblank `reviewer` and `note`, and `evidence_confirmed: true`.
    Include the entire corrected extraction as `corrected_data` (copy the returned
@@ -90,8 +91,9 @@ proof that a reviewer supplied truthful information.
 
 Exact retries with the same request ID and payload return the original result.
 Reusing an ID for different content, stale versions, reviewing nonqueued receipts,
-or a second final decision returns 409. No reopening/edit-after-finalization is
-supported yet. Pending queue pages exclude both approved and rejected receipts.
+or a second final decision returns 409. Auto-filed and approved receipts can be
+amended using current `record_version`; rejected receipts cannot be reopened.
+Pending queue pages exclude both approved and rejected receipts.
 The decision and before/after audit event commit atomically. SQLite serializes
 concurrent approvals. Audit UPDATE/DELETE triggers protect against accidental
 edits, not a server administrator deliberately modifying the database.
@@ -107,7 +109,7 @@ edits, not a server administrator deliberately modifying the database.
 | 422 | Read detail/field location; replace templates and fix missing, unsupported or inconsistent values. Do not add a meaningless override. |
 | 503 or lost connection | Check health/configuration; GET detail/history before retrying the same request. Do not re-upload just to retry a review. |
 | Original status still REVIEW_QUEUE | Expected: original AI evidence stays unchanged. Read review.decision and the pending /reviews endpoint. |
-| Already approved with wrong data | No correction/reopening endpoint exists yet. Keep history; do not directly delete/edit audit rows. Treat disposable test records as invalid; production recovery needs an audited correction design. |
+| Already approved with wrong data | GET receipt detail, copy `record_version` and effective data, then use the UI's **Save amendment** action or POST `/receipts/{id}/amendments`. Never edit audit rows directly. |
 
 Use TWO disposable queued records: approve one with verified data and reject the
 other with a clear reason. Confirm 200, review_version 1, removal from /reviews,
@@ -118,9 +120,9 @@ return 422 with no review/audit saved and the receipt still pending.
 Uploading a new test image may consume gateway credits; reviewing existing records
 does not. Model routing can vary, so an ambiguous image is not guaranteed to queue.
 
-This hardening update does not change schema version 2 or rewrite existing invalid
-approvals. Previously accepted invalid requests may now return 422 even on retry;
-use GET history to inspect those records. Keep invalid test records out of reports.
+This update migrates the database to schema version 3 without rewriting existing
+approvals. Previously accepted invalid requests remain visible in review history;
+use an audited amendment to correct an approved record. Keep invalid test records out of reports.
 
 Reviewer identity is explicitly `self_reported`: a shared app key cannot prove
 who reviewed a receipt. All key holders share read/write access to this workspace.
@@ -129,10 +131,10 @@ and reviewer authorization are implemented. Review never modifies vendor rules.
 
 ## Migration, verification and deployment
 
-Schema version 1 upgrades transactionally to version 2 on first database access
-(including container startup). Two new tables and audit protection triggers are
-added; original receipt, classification and vendor rows are not rewritten.
-There is no schema downgrade. The old image rejects schema 2.
+Schema versions 1 and 2 upgrade transactionally to version 3 on first database
+access (including container startup). Duplicate metadata, amendment tables and
+audit protection triggers are added; original receipt, classification and vendor
+rows are not rewritten. There is no schema downgrade. Older images reject schema 3.
 
 Run the full local test suite and Docker tests BEFORE updating AWS:
 

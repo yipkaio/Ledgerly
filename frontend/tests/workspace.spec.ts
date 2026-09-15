@@ -1,7 +1,11 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import type { ReviewRequest } from "../src/lib/api";
+import type {
+  Amendment,
+  AmendmentRequest,
+  ReviewRequest,
+} from "../src/lib/api";
 const key = "test-only-key-not-a-real-secret-32-characters";
 const id = "1d898e3a-66fa-4651-bb71-ca85d0a7770f";
 const extraction = {
@@ -35,6 +39,7 @@ const extraction = {
 };
 const original = {
   receipt_id: id,
+  content_type: "image/jpeg",
   processing_status: "REVIEW_QUEUE",
   created_at: "2026-09-13T12:00:00Z",
   business_purpose: null,
@@ -61,6 +66,7 @@ const png = Buffer.from(
 );
 async function setup(page: Page, mode = "success") {
   let review: Record<string, unknown> | null = null;
+  let amendment: Amendment | null = null;
   const requests: ReviewRequest[] = [];
   await page.route("**/dashboard", (route) =>
     route.fulfill({
@@ -117,10 +123,28 @@ async function setup(page: Page, mode = "success") {
   });
   await page.route(`**/receipts/${id}`, (route) =>
     route.fulfill({
-      json: { ...original, review, review_version: review ? 1 : 0 },
+      json: {
+        ...original,
+        review,
+        review_version: review ? 1 : 0,
+        amendment,
+        record_version: amendment ? 2 : review ? 1 : 0,
+        effective_data:
+          amendment?.final_data || review?.final_data || original.extracted_data,
+        effective_category:
+          amendment?.category || review?.category || original.classification.category,
+        duplicate_candidates: [],
+      },
     }),
   );
   await page.route(`**/receipts/${id}/image`, (route) =>
+    route.fulfill({
+      contentType: "image/png",
+      body: png,
+      status: mode === "missing-image" ? 404 : 200,
+    }),
+  );
+  await page.route(`**/receipts/${id}/preview`, (route) =>
     route.fulfill({
       contentType: "image/png",
       body: png,
@@ -144,6 +168,22 @@ async function setup(page: Page, mode = "success") {
       },
     }),
   );
+  await page.route(`**/receipts/${id}/amendments`, async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: { items: amendment ? [amendment] : [] } });
+      return;
+    }
+    const payload = route.request().postDataJSON() as AmendmentRequest;
+    amendment = {
+      ...payload,
+      event_type: "AMENDMENT",
+      record_version: 2,
+      amended_at: "2026-09-13T15:00:00Z",
+      identity_source: "self_reported",
+      validation_issues: [],
+    } as Amendment;
+    await route.fulfill({ json: amendment });
+  });
   await page.route(`**/receipts/${id}/review`, async (route) => {
     const payload = route.request().postDataJSON() as ReviewRequest;
     requests.push(payload);
@@ -217,7 +257,7 @@ test("approval edits, automatic UUID, final audit and no persistent key", async 
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Confirm approval" }).click();
   await expect(
-    page.getByText("This decision is final.", { exact: false }),
+    page.getByText(/Approved by Yip Kai/),
   ).toBeVisible();
   expect(sent).toHaveLength(1);
   expect(sent[0].request_id).toMatch(/^[a-f0-9-]{36}$/);
@@ -231,6 +271,72 @@ test("approval edits, automatic UUID, final audit and no persistent key", async 
   ).toEqual([0, 0]);
   await page.getByRole("button", { name: "Disconnect" }).click();
   await expect(page.getByLabel("App API key")).toHaveValue("");
+});
+
+test("history filters and selected Excel export preserve explicit scope", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.getByLabel("Vendor, receipt number or ID").fill("MR D.I.Y.");
+  await page.getByLabel("Currency").fill("MYR");
+  await page.getByLabel("Category").click();
+  await page.getByRole("option", { name: "Office Supplies" }).click();
+  const filtered = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return (
+      url.pathname === "/receipts" &&
+      url.searchParams.get("query") === "MR D.I.Y." &&
+      url.searchParams.get("currency") === "MYR" &&
+      url.searchParams.get("category") === "Office Supplies"
+    );
+  });
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await filtered;
+
+  let exported: unknown = null;
+  await page.route("**/receipts/export", async (route) => {
+    exported = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      headers: {
+        "Content-Disposition": 'attachment; filename="receipt-history.xlsx"',
+      },
+      body: Buffer.from("safe-test-workbook"),
+    });
+  });
+  await page.getByLabel("Select receipt MR D.I.Y.").check();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export selected" }).click();
+  expect((await download).suggestedFilename()).toBe("receipt-history.xlsx");
+  expect(exported).toEqual({ receipt_ids: [id] });
+  await expect(page.getByText("1 selected across pages")).toBeVisible();
+  await page.getByRole("button", { name: "Clear selection" }).click();
+  await expect(page.getByText("0 selected across pages")).toBeVisible();
+});
+
+test("approved receipt can be amended while earlier review remains visible", async ({
+  page,
+}) => {
+  await setup(page);
+  await open(page);
+  await page.getByRole("button", { name: "Approve receipt" }).click();
+  await page.getByRole("button", { name: "Confirm approval" }).click();
+  await expect(page.getByRole("button", { name: "Save amendment" })).toBeVisible();
+  await page.getByLabel("Vendor *").fill("Amended MR D.I.Y.");
+  await page.getByLabel("Reviewer name").fill("Yip Kai");
+  await page
+    .getByLabel("Amendment reason")
+    .fill("Corrected vendor wording after checking the original image.");
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Save amendment" }).click();
+  await page.getByRole("button", { name: "Confirm amendment" }).click();
+  await expect(page.getByText(/Effective data amended by Yip Kai/)).toBeVisible();
+  await expect(page.getByLabel("Vendor *")).toHaveValue("Amended MR D.I.Y.");
+  await expect(
+    page.getByText(/Version 2; every earlier version remains in the audit/),
+  ).toBeVisible();
 });
 
 test("dashboard totals stay separate by currency and links open the queue", async ({
@@ -263,7 +369,7 @@ test("anchored preview loads on hover and closes with Escape", async ({
   await setup(page);
   let images = 0;
   page.on("request", (req) => {
-    if (req.url().endsWith("/image")) images += 1;
+    if (req.url().endsWith("/preview")) images += 1;
   });
   expect(images).toBe(0);
   await page.getByRole("button", { name: "Preview receipt MR D.I.Y." }).hover();
@@ -320,7 +426,7 @@ test("rejection excludes corrected fields and preserves the audit", async ({
   await page.getByRole("button", { name: "Reject receipt" }).click();
   await page.getByRole("button", { name: "Confirm rejection" }).click();
   await expect(
-    page.getByText("This decision is final.", { exact: false }),
+    page.getByText(/Rejected by Yip Kai/),
   ).toBeVisible();
   expect(sent[0].decision).toBe("REJECTED");
   expect(sent[0]).not.toHaveProperty("corrected_data");
@@ -332,9 +438,9 @@ test("lost response retries identical frozen payload", async ({ page }) => {
   await page.getByRole("button", { name: "Approve receipt" }).click();
   await page.getByRole("button", { name: "Confirm approval" }).click();
   await expect(page.getByLabel("Vendor *")).toBeDisabled();
-  await page.getByRole("button", { name: "Retry same decision" }).click();
+  await page.getByRole("button", { name: "Retry same change" }).click();
   await expect(
-    page.getByText("This decision is final.", { exact: false }),
+    page.getByText(/Approved by Yip Kai/),
   ).toBeVisible();
   expect(sent).toHaveLength(2);
   expect(sent[0]).toEqual(sent[1]);
@@ -412,7 +518,7 @@ test("upload multipart purpose and saved receipt; pagination", async ({
     .getByRole("button", { name: "Upload receipt", exact: true })
     .click();
   await page
-    .getByLabel("Receipt image", { exact: true })
+    .getByLabel("Receipt file", { exact: true })
     .setInputFiles({ name: "receipt.png", mimeType: "image/png", buffer: png });
   await page
     .getByLabel("Business purpose (optional)")
@@ -455,7 +561,7 @@ test("late upload response does not navigate away from the current screen", asyn
     .getByRole("button", { name: "Upload receipt", exact: true })
     .click();
   await page
-    .getByLabel("Receipt image", { exact: true })
+    .getByLabel("Receipt file", { exact: true })
     .setInputFiles({ name: "receipt.png", mimeType: "image/png", buffer: png });
   await page.getByRole("button", { name: "Upload and process" }).click();
   await start;

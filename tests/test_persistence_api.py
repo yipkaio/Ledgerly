@@ -35,7 +35,10 @@ def test_review_filter_and_pagination(monkeypatch, tmp_path):
     client, _, extractor, _ = configured_client(monkeypatch, tmp_path)
     client.post("/receipts/upload", headers=HEADERS, files=FILES)
     extractor.needs_review = True
-    response = client.post("/receipts/upload", headers=HEADERS, files=FILES)
+    response = client.post(
+        "/receipts/upload", headers=HEADERS,
+        files={"receipt": ("receipt.jpg", b"\xff\xd8\xffdifferent", "image/jpeg")},
+    )
     page = client.get("/receipts?decision=REVIEW_QUEUE", headers=HEADERS).json()
     assert page["total"] == 1
     assert page["items"][0]["receipt_id"] == response.json()["receipt_id"]

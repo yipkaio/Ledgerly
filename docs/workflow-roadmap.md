@@ -33,47 +33,38 @@ and blob URLs revoked. Images are not written to browser storage or preloaded fo
 The original endpoint can transfer up to the configured upload limit; bounded
 server-generated thumbnails would further reduce transfers for large images.
 
-## Duplicate receipts: next correctness milestone
+## Duplicate receipts (implemented)
 
-Every current upload creates a new ID and runs OCR/extraction again. Identical
-uploads can consume gateway credits again and create duplicate expenses. The
-dashboard reports those records individually. Review request UUIDs protect decision
-retries; they do not deduplicate uploads.
+The server hashes each validated upload while streaming it to disk. An exact binary
+match returns 409 with `existing_receipt_id` before OCR or gateway calls. A unique
+database index also closes the concurrent-upload race.
 
-Planned behavior:
+After extraction, potential matches use vendor, receipt number, date, currency and
+payable total. A new photo or recompressed image has a different file hash and needs
+this second check. It cannot prevent the initial extraction charge because the
+identity fields are not known before extraction. Legitimate recurring invoices with
+different dates or numbers are not duplicates merely because vendor and amount repeat.
+The candidate is sent to review and links the prior receipt ID. A dedicated
+confirmed/not-duplicate disposition remains a later refinement.
 
-- Hash validated file bytes and reserve that hash transactionally before paid
-  processing. Concurrent identical uploads must link to the existing record rather
-  than both starting gateway calls. Display its saved status, including processing
-  or failure. Retrying a failed stage must be explicit.
-- After extraction, flag potential matches using vendor, receipt number, date,
-  currency and payable total. A new photo/recompressed image has a different file
-  hash and needs this second check. This check cannot prevent its initial extraction
-  charge because the match fields are not yet known before extraction.
-- Show both records for confirmation; legitimate recurring invoices with different
-  dates/numbers are not duplicates merely because vendor and amount repeat.
-- Record a duplicate disposition while retaining evidence and history. Change the
-  business purpose through an amendment rather than another upload.
+## Editing filed receipts: audited amendments (implemented)
 
-## Editing filed receipts: audited amendments
+Auto-filed and approved receipts can be corrected through **Save amendment** or
+`POST /receipts/{id}/amendments`. Every change requires reviewer, reason, evidence
+confirmation, current `record_version`, an idempotent request UUID, complete
+validated fields and category. Original OCR, AI extraction, review and every earlier
+amendment remain immutable. Stale concurrent edits return 409. Detail, history and
+dashboard use the newest effective version. Rejected/pending/failed receipts cannot
+be amended; reversal is a separate future transition. A shared app key still does
+not establish reviewer roles.
 
-Bookkeepers should be able to correct an auto-filed or approved receipt. The current
-endpoint accepts one final decision for a queued receipt; filed/finalized records
-remain read-only. Removing its pending check alone would break the existing model.
+## Filtered history and selected Excel export (implemented)
 
-Add **Amend receipt** with reviewer, reason, current version, idempotent request ID,
-and validated final fields/category. Preserve original OCR, AI extraction, earlier
-human decisions and every amendment. Reject stale versions when two people edit the
-same record. Lists, dashboard and exports must read the latest effective version.
-Reopening/rejection reversals need recorded transitions. A shared app key does not
-establish reviewer roles; individual authentication remains separate future work.
-
-## Selected Excel export
-
-Bulk selection and `.xlsx` download are not implemented. Add row checkboxes, a
-select-page control, selected count and clear-selection action. Preserve receipt IDs
-across pages and state whether an export covers selected records or all filtered
-results. Selection must not imply bulk approval.
+History supports server-side vendor/receipt search, effective category, currency,
+workflow status and inclusive receipt-date filters. Filters drive pagination and
+**Export filtered**. Row and select-page checkboxes preserve explicit IDs across
+pages for **Export selected**; changing filters clears selection to prevent hidden
+rows from being exported accidentally. Selection never implies bulk approval.
 
 The authenticated server should generate:
 
@@ -83,36 +74,32 @@ The authenticated server should generate:
 | Line items | Receipt ID, description, quantity, prices, optional discounts and totals |
 | Review audit | Decisions/amendments, reviewer, timestamps and reasons |
 
-Use the same effective-value rules as the dashboard, receipt IDs for joins and
-separate currency totals. Unknown values remain blank. Export a consistent snapshot,
-bound the selection/file size, treat descriptions as text instead of spreadsheet
-formulas, and send private non-cacheable downloads.
+The server uses the same effective-value rules as the dashboard and one SQLite read
+snapshot. Selected exports are capped at 500 receipts and filtered exports at 1,000.
+Unknown values remain blank, formula-like strings stay text, and downloads are
+authenticated and non-cacheable. See [the export guide](export.md).
 
-## PDFs
+## PDFs (implemented)
 
-PDF support is useful for emailed invoices and scanned receipts. Current uploads
-accept JPEG/PNG only; adding a PDF option to the browser input is insufficient.
-
-Add a separately tested path: extract usable embedded text, otherwise render pages
-and run OCR. Retain the original PDF and protected page previews. Send text to the
-gateway. Start with 5 MB and up to 3 pages, reject encrypted/malformed documents,
-and bound rendering time, dimensions and memory. Initially one multi-page document
-should represent one receipt; splitting multiple invoices should be explicit.
+Uploads accept emailed or scanned PDFs through a separately tested path. The server
+checks the PDF signature, keeps the original behind authentication, rejects
+encrypted/malformed files and defaults to three pages and 5 MB. Usable embedded
+text is extracted per page; pages without it are rendered under time, dimension and
+pixel limits and sent through the selected OCR engine. Only the resulting text goes
+to the LLM gateway. A bounded first-page PNG supports authenticated previews.
+One multi-page document represents one receipt; multiple invoices must be split.
 
 ## Further usability priorities
 
-1. Server-side vendor/date/category/status/currency search and filters, connected to
-   pagination and export selection. Issue cards currently open all history; focused
-   failed/processing filters should follow.
-2. Receipt zoom/rotation and **Review next** to reduce repetitive navigation.
-3. Stage progress and failure recovery that reuses saved OCR instead of charging
+1. Receipt zoom/rotation and **Review next** to reduce repetitive navigation.
+2. Stage progress and failure recovery that reuses saved OCR instead of charging
    for a whole repeated pipeline. Avoid invented progress percentages while the
    current upload remains one synchronous request.
-4. Individual authentication and reviewer roles before public multi-user access.
-5. Friendly empty states, saved-filter links without credentials and accessible
+3. Individual authentication and reviewer roles before public multi-user access.
+4. Friendly empty states, saved-filter links without credentials and accessible
    action notifications. Preserve existing unsaved-change warnings, confirmation
    dialogs, retained error drafts and safe review retries.
 
-Recommended order: duplicate prevention and audited amendments, then filtered
-history and Excel export, followed by PDFs. Dashboard and preview changes do not
+Duplicate prevention, audited amendments, filtered history, Excel export and PDF
+ingestion are now implemented. Dashboard and preview changes do not
 create AWS resources or automatically change the deployed instance.

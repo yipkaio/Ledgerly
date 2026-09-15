@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import secrets
+import hashlib
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
@@ -12,11 +14,14 @@ from typing import Literal
 
 from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, Query, status
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from app.images import receipt_image
-from app.database import DatabaseError, ReceiptStore
+from app.images import receipt_image, receipt_preview
+from app.database import DatabaseError, DuplicateReceiptError, ReceiptStore
+from app.amendments import AmendmentRequest, amendment_history, submit_amendment
+from app.exporting import ExportInvalid, ExportRequest, build_export
+from app.history import HistoryFilters
 from app.dashboard import dashboard_summary
 from app.review import (ReviewRequest, ReviewConflict, ReviewNotFound, ReviewInvalid,
                         pending_reviews, review_history, submit_review)
@@ -32,6 +37,7 @@ from app.classification import (
     GatewayExpenseClassifier,
     apply_confidence_gate,
     failed_classification_outcome,
+    WorkflowDecision,
 )
 from app.config import ConfigurationError, Settings, api_docs_enabled
 from app.extraction import (
@@ -52,11 +58,19 @@ from app.ocr import (
     PaddleOCRService,
     TesseractOCRService,
 )
+from app.pdf import (
+    PDFEncryptedError,
+    PDFError,
+    PDFPageLimitError,
+    PDFTimeoutError,
+    extract_pdf,
+)
 
 CHUNK_SIZE = 64 * 1024
-IMAGE_TYPES = {
+RECEIPT_TYPES = {
     "image/jpeg": (".jpg", (b"\xff\xd8\xff",)),
     "image/png": (".png", (b"\x89PNG\r\n\x1a\n",)),
+    "application/pdf": (".pdf", (b"%PDF-",)),
 }
 
 
@@ -70,6 +84,7 @@ class ReceiptProcessed(BaseModel):
     extracted_data: ReceiptExtraction
     business_purpose: str | None
     classification: ClassificationOutcome
+    duplicate_candidates: list[str] = Field(default_factory=list)
     status: str = "processing_complete"
 
 
@@ -155,7 +170,7 @@ def get_expense_classifier(
 
 def has_expected_signature(content_type: str, prefix: bytes) -> bool:
     return any(
-        prefix.startswith(signature) for signature in IMAGE_TYPES[content_type][1]
+        prefix.startswith(signature) for signature in RECEIPT_TYPES[content_type][1]
     )
 
 
@@ -174,6 +189,17 @@ def create_app() -> FastAPI:
     async def database_error_handler(request, exc):
         return JSONResponse(status_code=503, content={"detail": "Receipt database is unavailable"})
 
+    @api.exception_handler(DuplicateReceiptError)
+    async def duplicate_receipt_handler(request, exc):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "This exact receipt file was already uploaded",
+                "existing_receipt_id": exc.receipt_id,
+            },
+            headers={"X-Receipt-ID": exc.receipt_id},
+        )
+
     @api.exception_handler(ReviewConflict)
     async def review_conflict_handler(request, exc):
         return JSONResponse(status_code=409, content={"detail": str(exc)})
@@ -186,6 +212,10 @@ def create_app() -> FastAPI:
     async def review_invalid_handler(request, exc):
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
+    @api.exception_handler(ExportInvalid)
+    async def export_invalid_handler(request, exc):
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
     @api.get("/reviews", tags=["reviews"], summary="1. List receipts awaiting human review",
              description="Read only. Copy a receipt_id, then use GET /receipts/{receipt_id}. Empty items means no pending receipts on THIS server. Local port 8000 and the AWS tunnel port 18000 use separate databases. Finalized, AUTO_FILED, FAILED and PROCESSING receipts are excluded.")
     async def reviews(settings: Annotated[Settings, Depends(require_api_key)],
@@ -195,7 +225,7 @@ def create_app() -> FastAPI:
 
     @api.post("/receipts/{receipt_id}/review", tags=["reviews"],
               summary="3. Finalize approval or rejection (writes data)",
-              description="""**Final decisions cannot currently be undone or reopened. Use disposable records for testing.**
+              description="""**Approval/rejection is final. Approved records can later receive audited amendments; rejected records cannot be reopened. Use disposable records for testing.**
 
 1. First GET the receipt detail and check `review` is null and `review_version` is 0.
 2. Compare the original image with vendor, date, currency, EVERY line item, discounts, tax and totals. Use the authenticated GET /receipts/{receipt_id}/image endpoint or the /ui/ receipt workspace.
@@ -207,7 +237,7 @@ def create_app() -> FastAPI:
 
 Review currencies currently supported: SGD, MYR, USD, EUR, GBP, AUD. Unknown optional values remain null; never invent zero or discounts. Vendor, date, currency and total are required for approval. Zero totals are allowed when verified. `override_reason` is only for a documented remaining arithmetic discrepancy, not a way to bypass missing fields, unsupported currency or placeholders. Arithmetic uses a 0.02 tolerance and cannot establish business purpose or truth of the receipt.
 
-On timeout, GET the receipt first, then retry the SAME UUID and identical payload if needed. A new UUID does not reopen a finalized receipt. Existing invalid approvals are not repaired by this update. Review names are self-reported under the shared app key; no vendor rule is learned and no payment/accounting posting occurs.""",
+On timeout, GET the receipt first, then retry the SAME UUID and identical payload if needed. A new UUID does not create a second review. Correct an approved record through the amendment endpoint; do not overwrite its audit history. Review names are self-reported under the shared app key; no vendor rule is learned and no payment/accounting posting occurs.""",
               responses={200: {"description": "Decision saved, or identical retry returned; inspect decision and review_version."},
                          401: {"description": "Missing/wrong APP_API_KEY for this server; do not use the gateway key."},
                          404: {"description": "Receipt not found on this server."},
@@ -233,6 +263,42 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
                       settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
         return await run_in_threadpool(review_history, ReceiptStore(settings.database_path), str(receipt_id))
 
+    @api.post(
+        "/receipts/{receipt_id}/amendments",
+        tags=["reviews"],
+        summary="Amend an auto-filed or approved receipt (append-only)",
+        description="Creates a new effective version without changing original OCR, AI extraction, review, or earlier amendments. Copy record_version from GET receipt detail, verify the original evidence, provide the complete corrected data and category, and use a new request UUID. Stale versions and rejected/pending/failed receipts are rejected.",
+        responses={
+            200: {"description": "Amendment saved, or identical retry returned."},
+            409: {"description": "Stale version, ineligible receipt, or request UUID conflict."},
+            422: {"description": "Invalid fields or unresolved arithmetic issues."},
+        },
+    )
+    async def amend(
+        receipt_id: UUID,
+        body: AmendmentRequest,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> dict:
+        return await run_in_threadpool(
+            submit_amendment,
+            ReceiptStore(settings.database_path),
+            str(receipt_id),
+            body,
+        )
+
+    @api.get(
+        "/receipts/{receipt_id}/amendments",
+        tags=["reviews"],
+        summary="Inspect immutable receipt amendment history",
+    )
+    async def amendments(
+        receipt_id: UUID,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> dict:
+        return await run_in_threadpool(
+            amendment_history, ReceiptStore(settings.database_path), str(receipt_id)
+        )
+
     @api.get('/dashboard', tags=['dashboard'], summary='Workspace counts and accepted expense totals',
              description='Read only and authenticated. Human decisions take precedence. Amounts include APPROVED and AUTO_FILED receipts only, grouped by currency; rejected, pending, failed and processing records are excluded from expense totals. Integer cents avoid adding binary floating-point amounts. Trends use receipt dates and show up to the latest 12 months with accepted receipts per currency, not upload dates. These are workflow totals, not accounting postings.',
              responses={401: {'description': 'Missing or wrong app key'}, 503: {'description': 'Database or configuration unavailable'}})
@@ -244,11 +310,53 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
         settings: Annotated[Settings, Depends(require_api_key)],
         decision: Literal["AUTO_FILED", "REVIEW_QUEUE"] | None = None,
         processing_status: Literal["PROCESSING", "COMPLETED", "REVIEW_QUEUE", "FAILED"] | None = None,
+        query: Annotated[str | None, Query(max_length=100)] = None,
+        vendor: Annotated[str | None, Query(max_length=100)] = None,
+        category: str | None = None,
+        currency: Annotated[str | None, Query(pattern=r"^[A-Z]{3}$")] = None,
+        state: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
         offset: Annotated[int, Query(ge=0)] = 0,
     ) -> dict:
+        try:
+            filters = HistoryFilters(query=query, vendor=vendor, category=category,
+                                     currency=currency, state=state,
+                                     date_from=date_from, date_to=date_to)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail="Invalid receipt history filters") from exc
         return await run_in_threadpool(
-            ReceiptStore(settings.database_path).list, decision, processing_status, limit, offset
+            ReceiptStore(settings.database_path).list,
+            decision,
+            processing_status,
+            limit,
+            offset,
+            filters,
+        )
+
+    @api.post(
+        "/receipts/export",
+        tags=["receipts"],
+        summary="Export selected or filtered receipt history to Excel",
+        description="Authenticated, read-only export using the latest effective receipt values and one SQLite snapshot. Supply 1-500 receipt_ids for selected rows, or omit receipt_ids and supply filters to export up to 1000 matching rows. The workbook contains Receipts, Line items and Review audit sheets. It never runs OCR or the LLM.",
+        responses={200: {"content": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}}},
+                   422: {"description": "Invalid selection, missing selected record, or filtered result too large."}},
+    )
+    async def export_receipts(
+        body: ExportRequest,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> Response:
+        content, count = await run_in_threadpool(
+            build_export, ReceiptStore(settings.database_path), body
+        )
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": 'attachment; filename="receipt-history.xlsx"',
+                "X-Receipt-Count": str(count),
+            },
         )
 
     @api.get("/receipts/{receipt_id}", tags=["receipts"], summary="2. View receipt and copy extraction (read only)",
@@ -273,7 +381,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
         tags=["receipts"],
     )
     async def upload_receipt(
-        receipt: Annotated[UploadFile, File(description="JPEG or PNG receipt")],
+        receipt: Annotated[UploadFile, File(description="JPEG, PNG, or PDF receipt")],
         settings: Annotated[Settings, Depends(require_api_key)],
         ocr_service: Annotated[OCRService, Depends(get_ocr_service)],
         receipt_extractor: Annotated[
@@ -291,18 +399,20 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
         ] = None,
     ) -> ReceiptProcessed:
         content_type = (receipt.content_type or "").lower()
-        if content_type not in IMAGE_TYPES:
+        if content_type not in RECEIPT_TYPES:
             raise HTTPException(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail="Only JPEG and PNG receipts are supported",
+                detail="Only JPEG, PNG, and PDF receipts are supported",
             )
 
         receipt_id = str(uuid4())
-        extension = IMAGE_TYPES[content_type][0]
+        extension = RECEIPT_TYPES[content_type][0]
         temporary_path = settings.upload_dir / f".{receipt_id}.upload"
         final_path = settings.upload_dir / f"{receipt_id}{extension}"
+        preview_path = settings.upload_dir / f"{receipt_id}.preview.png"
         size = 0
         prefix = b""
+        digest = hashlib.sha256()
 
         try:
             settings.upload_dir.mkdir(parents=True, exist_ok=True)
@@ -316,6 +426,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
                         )
                     if len(prefix) < 16:
                         prefix += chunk[: 16 - len(prefix)]
+                    digest.update(chunk)
                     destination.write(chunk)
 
             if size == 0 or not has_expected_signature(content_type, prefix):
@@ -342,30 +453,69 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
             await run_in_threadpool(
                 store.start, receipt_id, content_type, size, str(final_path.resolve()),
                 (business_purpose.strip() if business_purpose else None) or None,
+                digest.hexdigest(),
             )
+        except DuplicateReceiptError:
+            final_path.unlink(missing_ok=True)
+            raise
         except DatabaseError:
             final_path.unlink(missing_ok=True)
             raise
 
         async def process() -> ReceiptProcessed:
             try:
-                ocr_result: OCRResult = await run_in_threadpool(
-                    ocr_service.extract, final_path
-                )
+                if content_type == "application/pdf":
+                    ocr_result = await run_in_threadpool(
+                        extract_pdf,
+                        final_path,
+                        ocr_service,
+                        preview_path,
+                        max_pages=settings.pdf_max_pages,
+                        max_render_pixels=settings.pdf_max_render_pixels,
+                        timeout_seconds=settings.pdf_timeout_seconds,
+                    )
+                else:
+                    ocr_result = await run_in_threadpool(ocr_service.extract, final_path)
+            except PDFEncryptedError as exc:
+                final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=422, detail="Encrypted PDFs are not supported"
+                ) from exc
+            except PDFPageLimitError as exc:
+                final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"PDF must contain 1 to {settings.pdf_max_pages} pages",
+                ) from exc
+            except PDFTimeoutError as exc:
+                final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=504, detail="Receipt PDF timed out") from exc
+            except PDFError as exc:
+                final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=422, detail="Receipt PDF could not be processed"
+                ) from exc
             except OCRUnavailableError as exc:
                 final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="OCR service is unavailable",
                 ) from exc
             except OCRTimeoutError as exc:
                 final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
                 raise HTTPException(
                     status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                     detail="Receipt OCR timed out",
                 ) from exc
             except (OCRProcessingError, OCRNoTextError) as exc:
                 final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Receipt text could not be extracted",
@@ -394,6 +544,14 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
             normalized_business_purpose = (
                 business_purpose.strip() if business_purpose else None
             ) or None
+            duplicate_candidates = await run_in_threadpool(
+                store.probable_duplicates,
+                receipt_id,
+                extracted_data.model_dump(mode="json"),
+            )
+            await run_in_threadpool(
+                store.save_duplicate_candidates, receipt_id, duplicate_candidates
+            )
             lookup_category = await run_in_threadpool(store.lookup_vendor, extracted_data.vendor)
             if lookup_category is None:
                 lookup_category = await run_in_threadpool(store.lookup_vendor, extracted_data.legal_entity)
@@ -437,6 +595,21 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
                         "Expense classification returned an invalid response"
                     )
 
+            if duplicate_candidates:
+                duplicate_reason = (
+                    "Possible duplicate of receipt " + duplicate_candidates[0]
+                )
+                reasons = list(dict.fromkeys(
+                    [*classification.review_reasons, duplicate_reason]
+                ))[:20]
+                classification = classification.model_copy(
+                    update={
+                        "needs_review": True,
+                        "review_reasons": reasons,
+                        "workflow_decision": WorkflowDecision.REVIEW_QUEUE,
+                    }
+                )
+
             return ReceiptProcessed(
                 receipt_id=receipt_id,
                 content_type=content_type,
@@ -447,6 +620,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
                 extracted_data=extracted_data,
                 business_purpose=normalized_business_purpose,
                 classification=classification,
+                duplicate_candidates=duplicate_candidates,
             )
 
         try:
@@ -474,15 +648,25 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
                 headers={"X-Receipt-ID": receipt_id},
             ) from exc
 
-    @api.get('/receipts/{receipt_id}/image', tags=['receipts'], summary='View original receipt image (authenticated)',
+    @api.get('/receipts/{receipt_id}/image', tags=['receipts'], summary='View original receipt file (authenticated)',
              response_class=Response,
-             description='Read only. Use the app key and saved receipt UUID. Returns the retained JPEG or PNG, never a database-supplied file path. Missing or invalid images return 404; do not approve without checking original evidence. The /ui/ workspace handles authenticated image loading for you.',
-             responses={200: {'description': 'Original JPEG or PNG', 'content': {'image/jpeg': {}, 'image/png': {}}},
+             description='Read only. Use the app key and saved receipt UUID. Returns the retained JPEG, PNG, or PDF, never a database-supplied file path. Missing or invalid files return 404; do not approve without checking original evidence. The /ui/ workspace handles authenticated loading for you.',
+             responses={200: {'description': 'Original JPEG, PNG, or PDF', 'content': {'image/jpeg': {}, 'image/png': {}, 'application/pdf': {}}},
                         401: {'description': 'Missing or wrong app key'},
                         404: {'description': 'Receipt or retained image unavailable'},
                         503: {'description': 'Database or app configuration unavailable'}})
     async def image(receipt_id: UUID, settings: Annotated[Settings, Depends(require_api_key)]):
         return await run_in_threadpool(receipt_image, ReceiptStore(settings.database_path),
+                                       settings.upload_dir, str(receipt_id), settings.max_upload_bytes)
+
+    @api.get('/receipts/{receipt_id}/preview', tags=['receipts'], summary='View receipt preview image (authenticated)',
+             response_class=Response,
+             description='Returns the original JPEG/PNG or a bounded generated PNG of the first PDF page. It never reruns OCR or the LLM.',
+             responses={200: {'description': 'Preview image', 'content': {'image/jpeg': {}, 'image/png': {}}},
+                        401: {'description': 'Missing or wrong app key'},
+                        404: {'description': 'Receipt or preview unavailable'}})
+    async def preview(receipt_id: UUID, settings: Annotated[Settings, Depends(require_api_key)]):
+        return await run_in_threadpool(receipt_preview, ReceiptStore(settings.database_path),
                                        settings.upload_dir, str(receipt_id), settings.max_upload_bytes)
 
     @api.middleware('http')
@@ -497,7 +681,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
             response.headers['Content-Security-Policy'] = (
                 "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' blob:; connect-src 'self'; base-uri 'none'; "
-                "frame-ancestors 'none'; object-src 'none'"
+                "frame-src blob:; frame-ancestors 'none'; object-src 'none'"
             )
         return response
 

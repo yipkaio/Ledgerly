@@ -52,8 +52,8 @@ After connecting, **Main dashboard** shows saved counts and accepted expense cha
 separately for each currency. Navigation then offers **Upload receipt**, **Pending
 reviews**, and **Receipt history**. Hover the eye button beside a history row for
 an animated private preview, or use click/Enter on keyboard and touch devices.
-See [workflow behavior and planned features](workflow-roadmap.md) for duplicate
-uploads, audited amendments, selected Excel export and PDFs.
+See [workflow behavior and planned features](workflow-roadmap.md) for implemented
+duplicate/amendment controls, filtered Excel export, and the PDF milestone.
 
 Previews do not scroll. A fixed header keeps the vendor title, amount and close
 button visible; long titles are shortened visually, with the full title available
@@ -64,11 +64,24 @@ keyboard. Scrolling the history list or resizing the window dismisses the card.
 The image stays mounted through the closing fade, then requests and image URLs
 are released. Use **Open full receipt** for detailed inspection.
 
+History filters run on the server and use the latest approved or amended values.
+Search accepts vendor, receipt number, or receipt ID. Category, currency, effective
+workflow status, and inclusive receipt-date ranges can be combined. Click **Apply
+filters**; pagination and **Export filtered** then use the same scope. Changing or
+clearing filters also clears selected IDs.
+
+Use row checkboxes or **Select all receipts on this page** to build an explicit
+selection across pages. **Export selected** downloads only those IDs. The selected
+count stays visible, and **Clear selection** never changes receipt decisions. See
+[History filters and Excel export](export.md) for limits and workbook fields.
+
 1. Connect with the chosen server's app key. All key holders share one workspace;
    this is not individual user authentication.
-2. Choose **Upload receipt**. Select a JPEG or PNG up to 5 MB. Enter an optional
+2. Choose **Upload receipt**. Select a JPEG, PNG, or PDF up to 5 MB. PDFs can have
+   up to three pages and represent one receipt. Enter an optional
    business purpose, then click **Upload and process** once. Processing may consume
-   gateway credits. On a lost response, check history before uploading again.
+   gateway credits. On a lost response, check history before uploading again. An
+   exact duplicate returns the existing receipt ID without rerunning OCR/LLM.
 3. Open the saved receipt, or choose **Pending reviews**. History and pending lists
    are paginated in groups of 20. A missing vendor or amount means processing did
    not extract it; inspect the saved record for errors.
@@ -89,12 +102,15 @@ are released. Use **Open full receipt** for detailed inspection.
 8. Confirm once. The record reloads after saving; inspect **Review audit**. The
    original AI evidence stays intact and the human decision is final. Approved data
    and human status appear in history; finalized receipts leave the pending queue.
+9. Open an auto-filed or approved receipt to correct it. **Save amendment** creates
+   a new effective version; enter a specific reason and re-confirm the evidence.
+   Earlier versions stay in the audit and stale concurrent edits are rejected.
 
 For validation errors, correct the identified fields; edits are retained. An
 explicit override explanation is only for an evidence-supported remaining amount
 issue; it cannot bypass schema, missing-field, currency, or placeholder checks.
 A stale/conflicting request blocks further decisions until the saved record is
-reloaded. On an uncertain response, edits freeze and **Retry same decision** sends
+reloaded. On an uncertain response, edits freeze and **Retry same change** sends
 exactly the same UUID and payload. **Reload saved record** checks what was saved
 and discards local edits. Reloading, disconnecting or leaving the receipt also
 loses unsaved edits. Navigation, disconnecting, and browser reloads warn while a
@@ -122,7 +138,7 @@ stored in browser storage, URLs, build variables, or source files. The browser
 receives no gateway credentials. Data/image requests remain authenticated and
 responses use `Cache-Control: no-store`. The public static shell contains no receipt
 or secret data. Production sets content security, no-sniff, and referrer headers.
-Blob image URLs are revoked on leaving a receipt. Use HTTPS for any future public
+Blob image/PDF URLs are revoked on leaving a receipt. Use HTTPS for any future public
 host; retain the SSH tunnel for the current private setup. Trusted key holders and
 server administrators can access workspace data. Verified user identity, role
 permissions, account isolation, and audited reopening are future work.
