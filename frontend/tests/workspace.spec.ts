@@ -265,6 +265,49 @@ test("approval edits, automatic UUID, final audit and no persistent key", async 
   await expect(page.getByLabel("App API key")).toHaveValue("");
 });
 
+test("history filters and selected Excel export preserve explicit scope", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.getByLabel("Vendor, receipt number or ID").fill("MR D.I.Y.");
+  await page.getByLabel("Currency").fill("MYR");
+  await page.getByLabel("Category").click();
+  await page.getByRole("option", { name: "Office Supplies" }).click();
+  const filtered = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return (
+      url.pathname === "/receipts" &&
+      url.searchParams.get("query") === "MR D.I.Y." &&
+      url.searchParams.get("currency") === "MYR" &&
+      url.searchParams.get("category") === "Office Supplies"
+    );
+  });
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await filtered;
+
+  let exported: unknown = null;
+  await page.route("**/receipts/export", async (route) => {
+    exported = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      headers: {
+        "Content-Disposition": 'attachment; filename="receipt-history.xlsx"',
+      },
+      body: Buffer.from("safe-test-workbook"),
+    });
+  });
+  await page.getByLabel("Select receipt MR D.I.Y.").check();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export selected" }).click();
+  expect((await download).suggestedFilename()).toBe("receipt-history.xlsx");
+  expect(exported).toEqual({ receipt_ids: [id] });
+  await expect(page.getByText("1 selected across pages")).toBeVisible();
+  await page.getByRole("button", { name: "Clear selection" }).click();
+  await expect(page.getByText("0 selected across pages")).toBeVisible();
+});
+
 test("approved receipt can be amended while earlier review remains visible", async ({
   page,
 }) => {

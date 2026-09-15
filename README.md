@@ -70,6 +70,10 @@ All history endpoints require the same `X-API-Key` as upload:
 - `GET /receipts?limit=20&offset=0` returns newest-first metadata, a total count,
   and pagination. Maximum page size is 100; OCR text is excluded from list results.
 - `GET /receipts?decision=REVIEW_QUEUE` filters saved review decisions.
+- `GET /receipts?query=...&category=...&currency=...&state=...&date_from=...&date_to=...`
+  filters the latest effective values while preserving pagination.
+- `POST /receipts/export` downloads selected IDs or all filtered results as a
+  bounded three-sheet `.xlsx` workbook.
 - `GET /reviews` returns the outstanding human-review queue, excluding finalized reviews.
 - `POST /receipts/{receipt_id}/review` approves or rejects a queued receipt.
 - `GET /receipts/{receipt_id}/reviews` returns its review audit history.
@@ -84,6 +88,11 @@ compatibility. `AUTO_FILED` is an internal decision, not submission to an extern
 accounting system. `REVIEW_QUEUE` does not mean a human has approved the expense.
 These original processing fields remain historical after review. Receipt detail
 includes review, amendment, effective-value and version fields; use `/reviews` for pending work.
+
+In the UI, apply history filters before selecting rows. Selection is retained while
+you paginate and is cleared when filters change. **Export selected** sends only the
+explicit IDs; **Export filtered** exports the server-side result, up to 1,000
+receipts. See [History filters and Excel export](docs/export.md).
 
 After a validated image is saved, a processing record is created before OCR runs.
 OCR evidence is saved before extraction. Controlled processing failures return the

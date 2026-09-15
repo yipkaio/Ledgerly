@@ -1,0 +1,128 @@
+from io import BytesIO
+from uuid import uuid4
+from zipfile import ZipFile
+
+from app.extraction import ReceiptExtraction
+from test_api import TEST_KEY, configured_client
+from test_duplicates_amendments import amendment_body
+
+
+HEADERS = {"X-API-Key": TEST_KEY}
+
+
+def upload(client, content: bytes):
+    response = client.post(
+        "/receipts/upload",
+        headers=HEADERS,
+        files={"receipt": ("receipt.jpg", b"\xff\xd8\xff" + content, "image/jpeg")},
+    )
+    assert response.status_code == 202, response.text
+    return response.json()
+
+
+def test_history_filters_use_latest_effective_values(monkeypatch, tmp_path):
+    client, _, extractor, _ = configured_client(monkeypatch, tmp_path)
+    first = upload(client, b"one")
+    second = upload(client, b"two")
+    detail = client.get(f"/receipts/{first['receipt_id']}", headers=HEADERS).json()
+    body = amendment_body(
+        detail,
+        vendor="Corrected 100% Supplies_Store",
+        receipt_number="INV-200",
+        date="2024-04-05",
+        currency="SGD",
+    )
+    assert client.post(
+        f"/receipts/{first['receipt_id']}/amendments", headers=HEADERS, json=body
+    ).status_code == 200
+
+    page = client.get(
+        "/receipts?query=100%25%20Supplies_Store&currency=SGD&state=AMENDED"
+        "&category=Office%20Supplies&date_from=2024-04-01&date_to=2024-04-30",
+        headers=HEADERS,
+    )
+    assert page.status_code == 200, page.text
+    assert page.json()["total"] == 1
+    row = page.json()["items"][0]
+    assert row["receipt_id"] == first["receipt_id"]
+    assert row["vendor"] == "Corrected 100% Supplies_Store"
+    assert row["receipt_number"] == "INV-200"
+    assert row["receipt_date"] == "2024-04-05"
+    assert row["workflow_state"] == "AMENDED"
+    assert client.get("/receipts?vendor=MR%20DIY", headers=HEADERS).json()["total"] == 1
+    assert client.get("/receipts?query=" + second["receipt_id"][:8], headers=HEADERS).json()["total"] == 1
+    assert client.get(
+        "/receipts?date_from=2025-01-01&date_to=2024-01-01", headers=HEADERS
+    ).status_code == 422
+
+
+def test_selected_export_has_three_safe_effective_sheets(monkeypatch, tmp_path):
+    client, _, extractor, _ = configured_client(monkeypatch, tmp_path)
+
+    async def formula_data(text):
+        base = await original(text)
+        values = base.model_dump(mode="json")
+        values["vendor"] = "=HYPERLINK(\"https://evil.invalid\")"
+        values["receipt_number"] = "R-1"
+        values["line_items"] = [{
+            "description": "+cmd|' /C calc'!A0",
+            "quantity": 1,
+            "unit_price": 33.90,
+            "discount_percent": None,
+            "discount_amount": None,
+            "line_total": 33.90,
+        }]
+        return ReceiptExtraction.model_validate(values)
+
+    original = extractor.extract
+    extractor.extract = formula_data
+    receipt = upload(client, b"formula")
+    response = client.post(
+        "/receipts/export",
+        headers=HEADERS,
+        json={"receipt_ids": [receipt["receipt_id"]]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert response.headers["x-receipt-count"] == "1"
+    assert "receipt-history.xlsx" in response.headers["content-disposition"]
+    assert response.headers["cache-control"] == "no-store"
+
+    with ZipFile(BytesIO(response.content)) as archive:
+        workbook = archive.read("xl/workbook.xml").decode()
+        strings = archive.read("xl/sharedStrings.xml").decode()
+        worksheets = "".join(
+            archive.read(name).decode()
+            for name in archive.namelist()
+            if name.startswith("xl/worksheets/sheet")
+        )
+    assert all(name in workbook for name in ("Receipts", "Line items", "Review audit"))
+    assert "HYPERLINK" in strings and "cmd|' /C calc'!A0" in strings
+    assert "<f>" not in worksheets
+
+
+def test_filtered_export_and_selection_validation(monkeypatch, tmp_path):
+    client, *_ = configured_client(monkeypatch, tmp_path)
+    upload(client, b"one")
+    upload(client, b"two")
+    response = client.post(
+        "/receipts/export",
+        headers=HEADERS,
+        json={"filters": {"vendor": "MR DIY", "currency": "MYR"}},
+    )
+    assert response.status_code == 200
+    assert response.headers["x-receipt-count"] == "2"
+    assert client.post("/receipts/export", json={"filters": {}}).status_code == 401
+    assert client.post(
+        "/receipts/export", headers=HEADERS, json={"receipt_ids": []}
+    ).status_code == 422
+    assert client.post(
+        "/receipts/export", headers=HEADERS, json={"receipt_ids": [str(uuid4())]}
+    ).status_code == 422
+    assert client.post(
+        "/receipts/export",
+        headers=HEADERS,
+        json={"filters": {"date_from": "2025-01-01", "date_to": "2024-01-01"}},
+    ).status_code == 422

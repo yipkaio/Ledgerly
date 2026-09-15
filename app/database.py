@@ -7,6 +7,7 @@ from pathlib import Path
 import sqlite3
 
 from app.classification import DEFAULT_VENDOR_CATEGORIES, ExpenseCategory, normalize_vendor_name
+from app.history import HISTORY_COLUMNS, HISTORY_CTE, HistoryFilters, filter_clause
 
 
 class DuplicateReceiptError(RuntimeError):
@@ -207,26 +208,27 @@ class ReceiptStore:
             return result
 
     def list(self, decision: str | None, processing_status: str | None,
-             limit: int, offset: int) -> dict:
-        where = " WHERE (? IS NULL OR c.decision=?) AND (? IS NULL OR r.processing_status=?)"
-        args = (decision, decision, processing_status, processing_status)
-        source = (" FROM receipts r LEFT JOIN classifications c USING(receipt_id) "
-                  "LEFT JOIN receipt_reviews v USING(receipt_id) "
-                  "LEFT JOIN receipt_amendments a ON a.receipt_id=r.receipt_id "
-                  "AND a.version=(SELECT max(a2.version) FROM receipt_amendments a2 "
-                  "WHERE a2.receipt_id=r.receipt_id)")
+             limit: int, offset: int, filters: HistoryFilters | None = None) -> dict:
+        filters = filters or HistoryFilters()
+        where, args = filter_clause(filters)
+        legacy = []
+        if decision is not None:
+            legacy.append("decision=?")
+            args += (decision,)
+        if processing_status is not None:
+            legacy.append("processing_status=?")
+            args += (processing_status,)
+        if legacy:
+            where += (" AND " if where else " WHERE ") + " AND ".join(legacy)
         with self.connect() as db:
             # Keep count and page in the same read snapshot.
             db.execute("BEGIN")
-            total = db.execute("SELECT count(*)" + source + where, args).fetchone()[0]
-            rows = db.execute("SELECT r.receipt_id, r.content_type, r.size_bytes, "
-                              "r.processing_status, r.created_at, r.updated_at, c.decision, "
-                              "COALESCE(json_extract(a.result_json, '$.final_data.vendor'), json_extract(v.result_json, '$.final_data.vendor'), json_extract(r.extraction_json, '$.vendor')) AS vendor, "
-                              "COALESCE(json_extract(a.result_json, '$.final_data.total_amount'), json_extract(v.result_json, '$.final_data.total_amount'), json_extract(r.extraction_json, '$.total_amount')) AS total_amount, "
-                              "COALESCE(json_extract(a.result_json, '$.final_data.currency'), json_extract(v.result_json, '$.final_data.currency'), json_extract(r.extraction_json, '$.currency')) AS currency, "
-                              "CASE WHEN a.version IS NOT NULL THEN 'AMENDED' ELSE json_extract(v.result_json, '$.decision') END AS review_decision"
-                              + source + where + " ORDER BY r.created_at DESC, r.receipt_id DESC LIMIT ? OFFSET ?",
-                              args + (limit, offset)).fetchall()
+            total = db.execute(HISTORY_CTE + "SELECT count(*) FROM history" + where, args).fetchone()[0]
+            rows = db.execute(
+                HISTORY_CTE + "SELECT " + HISTORY_COLUMNS + " FROM history" + where
+                + " ORDER BY created_at DESC, receipt_id DESC LIMIT ? OFFSET ?",
+                args + (limit, offset),
+            ).fetchall()
         return {'items': [dict(row) for row in rows], 'total': total, 'limit': limit, 'offset': offset}
 
 

@@ -53,7 +53,7 @@ separately for each currency. Navigation then offers **Upload receipt**, **Pendi
 reviews**, and **Receipt history**. Hover the eye button beside a history row for
 an animated private preview, or use click/Enter on keyboard and touch devices.
 See [workflow behavior and planned features](workflow-roadmap.md) for implemented
-duplicate/amendment controls and the selected Excel export and PDF milestones.
+duplicate/amendment controls, filtered Excel export, and the PDF milestone.
 
 Previews do not scroll. A fixed header keeps the vendor title, amount and close
 button visible; long titles are shortened visually, with the full title available
@@ -63,6 +63,17 @@ opacity. One preview is open at a time, including previews opened by click or
 keyboard. Scrolling the history list or resizing the window dismisses the card.
 The image stays mounted through the closing fade, then requests and image URLs
 are released. Use **Open full receipt** for detailed inspection.
+
+History filters run on the server and use the latest approved or amended values.
+Search accepts vendor, receipt number, or receipt ID. Category, currency, effective
+workflow status, and inclusive receipt-date ranges can be combined. Click **Apply
+filters**; pagination and **Export filtered** then use the same scope. Changing or
+clearing filters also clears selected IDs.
+
+Use row checkboxes or **Select all receipts on this page** to build an explicit
+selection across pages. **Export selected** downloads only those IDs. The selected
+count stays visible, and **Clear selection** never changes receipt decisions. See
+[History filters and Excel export](export.md) for limits and workbook fields.
 
 1. Connect with the chosen server's app key. All key holders share one workspace;
    this is not individual user authentication.

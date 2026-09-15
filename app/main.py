@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import secrets
 import hashlib
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
@@ -13,12 +14,14 @@ from typing import Literal
 
 from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, Query, status
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from app.images import receipt_image
 from app.database import DatabaseError, DuplicateReceiptError, ReceiptStore
 from app.amendments import AmendmentRequest, amendment_history, submit_amendment
+from app.exporting import ExportInvalid, ExportRequest, build_export
+from app.history import HistoryFilters
 from app.dashboard import dashboard_summary
 from app.review import (ReviewRequest, ReviewConflict, ReviewNotFound, ReviewInvalid,
                         pending_reviews, review_history, submit_review)
@@ -201,6 +204,10 @@ def create_app() -> FastAPI:
     async def review_invalid_handler(request, exc):
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
+    @api.exception_handler(ExportInvalid)
+    async def export_invalid_handler(request, exc):
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
     @api.get("/reviews", tags=["reviews"], summary="1. List receipts awaiting human review",
              description="Read only. Copy a receipt_id, then use GET /receipts/{receipt_id}. Empty items means no pending receipts on THIS server. Local port 8000 and the AWS tunnel port 18000 use separate databases. Finalized, AUTO_FILED, FAILED and PROCESSING receipts are excluded.")
     async def reviews(settings: Annotated[Settings, Depends(require_api_key)],
@@ -295,11 +302,53 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
         settings: Annotated[Settings, Depends(require_api_key)],
         decision: Literal["AUTO_FILED", "REVIEW_QUEUE"] | None = None,
         processing_status: Literal["PROCESSING", "COMPLETED", "REVIEW_QUEUE", "FAILED"] | None = None,
+        query: Annotated[str | None, Query(max_length=100)] = None,
+        vendor: Annotated[str | None, Query(max_length=100)] = None,
+        category: str | None = None,
+        currency: Annotated[str | None, Query(pattern=r"^[A-Z]{3}$")] = None,
+        state: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
         offset: Annotated[int, Query(ge=0)] = 0,
     ) -> dict:
+        try:
+            filters = HistoryFilters(query=query, vendor=vendor, category=category,
+                                     currency=currency, state=state,
+                                     date_from=date_from, date_to=date_to)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail="Invalid receipt history filters") from exc
         return await run_in_threadpool(
-            ReceiptStore(settings.database_path).list, decision, processing_status, limit, offset
+            ReceiptStore(settings.database_path).list,
+            decision,
+            processing_status,
+            limit,
+            offset,
+            filters,
+        )
+
+    @api.post(
+        "/receipts/export",
+        tags=["receipts"],
+        summary="Export selected or filtered receipt history to Excel",
+        description="Authenticated, read-only export using the latest effective receipt values and one SQLite snapshot. Supply 1-500 receipt_ids for selected rows, or omit receipt_ids and supply filters to export up to 1000 matching rows. The workbook contains Receipts, Line items and Review audit sheets. It never runs OCR or the LLM.",
+        responses={200: {"content": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}}},
+                   422: {"description": "Invalid selection, missing selected record, or filtered result too large."}},
+    )
+    async def export_receipts(
+        body: ExportRequest,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> Response:
+        content, count = await run_in_threadpool(
+            build_export, ReceiptStore(settings.database_path), body
+        )
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": 'attachment; filename="receipt-history.xlsx"',
+                "X-Receipt-Count": str(count),
+            },
         )
 
     @api.get("/receipts/{receipt_id}", tags=["receipts"], summary="2. View receipt and copy extraction (read only)",

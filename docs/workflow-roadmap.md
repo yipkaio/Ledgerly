@@ -58,12 +58,13 @@ dashboard use the newest effective version. Rejected/pending/failed receipts can
 be amended; reversal is a separate future transition. A shared app key still does
 not establish reviewer roles.
 
-## Selected Excel export
+## Filtered history and selected Excel export (implemented)
 
-Bulk selection and `.xlsx` download are not implemented. Add row checkboxes, a
-select-page control, selected count and clear-selection action. Preserve receipt IDs
-across pages and state whether an export covers selected records or all filtered
-results. Selection must not imply bulk approval.
+History supports server-side vendor/receipt search, effective category, currency,
+workflow status and inclusive receipt-date filters. Filters drive pagination and
+**Export filtered**. Row and select-page checkboxes preserve explicit IDs across
+pages for **Export selected**; changing filters clears selection to prevent hidden
+rows from being exported accidentally. Selection never implies bulk approval.
 
 The authenticated server should generate:
 
@@ -73,10 +74,10 @@ The authenticated server should generate:
 | Line items | Receipt ID, description, quantity, prices, optional discounts and totals |
 | Review audit | Decisions/amendments, reviewer, timestamps and reasons |
 
-Use the same effective-value rules as the dashboard, receipt IDs for joins and
-separate currency totals. Unknown values remain blank. Export a consistent snapshot,
-bound the selection/file size, treat descriptions as text instead of spreadsheet
-formulas, and send private non-cacheable downloads.
+The server uses the same effective-value rules as the dashboard and one SQLite read
+snapshot. Selected exports are capped at 500 receipts and filtered exports at 1,000.
+Unknown values remain blank, formula-like strings stay text, and downloads are
+authenticated and non-cacheable. See [the export guide](export.md).
 
 ## PDFs
 
@@ -91,18 +92,15 @@ should represent one receipt; splitting multiple invoices should be explicit.
 
 ## Further usability priorities
 
-1. Server-side vendor/date/category/status/currency search and filters, connected to
-   pagination and export selection. Issue cards currently open all history; focused
-   failed/processing filters should follow.
-2. Receipt zoom/rotation and **Review next** to reduce repetitive navigation.
-3. Stage progress and failure recovery that reuses saved OCR instead of charging
+1. Receipt zoom/rotation and **Review next** to reduce repetitive navigation.
+2. Stage progress and failure recovery that reuses saved OCR instead of charging
    for a whole repeated pipeline. Avoid invented progress percentages while the
    current upload remains one synchronous request.
-4. Individual authentication and reviewer roles before public multi-user access.
-5. Friendly empty states, saved-filter links without credentials and accessible
+3. Individual authentication and reviewer roles before public multi-user access.
+4. Friendly empty states, saved-filter links without credentials and accessible
    action notifications. Preserve existing unsaved-change warnings, confirmation
    dialogs, retained error drafts and safe review retries.
 
-Recommended order: duplicate prevention and audited amendments, then filtered
-history and Excel export, followed by PDFs. Dashboard and preview changes do not
+Duplicate prevention, audited amendments, filtered history and Excel export are now
+implemented. PDF ingestion is next. Dashboard and preview changes do not
 create AWS resources or automatically change the deployed instance.

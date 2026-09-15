@@ -101,6 +101,10 @@ export type Row = {
   processing_status?: string;
   decision?: string | null;
   review_decision?: string | null;
+  workflow_state?: string;
+  receipt_number?: string | null;
+  receipt_date?: string | null;
+  category?: string | null;
 };
 export type Page = {
   items: Row[];
@@ -173,6 +177,37 @@ export async function request<T>(
     );
   }
   return response.json() as Promise<T>;
+}
+export async function requestDownload(
+  path: string,
+  token: string,
+  body: unknown,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "X-API-Key": token,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as {
+      detail?: string;
+    };
+    throw new ApiError(
+      payload.detail || `Export failed (${response.status})`,
+      response.status,
+    );
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = /filename="?([^";]+)"?/i.exec(disposition);
+  return {
+    blob: await response.blob(),
+    filename: match?.[1] || "receipt-history.xlsx",
+  };
 }
 export function message(error: unknown): string {
   if (error instanceof DOMException && error.name === "TimeoutError")
