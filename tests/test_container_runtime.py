@@ -24,6 +24,15 @@ def test_container_user_and_paddle_native_runtime():
     assert result.numpy().tolist() == [2.0, 3.0]
 
 
+def test_document_and_export_runtime_dependencies():
+    import PIL
+    import pypdf
+    import pypdfium2
+    import xlsxwriter
+
+    assert PIL and pypdf and pypdfium2 and xlsxwriter
+
+
 def test_real_tesseract_upload_and_saved_result(monkeypatch, tmp_path):
     from PIL import Image, ImageDraw, ImageFont
     image = Image.new("RGB", (1200, 400), "white")

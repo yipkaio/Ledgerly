@@ -38,6 +38,9 @@ class Settings:
     tesseract_language: str
     tesseract_psm: int
     ocr_timeout_seconds: int
+    pdf_max_pages: int
+    pdf_timeout_seconds: int
+    pdf_max_render_pixels: int
     llm_gateway_url: str
     llm_gateway_api_key: str
     llm_model: str
@@ -87,6 +90,13 @@ class Settings:
         tesseract_psm = cls._bounded_integer("TESSERACT_PSM", "6", 3, 13)
         ocr_timeout_seconds = cls._bounded_integer(
             "OCR_TIMEOUT_SECONDS", "30", 1, 300
+        )
+        pdf_max_pages = cls._bounded_integer("PDF_MAX_PAGES", "3", 1, 10)
+        pdf_timeout_seconds = cls._bounded_integer(
+            "PDF_TIMEOUT_SECONDS", "30", 1, 120
+        )
+        pdf_max_render_pixels = cls._bounded_integer(
+            "PDF_MAX_RENDER_PIXELS", "30000000", 1_000_000, 60_000_000
         )
 
         llm_gateway_url = os.getenv(
@@ -142,6 +152,9 @@ class Settings:
             tesseract_language=language,
             tesseract_psm=tesseract_psm,
             ocr_timeout_seconds=ocr_timeout_seconds,
+            pdf_max_pages=pdf_max_pages,
+            pdf_timeout_seconds=pdf_timeout_seconds,
+            pdf_max_render_pixels=pdf_max_render_pixels,
             llm_gateway_url=llm_gateway_url,
             llm_gateway_api_key=llm_gateway_api_key,
             llm_model=llm_model,

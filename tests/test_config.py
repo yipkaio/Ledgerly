@@ -20,6 +20,25 @@ def test_paddle_is_the_default_ocr_engine(monkeypatch) -> None:
     assert settings.paddle_language == "en"
     assert settings.paddle_device == "cpu"
     assert settings.paddle_min_confidence == 0.50
+    assert settings.pdf_max_pages == 3
+    assert settings.pdf_timeout_seconds == 30
+    assert settings.pdf_max_render_pixels == 30_000_000
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("PDF_MAX_PAGES", "0"),
+        ("PDF_MAX_PAGES", "11"),
+        ("PDF_TIMEOUT_SECONDS", "0"),
+        ("PDF_TIMEOUT_SECONDS", "121"),
+        ("PDF_MAX_RENDER_PIXELS", "999999"),
+        ("PDF_MAX_RENDER_PIXELS", "not-a-number"),
+    ],
+)
+def test_invalid_pdf_limits_are_rejected(monkeypatch, name: str, value: str) -> None:
+    with pytest.raises(ConfigurationError):
+        configured_settings(monkeypatch, **{name: value})
 
 
 @pytest.mark.parametrize("value", ["", "unknown", "paddle;command"])

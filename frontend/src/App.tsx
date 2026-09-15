@@ -728,10 +728,10 @@ function UploadForm({
     setFailedId(null);
     if (
       !file ||
-      !["image/jpeg", "image/png"].includes(file.type) ||
+      !["image/jpeg", "image/png", "application/pdf"].includes(file.type) ||
       file.size > 5242880
     ) {
-      setError("Choose a JPEG or PNG image up to 5 MB.");
+      setError("Choose a JPEG, PNG, or PDF receipt up to 5 MB.");
       return;
     }
     submitting.current = true;
@@ -763,18 +763,18 @@ function UploadForm({
       <div className="rounded-lg border border-dashed bg-muted p-6">
         <Upload className="mb-3 size-7 text-primary" />
         <label htmlFor="receipt-file" className="field-label">
-          Receipt image
+          Receipt file
         </label>
         <Input
           id="receipt-file"
           type="file"
-          accept="image/jpeg,image/png"
+          accept="image/jpeg,image/png,application/pdf,.pdf"
           required
           disabled={busy}
           onChange={(e) => setFile(e.target.files?.[0] || null)}
         />
         <p className="muted mt-2">
-          JPEG or PNG · Up to 5 MB · One receipt per upload
+          JPEG, PNG, or PDF · Up to 5 MB · PDF up to 3 pages · One receipt per upload
         </p>
       </div>
       <div>

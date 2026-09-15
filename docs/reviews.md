@@ -66,8 +66,8 @@ proof that a reviewer supplied truthful information.
 
 1. List `/reviews`, then retrieve a queued receipt with `GET /receipts/{id}`.
 2. Compare the original image with OCR and extracted fields. Use the authenticated
-   GET `/receipts/{id}/image` endpoint or the image viewer in `/ui/`. Missing retained
-   images return 404; do not approve without checking the original evidence.
+   GET `/receipts/{id}/image` endpoint or the file viewer in `/ui/`. Missing retained
+   files return 404; do not approve without checking the original evidence.
 3. Submit a new UUID `request_id`, `expected_version: 0`, `decision: APPROVED`,
    a nonblank `reviewer` and `note`, and `evidence_confirmed: true`.
    Include the entire corrected extraction as `corrected_data` (copy the returned

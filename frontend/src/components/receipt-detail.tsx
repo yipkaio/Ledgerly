@@ -418,6 +418,17 @@ export function ReceiptDetail({
           </div>
           {imageError ? (
             <Notice error>{imageError}</Notice>
+          ) : image && receipt.content_type === "application/pdf" ? (
+            <div className="h-[70vh] overflow-hidden rounded-lg bg-muted p-3">
+              <iframe
+                src={image}
+                title={`Original PDF receipt from ${receipt.extracted_data?.vendor || "uploaded vendor"}`}
+                className="h-full w-full rounded bg-white"
+                onError={() => {
+                  setImageError("The PDF could not be displayed. Use Open full size.");
+                }}
+              />
+            </div>
           ) : image ? (
             <div className="max-h-[70vh] overflow-auto rounded-lg bg-muted p-3">
               <img
@@ -433,7 +444,7 @@ export function ReceiptDetail({
             </div>
           ) : (
             <p role="status" className="muted">
-              Loading original image…
+              Loading original receipt…
             </p>
           )}
           <details className="mt-4">

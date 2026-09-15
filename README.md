@@ -15,7 +15,7 @@ includes the built review UI at `/ui/`. No AWS resources are provisioned by thes
 The application now provides a secure FastAPI receipt-processing pipeline:
 
 - `GET /health` for service health checks.
-- `POST /receipts/upload` for authenticated JPEG/PNG uploads.
+- `POST /receipts/upload` for authenticated JPEG/PNG and bounded PDF uploads.
 - A 5 MB default size limit, file-signature checks, generated storage names, and cleanup of rejected uploads.
 - SHA-256 exact-duplicate blocking before OCR/LLM work, plus strict post-extraction duplicate warnings.
 - PaddleOCR text detection and recognition, including orientation correction, image unwarping, and recognition confidence.
@@ -34,8 +34,8 @@ The workspace starts with **Main dashboard**, followed by **Upload receipt**,
 **Pending reviews**, and **Receipt history**. The dashboard provides saved counts,
 accepted expense totals, category charts and monthly trends by currency. History
 has animated, authenticated previews beside each receipt. See the
-[workflow roadmap](docs/workflow-roadmap.md) for current duplicate and amendment
-behavior and the planned selected Excel export and PDF ingestion features.
+[workflow roadmap](docs/workflow-roadmap.md) for duplicate/amendment behavior,
+filtered Excel export, PDF ingestion, and remaining usability priorities.
 
 For manual review, follow the numbered Swagger endpoints and the
 [review walkthrough and troubleshooting table](docs/reviews.md). Review templates
@@ -93,6 +93,10 @@ In the UI, apply history filters before selecting rows. Selection is retained wh
 you paginate and is cleared when filters change. **Export selected** sends only the
 explicit IDs; **Export filtered** exports the server-side result, up to 1,000
 receipts. See [History filters and Excel export](docs/export.md).
+
+PDF ingestion prefers embedded text and OCRs only pages that need it. Parsing and
+rendering run within explicit page, time, dimension and pixel limits; a protected
+first-page preview is generated for the UI. See [PDF receipt ingestion](docs/pdf.md).
 
 After a validated image is saved, a processing record is created before OCR runs.
 OCR evidence is saved before extraction. Controlled processing failures return the
@@ -163,7 +167,7 @@ notepad .env
 & $python -m uvicorn app.main:app --reload --env-file .env
 ```
 
-Open `http://127.0.0.1:8000/docs`, paste the saved `APP_API_KEY` value into the `X-API-Key` request header, and submit a JPEG or PNG receipt. `business_purpose` is optional. A successful response has status `processing_complete` and includes OCR evidence, validated `extracted_data`, and a confidence-gated `classification`. Each successful upload makes one extraction call; only unmatched vendors make an additional classification call. PaddleOCR downloads its model files on the first real OCR request and caches one pipeline instance per application process.
+Open `http://127.0.0.1:8000/docs`, paste the saved `APP_API_KEY` value into the `X-API-Key` request header, and submit a JPEG, PNG, or PDF receipt. PDFs default to at most three pages; encrypted and malformed files are rejected. Usable embedded PDF text avoids OCR, while scanned pages use the configured OCR engine. `business_purpose` is optional. A successful response has status `processing_complete` and includes OCR/text evidence, validated `extracted_data`, and a confidence-gated `classification`. Each successful upload makes one extraction call; only unmatched vendors make an additional classification call. PaddleOCR downloads its model files on the first real OCR request and caches one pipeline instance per application process.
 
 To use the existing Tesseract fallback instead, change `OCR_ENGINE=tesseract` in `.env` and restart Uvicorn. Tesseract does not expose a recognition confidence through this integration, so `ocr_confidence` will be `null`.
 

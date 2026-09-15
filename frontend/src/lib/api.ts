@@ -76,6 +76,7 @@ export type Amendment = {
 };
 export type Receipt = {
   receipt_id: string;
+  content_type: string;
   processing_status: string;
   created_at: string;
   business_purpose: string | null;
@@ -94,6 +95,7 @@ export type Receipt = {
 };
 export type Row = {
   receipt_id: string;
+  content_type?: string;
   created_at: string;
   vendor?: string | null;
   total_amount?: number | null;

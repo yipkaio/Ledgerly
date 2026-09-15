@@ -256,7 +256,7 @@ function PreviewImage({ id, token }: { id: string; token: string }) {
   useEffect(() => {
     const controller = new AbortController();
     let url = "";
-    fetch(`/receipts/${id}/image`, {
+    fetch(`/receipts/${id}/preview`, {
       headers: { "X-API-Key": token },
       cache: "no-store",
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),

@@ -77,7 +77,8 @@ count stays visible, and **Clear selection** never changes receipt decisions. Se
 
 1. Connect with the chosen server's app key. All key holders share one workspace;
    this is not individual user authentication.
-2. Choose **Upload receipt**. Select a JPEG or PNG up to 5 MB. Enter an optional
+2. Choose **Upload receipt**. Select a JPEG, PNG, or PDF up to 5 MB. PDFs can have
+   up to three pages and represent one receipt. Enter an optional
    business purpose, then click **Upload and process** once. Processing may consume
    gateway credits. On a lost response, check history before uploading again. An
    exact duplicate returns the existing receipt ID without rerunning OCR/LLM.
@@ -137,7 +138,7 @@ stored in browser storage, URLs, build variables, or source files. The browser
 receives no gateway credentials. Data/image requests remain authenticated and
 responses use `Cache-Control: no-store`. The public static shell contains no receipt
 or secret data. Production sets content security, no-sniff, and referrer headers.
-Blob image URLs are revoked on leaving a receipt. Use HTTPS for any future public
+Blob image/PDF URLs are revoked on leaving a receipt. Use HTTPS for any future public
 host; retain the SSH tunnel for the current private setup. Trusted key holders and
 server administrators can access workspace data. Verified user identity, role
 permissions, account isolation, and audited reopening are future work.

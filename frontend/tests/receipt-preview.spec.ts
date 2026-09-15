@@ -69,7 +69,7 @@ test("twelve successive slow-image previews keep their size and placement", asyn
   await page.setViewportSize({ width: 1440, height: 1000 });
   await setup(page);
   let gate = Promise.resolve();
-  await page.route(/\/receipts\/[^/]+\/image$/, async (route) => {
+  await page.route(/\/receipts\/[^/]+\/preview$/, async (route) => {
     expect(route.request().headers()["x-api-key"]).toBe(key);
     await gate;
     await route.fulfill({ contentType: "image/png", body: png }).catch(() => {
@@ -143,7 +143,7 @@ test("short-screen preview never scrolls and keeps a long vendor title fixed", a
   const title = "A VERY LONG VENDOR AND RECEIPT TITLE ".repeat(8).trim();
   await page.setViewportSize({ width: 375, height: 420 });
   await setup(page, title);
-  await page.route(/\/receipts\/[^/]+\/image$/, (route) =>
+  await page.route(/\/receipts\/[^/]+\/preview$/, (route) =>
     route.fulfill({ contentType: "image/png", body: png }),
   );
   for (const height of [420, 360]) {
@@ -197,7 +197,7 @@ test("hovering a sixth receipt replaces a pinned preview without overlapping ope
   page,
 }) => {
   await setup(page);
-  await page.route(/\/receipts\/[^/]+\/image$/, (route) =>
+  await page.route(/\/receipts\/[^/]+\/preview$/, (route) =>
     route.fulfill({ contentType: "image/png", body: png }),
   );
   await page
@@ -241,7 +241,7 @@ test("closing animation retains the loaded image until the preview unmounts", as
   page,
 }) => {
   await setup(page);
-  await page.route(/\/receipts\/[^/]+\/image$/, (route) =>
+  await page.route(/\/receipts\/[^/]+\/preview$/, (route) =>
     route.fulfill({ contentType: "image/png", body: png }),
   );
   await page

@@ -17,7 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from app.images import receipt_image
+from app.images import receipt_image, receipt_preview
 from app.database import DatabaseError, DuplicateReceiptError, ReceiptStore
 from app.amendments import AmendmentRequest, amendment_history, submit_amendment
 from app.exporting import ExportInvalid, ExportRequest, build_export
@@ -58,11 +58,19 @@ from app.ocr import (
     PaddleOCRService,
     TesseractOCRService,
 )
+from app.pdf import (
+    PDFEncryptedError,
+    PDFError,
+    PDFPageLimitError,
+    PDFTimeoutError,
+    extract_pdf,
+)
 
 CHUNK_SIZE = 64 * 1024
-IMAGE_TYPES = {
+RECEIPT_TYPES = {
     "image/jpeg": (".jpg", (b"\xff\xd8\xff",)),
     "image/png": (".png", (b"\x89PNG\r\n\x1a\n",)),
+    "application/pdf": (".pdf", (b"%PDF-",)),
 }
 
 
@@ -162,7 +170,7 @@ def get_expense_classifier(
 
 def has_expected_signature(content_type: str, prefix: bytes) -> bool:
     return any(
-        prefix.startswith(signature) for signature in IMAGE_TYPES[content_type][1]
+        prefix.startswith(signature) for signature in RECEIPT_TYPES[content_type][1]
     )
 
 
@@ -373,7 +381,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
         tags=["receipts"],
     )
     async def upload_receipt(
-        receipt: Annotated[UploadFile, File(description="JPEG or PNG receipt")],
+        receipt: Annotated[UploadFile, File(description="JPEG, PNG, or PDF receipt")],
         settings: Annotated[Settings, Depends(require_api_key)],
         ocr_service: Annotated[OCRService, Depends(get_ocr_service)],
         receipt_extractor: Annotated[
@@ -391,16 +399,17 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
         ] = None,
     ) -> ReceiptProcessed:
         content_type = (receipt.content_type or "").lower()
-        if content_type not in IMAGE_TYPES:
+        if content_type not in RECEIPT_TYPES:
             raise HTTPException(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail="Only JPEG and PNG receipts are supported",
+                detail="Only JPEG, PNG, and PDF receipts are supported",
             )
 
         receipt_id = str(uuid4())
-        extension = IMAGE_TYPES[content_type][0]
+        extension = RECEIPT_TYPES[content_type][0]
         temporary_path = settings.upload_dir / f".{receipt_id}.upload"
         final_path = settings.upload_dir / f"{receipt_id}{extension}"
+        preview_path = settings.upload_dir / f"{receipt_id}.preview.png"
         size = 0
         prefix = b""
         digest = hashlib.sha256()
@@ -455,23 +464,58 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
 
         async def process() -> ReceiptProcessed:
             try:
-                ocr_result: OCRResult = await run_in_threadpool(
-                    ocr_service.extract, final_path
-                )
+                if content_type == "application/pdf":
+                    ocr_result = await run_in_threadpool(
+                        extract_pdf,
+                        final_path,
+                        ocr_service,
+                        preview_path,
+                        max_pages=settings.pdf_max_pages,
+                        max_render_pixels=settings.pdf_max_render_pixels,
+                        timeout_seconds=settings.pdf_timeout_seconds,
+                    )
+                else:
+                    ocr_result = await run_in_threadpool(ocr_service.extract, final_path)
+            except PDFEncryptedError as exc:
+                final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=422, detail="Encrypted PDFs are not supported"
+                ) from exc
+            except PDFPageLimitError as exc:
+                final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"PDF must contain 1 to {settings.pdf_max_pages} pages",
+                ) from exc
+            except PDFTimeoutError as exc:
+                final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=504, detail="Receipt PDF timed out") from exc
+            except PDFError as exc:
+                final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=422, detail="Receipt PDF could not be processed"
+                ) from exc
             except OCRUnavailableError as exc:
                 final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="OCR service is unavailable",
                 ) from exc
             except OCRTimeoutError as exc:
                 final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
                 raise HTTPException(
                     status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                     detail="Receipt OCR timed out",
                 ) from exc
             except (OCRProcessingError, OCRNoTextError) as exc:
                 final_path.unlink(missing_ok=True)
+                preview_path.unlink(missing_ok=True)
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Receipt text could not be extracted",
@@ -604,15 +648,25 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
                 headers={"X-Receipt-ID": receipt_id},
             ) from exc
 
-    @api.get('/receipts/{receipt_id}/image', tags=['receipts'], summary='View original receipt image (authenticated)',
+    @api.get('/receipts/{receipt_id}/image', tags=['receipts'], summary='View original receipt file (authenticated)',
              response_class=Response,
-             description='Read only. Use the app key and saved receipt UUID. Returns the retained JPEG or PNG, never a database-supplied file path. Missing or invalid images return 404; do not approve without checking original evidence. The /ui/ workspace handles authenticated image loading for you.',
-             responses={200: {'description': 'Original JPEG or PNG', 'content': {'image/jpeg': {}, 'image/png': {}}},
+             description='Read only. Use the app key and saved receipt UUID. Returns the retained JPEG, PNG, or PDF, never a database-supplied file path. Missing or invalid files return 404; do not approve without checking original evidence. The /ui/ workspace handles authenticated loading for you.',
+             responses={200: {'description': 'Original JPEG, PNG, or PDF', 'content': {'image/jpeg': {}, 'image/png': {}, 'application/pdf': {}}},
                         401: {'description': 'Missing or wrong app key'},
                         404: {'description': 'Receipt or retained image unavailable'},
                         503: {'description': 'Database or app configuration unavailable'}})
     async def image(receipt_id: UUID, settings: Annotated[Settings, Depends(require_api_key)]):
         return await run_in_threadpool(receipt_image, ReceiptStore(settings.database_path),
+                                       settings.upload_dir, str(receipt_id), settings.max_upload_bytes)
+
+    @api.get('/receipts/{receipt_id}/preview', tags=['receipts'], summary='View receipt preview image (authenticated)',
+             response_class=Response,
+             description='Returns the original JPEG/PNG or a bounded generated PNG of the first PDF page. It never reruns OCR or the LLM.',
+             responses={200: {'description': 'Preview image', 'content': {'image/jpeg': {}, 'image/png': {}}},
+                        401: {'description': 'Missing or wrong app key'},
+                        404: {'description': 'Receipt or preview unavailable'}})
+    async def preview(receipt_id: UUID, settings: Annotated[Settings, Depends(require_api_key)]):
+        return await run_in_threadpool(receipt_preview, ReceiptStore(settings.database_path),
                                        settings.upload_dir, str(receipt_id), settings.max_upload_bytes)
 
     @api.middleware('http')
@@ -627,7 +681,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
             response.headers['Content-Security-Policy'] = (
                 "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' blob:; connect-src 'self'; base-uri 'none'; "
-                "frame-ancestors 'none'; object-src 'none'"
+                "frame-src blob:; frame-ancestors 'none'; object-src 'none'"
             )
         return response
 

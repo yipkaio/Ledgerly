@@ -39,6 +39,7 @@ const extraction = {
 };
 const original = {
   receipt_id: id,
+  content_type: "image/jpeg",
   processing_status: "REVIEW_QUEUE",
   created_at: "2026-09-13T12:00:00Z",
   business_purpose: null,
@@ -137,6 +138,13 @@ async function setup(page: Page, mode = "success") {
     }),
   );
   await page.route(`**/receipts/${id}/image`, (route) =>
+    route.fulfill({
+      contentType: "image/png",
+      body: png,
+      status: mode === "missing-image" ? 404 : 200,
+    }),
+  );
+  await page.route(`**/receipts/${id}/preview`, (route) =>
     route.fulfill({
       contentType: "image/png",
       body: png,
@@ -359,7 +367,7 @@ test("anchored preview loads on hover and closes with Escape", async ({
   await setup(page);
   let images = 0;
   page.on("request", (req) => {
-    if (req.url().endsWith("/image")) images += 1;
+    if (req.url().endsWith("/preview")) images += 1;
   });
   expect(images).toBe(0);
   await page.getByRole("button", { name: "Preview receipt MR D.I.Y." }).hover();
@@ -508,7 +516,7 @@ test("upload multipart purpose and saved receipt; pagination", async ({
     .getByRole("button", { name: "Upload receipt", exact: true })
     .click();
   await page
-    .getByLabel("Receipt image", { exact: true })
+    .getByLabel("Receipt file", { exact: true })
     .setInputFiles({ name: "receipt.png", mimeType: "image/png", buffer: png });
   await page
     .getByLabel("Business purpose (optional)")
@@ -551,7 +559,7 @@ test("late upload response does not navigate away from the current screen", asyn
     .getByRole("button", { name: "Upload receipt", exact: true })
     .click();
   await page
-    .getByLabel("Receipt image", { exact: true })
+    .getByLabel("Receipt file", { exact: true })
     .setInputFiles({ name: "receipt.png", mimeType: "image/png", buffer: png });
   await page.getByRole("button", { name: "Upload and process" }).click();
   await start;

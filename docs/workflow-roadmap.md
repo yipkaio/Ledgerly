@@ -79,16 +79,15 @@ snapshot. Selected exports are capped at 500 receipts and filtered exports at 1,
 Unknown values remain blank, formula-like strings stay text, and downloads are
 authenticated and non-cacheable. See [the export guide](export.md).
 
-## PDFs
+## PDFs (implemented)
 
-PDF support is useful for emailed invoices and scanned receipts. Current uploads
-accept JPEG/PNG only; adding a PDF option to the browser input is insufficient.
-
-Add a separately tested path: extract usable embedded text, otherwise render pages
-and run OCR. Retain the original PDF and protected page previews. Send text to the
-gateway. Start with 5 MB and up to 3 pages, reject encrypted/malformed documents,
-and bound rendering time, dimensions and memory. Initially one multi-page document
-should represent one receipt; splitting multiple invoices should be explicit.
+Uploads accept emailed or scanned PDFs through a separately tested path. The server
+checks the PDF signature, keeps the original behind authentication, rejects
+encrypted/malformed files and defaults to three pages and 5 MB. Usable embedded
+text is extracted per page; pages without it are rendered under time, dimension and
+pixel limits and sent through the selected OCR engine. Only the resulting text goes
+to the LLM gateway. A bounded first-page PNG supports authenticated previews.
+One multi-page document represents one receipt; multiple invoices must be split.
 
 ## Further usability priorities
 
@@ -101,6 +100,6 @@ should represent one receipt; splitting multiple invoices should be explicit.
    action notifications. Preserve existing unsaved-change warnings, confirmation
    dialogs, retained error drafts and safe review retries.
 
-Duplicate prevention, audited amendments, filtered history and Excel export are now
-implemented. PDF ingestion is next. Dashboard and preview changes do not
+Duplicate prevention, audited amendments, filtered history, Excel export and PDF
+ingestion are now implemented. Dashboard and preview changes do not
 create AWS resources or automatically change the deployed instance.
