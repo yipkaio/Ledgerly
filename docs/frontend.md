@@ -110,7 +110,7 @@ For validation errors, correct the identified fields; edits are retained. An
 explicit override explanation is only for an evidence-supported remaining amount
 issue; it cannot bypass schema, missing-field, currency, or placeholder checks.
 A stale/conflicting request blocks further decisions until the saved record is
-reloaded. On an uncertain response, edits freeze and **Retry same decision** sends
+reloaded. On an uncertain response, edits freeze and **Retry same change** sends
 exactly the same UUID and payload. **Reload saved record** checks what was saved
 and discards local edits. Reloading, disconnecting or leaving the receipt also
 loses unsaved edits. Navigation, disconnecting, and browser reloads warn while a

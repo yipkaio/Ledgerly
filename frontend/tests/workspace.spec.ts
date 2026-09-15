@@ -257,7 +257,7 @@ test("approval edits, automatic UUID, final audit and no persistent key", async 
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Confirm approval" }).click();
   await expect(
-    page.getByText("This decision is final.", { exact: false }),
+    page.getByText(/Approved by Yip Kai/),
   ).toBeVisible();
   expect(sent).toHaveLength(1);
   expect(sent[0].request_id).toMatch(/^[a-f0-9-]{36}$/);
@@ -334,7 +334,9 @@ test("approved receipt can be amended while earlier review remains visible", asy
   await page.getByRole("button", { name: "Confirm amendment" }).click();
   await expect(page.getByText(/Effective data amended by Yip Kai/)).toBeVisible();
   await expect(page.getByLabel("Vendor *")).toHaveValue("Amended MR D.I.Y.");
-  await expect(page.getByText("version 2", { exact: false })).toBeVisible();
+  await expect(
+    page.getByText(/Version 2; every earlier version remains in the audit/),
+  ).toBeVisible();
 });
 
 test("dashboard totals stay separate by currency and links open the queue", async ({
@@ -424,7 +426,7 @@ test("rejection excludes corrected fields and preserves the audit", async ({
   await page.getByRole("button", { name: "Reject receipt" }).click();
   await page.getByRole("button", { name: "Confirm rejection" }).click();
   await expect(
-    page.getByText("This decision is final.", { exact: false }),
+    page.getByText(/Rejected by Yip Kai/),
   ).toBeVisible();
   expect(sent[0].decision).toBe("REJECTED");
   expect(sent[0]).not.toHaveProperty("corrected_data");
@@ -436,9 +438,9 @@ test("lost response retries identical frozen payload", async ({ page }) => {
   await page.getByRole("button", { name: "Approve receipt" }).click();
   await page.getByRole("button", { name: "Confirm approval" }).click();
   await expect(page.getByLabel("Vendor *")).toBeDisabled();
-  await page.getByRole("button", { name: "Retry same decision" }).click();
+  await page.getByRole("button", { name: "Retry same change" }).click();
   await expect(
-    page.getByText("This decision is final.", { exact: false }),
+    page.getByText(/Approved by Yip Kai/),
   ).toBeVisible();
   expect(sent).toHaveLength(2);
   expect(sent[0]).toEqual(sent[1]);
