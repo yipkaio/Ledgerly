@@ -48,6 +48,8 @@ export type Classification = {
   workflow_decision: string;
 };
 export type Review = {
+  receipt_id?: string;
+  review_version?: number;
   decision: "APPROVED" | "REJECTED";
   reviewer: string;
   reviewed_at: string;
@@ -58,6 +60,11 @@ export type Review = {
   override_reason: string | null;
   validation_issues: string[];
   request_id: string;
+  evidence_confirmed: boolean;
+  before?: {
+    extracted_data: Extraction;
+    classification: Classification;
+  };
 };
 export type Amendment = {
   receipt_id: string;
@@ -73,6 +80,12 @@ export type Amendment = {
   category: string;
   validation_issues: string[];
   override_reason: string | null;
+  before?: {
+    record_version: number;
+    state: string;
+    final_data: Extraction;
+    category: string;
+  };
 };
 export type Receipt = {
   receipt_id: string;

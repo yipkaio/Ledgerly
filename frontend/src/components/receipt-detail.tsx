@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FileCheck2, Plus, Trash2 } from "lucide-react";
+import { FileCheck2, PencilLine, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,6 +30,8 @@ import type {
   ReviewRequest,
 } from "@/lib/api";
 import { Notice, Status } from "@/components/feedback";
+import { ReceiptSummary } from "@/components/receipt-summary";
+import { AuditTimeline } from "@/components/audit-timeline";
 
 function Field({
   name,
@@ -86,11 +88,13 @@ const blankLine: LineItem = {
 export function ReceiptDetail({
   id,
   token,
+  context,
   saved,
   onDirty,
 }: {
   id: string;
   token: string;
+  context: "review" | "history";
   saved: () => void;
   onDirty: (dirty: boolean) => void;
 }) {
@@ -116,7 +120,8 @@ export function ReceiptDetail({
       | { kind: "amendment"; payload: AmendmentRequest }
       | null
     >(null),
-    [stale, setStale] = useState(false);
+    [stale, setStale] = useState(false),
+    [editingAmendment, setEditingAmendment] = useState(false);
   const form = useRef<HTMLFormElement>(null),
     submitting = useRef(false),
     active = useRef(true);
@@ -148,6 +153,7 @@ export function ReceiptDetail({
         setReviewer("");
         setNote("");
         setOverride("");
+        setEditingAmendment(false);
         onDirty(false);
       })
       .catch((e) => {
@@ -200,12 +206,15 @@ export function ReceiptDetail({
     };
   }, [id, token, revision, onDirty]);
   const reviewable =
-    receipt?.processing_status === "REVIEW_QUEUE" && !receipt.review;
-  const amendable =
+    context === "review" &&
+    receipt?.processing_status === "REVIEW_QUEUE" &&
+    !receipt.review;
+  const canAmend =
     receipt?.processing_status === "COMPLETED" ||
     receipt?.review?.decision === "APPROVED" ||
     !!receipt?.amendment;
-  const editable = reviewable || amendable;
+  const amending = context === "history" && canAmend && editingAmendment;
+  const editable = reviewable || amending;
   const locked = busy || !!pending || stale || !editable;
   async function submit(
     submission:
@@ -304,7 +313,7 @@ export function ReceiptDetail({
     return (
       <>
         {error ? (
-          <Notice error>
+          <Notice variant="destructive">
             {error}
             <Button variant="outline" onClick={() => setRevision((n) => n + 1)}>
               Reload receipt
@@ -342,22 +351,45 @@ export function ReceiptDetail({
       ...(receipt.classification?.review_reasons || []),
     ]),
   ];
+  function cancelAmendment() {
+    if (!receipt) return;
+    setData(structuredClone(receipt.effective_data || receipt.extracted_data));
+    setCategory(
+      receipt.effective_category || receipt.classification?.category || "",
+    );
+    setReviewer("");
+    setNote("");
+    setOverride("");
+    setEvidence(false);
+    setEditingAmendment(false);
+    onDirty(false);
+  }
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="muted break-all font-mono">{id}</p>
-        <Status
-          value={
-            (receipt.amendment ? "AMENDED" : null) ||
-            receipt.review?.decision ||
-            receipt.classification?.workflow_decision ||
-            receipt.processing_status
-          }
-        />
+      <div className="panel flex flex-wrap items-center justify-between gap-4 p-4 sm:p-5">
+        <div className="min-w-0">
+          <p className="text-lg font-semibold">
+            {data?.vendor || "Receipt record"}
+          </p>
+          <p className="muted mt-1 break-all font-mono">ID {id}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {receipt.record_version > 0 && (
+            <span className="muted">Version {receipt.record_version}</span>
+          )}
+          <Status
+            value={
+              (receipt.amendment ? "AMENDED" : null) ||
+              receipt.review?.decision ||
+              receipt.classification?.workflow_decision ||
+              receipt.processing_status
+            }
+          />
+        </div>
       </div>
-      {error && <Notice error>{error}</Notice>}
+      {error && <Notice variant="destructive">{error}</Notice>}
       {pending && !busy && (
-        <Notice>
+        <Notice variant="warning">
           The response was uncertain. Retry sends the exact same request safely,
           or reload to check what was saved.
           <div className="mt-2 flex flex-wrap gap-2">
@@ -371,24 +403,32 @@ export function ReceiptDetail({
         </Notice>
       )}
       {receipt.review && (
-        <Notice>
+        <Notice
+          variant={
+            receipt.review.decision === "REJECTED" ? "destructive" : "success"
+          }
+        >
           {receipt.review.decision === "APPROVED" ? "Approved" : "Rejected"} by{" "}
           {receipt.review.reviewer} on{" "}
           {new Date(receipt.review.reviewed_at).toLocaleString()}. The decision
-          and original extraction remain in the audit record; approved data can
-          be amended below.
+          and original extraction remain in the audit record
+          {receipt.review.decision === "APPROVED"
+            ? "; approved data can be amended from receipt history."
+            : "; this expense is excluded from accepted totals."}
         </Notice>
       )}
       {receipt.amendment && (
-        <Notice>
+        <Notice variant="info">
           Effective data amended by {receipt.amendment.reviewer} on{" "}
           {new Date(receipt.amendment.amended_at).toLocaleString()}. Version{" "}
           {receipt.record_version}; every earlier version remains in the audit.
         </Notice>
       )}
-      {receipt.error && <Notice error>{receipt.error}</Notice>}
+      {receipt.error && (
+        <Notice variant="destructive">{receipt.error}</Notice>
+      )}
       {!!receipt.duplicate_candidates?.length && (
-        <Notice>
+        <Notice variant="warning">
           Possible duplicate detected. Compare this receipt with{" "}
           {receipt.duplicate_candidates
             .map((candidate) => candidate.slice(0, 8))
@@ -417,7 +457,7 @@ export function ReceiptDetail({
             )}
           </div>
           {imageError ? (
-            <Notice error>{imageError}</Notice>
+            <Notice variant="destructive">{imageError}</Notice>
           ) : image && receipt.content_type === "application/pdf" ? (
             <div className="h-[70vh] overflow-hidden rounded-lg bg-muted p-3">
               <iframe
@@ -447,14 +487,6 @@ export function ReceiptDetail({
               Loading original receipt…
             </p>
           )}
-          <details className="mt-4">
-            <summary className="text-sm font-medium">
-              OCR text · {receipt.ocr_engine || "Unavailable"}
-            </summary>
-            <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-xs">
-              {receipt.ocr_text || "No OCR text saved."}
-            </pre>
-          </details>
         </section>
         <div className="min-w-0 space-y-5">
           <section className="panel p-5">
@@ -489,21 +521,46 @@ export function ReceiptDetail({
               </div>
             )}
           </section>
-          {data && (
+          {data && !editable && (
+            <>
+              {context === "history" && canAmend && (
+                <div className="panel flex flex-wrap items-center justify-between gap-4 p-4">
+                  <div>
+                    <p className="font-medium">Need to correct this record?</p>
+                    <p className="muted mt-1">
+                      Start an audited amendment. Earlier versions remain unchanged.
+                    </p>
+                  </div>
+                  <Button onClick={() => setEditingAmendment(true)}>
+                    <PencilLine />
+                    Create amendment
+                  </Button>
+                </div>
+              )}
+              <ReceiptSummary data={data} category={category} />
+            </>
+          )}
+          {data && editable && (
             <form
               ref={form}
               onSubmit={(e) => e.preventDefault()}
               className="panel space-y-6 p-5"
             >
-              <div>
-                <h2 className="text-lg font-semibold">
-                  {amendable ? "Effective receipt data" : "Receipt data"}
-                </h2>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">
+                    {amending ? "Amend receipt data" : "Verify receipt data"}
+                  </h2>
                 <p className="muted mt-1">
-                  {editable
-                    ? `Correct fields against the image. Blank values stay null. * Required for ${amendable ? "an amendment" : "approval"}.`
-                    : "Read only. The original automated record is preserved."}
+                    Correct fields against the image. Blank values stay null. *
+                    Required for {amending ? "an amendment" : "approval"}.
                 </p>
+                </div>
+                {amending && (
+                  <Button type="button" variant="outline" onClick={cancelAmendment}>
+                    <X /> Cancel amendment
+                  </Button>
+                )}
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 {(
@@ -675,7 +732,7 @@ export function ReceiptDetail({
               </h2>
               <div>
                 <label id="category-label" className="field-label">
-                  Final category {amendable ? "(amendment)" : "(approval)"}
+                  Final category {amending ? "(amendment)" : "(approval)"}
                 </label>
                 <Select
                   value={category}
@@ -708,7 +765,7 @@ export function ReceiptDetail({
               />
               <div>
                 <label htmlFor="review-note" className="field-label">
-                  {amendable ? "Amendment reason" : "Decision reason"}
+                  {amending ? "Amendment reason" : "Decision reason"}
                 </label>
                 <Textarea
                   id="review-note"
@@ -720,7 +777,7 @@ export function ReceiptDetail({
                     onDirty(true);
                   }}
                   placeholder={
-                    amendable
+                    amending
                       ? "Explain exactly what changed and why."
                       : "Explain the business use, correction, or reason for rejection."
                   }
@@ -765,7 +822,7 @@ export function ReceiptDetail({
                 My decision is supported by this evidence.
               </label>
               <p className="muted">
-                {amendable
+                {amending
                   ? "Save amendment creates a new effective version. Original OCR, AI output, review and earlier amendments remain unchanged."
                   : "Approve accepts the expense with your corrections. Reject excludes the expense; it keeps the receipt and audit record."}
               </p>
@@ -774,10 +831,10 @@ export function ReceiptDetail({
                   disabled={
                     locked || !data || !category || !image || !!imageError
                   }
-                  onClick={() => prepare(amendable ? "AMENDMENT" : "APPROVED")}
+                  onClick={() => prepare(amending ? "AMENDMENT" : "APPROVED")}
                 >
                   <FileCheck2 />
-                  {amendable ? "Save amendment" : "Approve receipt"}
+                  {amending ? "Save amendment" : "Approve receipt"}
                 </Button>
                 {reviewable && (
                   <Button
@@ -800,61 +857,14 @@ export function ReceiptDetail({
               </div>
               {busy && (
                 <p role="status" className="muted">
-                  Saving {amendable ? "amendment" : "decision"}…
+                  Saving {amending ? "amendment" : "decision"}…
                 </p>
               )}
             </section>
           )}
         </div>
       </div>
-      <section className="panel p-5" aria-labelledby="audit-title">
-        <h2 id="audit-title" className="text-lg font-semibold">
-          Review audit
-        </h2>
-        {audit.length ? (
-          audit.map((event) => (
-            <div key={event.request_id} className="mt-4 rounded-lg border p-4">
-              <div className="flex flex-wrap gap-3">
-                <Status value={event.decision} />
-                <span className="text-sm font-medium">{event.reviewer}</span>
-                <span className="muted">
-                  {new Date(event.reviewed_at).toLocaleString()} ·{" "}
-                  {event.identity_source.replaceAll("_", " ")}
-                </span>
-              </div>
-              <p className="mt-3 text-sm">{event.note}</p>
-              {event.override_reason && (
-                <p className="mt-2 text-sm">
-                  Override: {event.override_reason}
-                </p>
-              )}
-              <details className="mt-3">
-                <summary className="text-sm font-medium">
-                  Original and final audit data
-                </summary>
-                <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-xs">
-                  {JSON.stringify(event, null, 2)}
-                </pre>
-              </details>
-            </div>
-          ))
-        ) : (
-          <p className="muted mt-3">No human review has been recorded.</p>
-        )}
-        {amendments.map((event) => (
-          <div key={event.request_id} className="mt-4 rounded-lg border p-4">
-            <div className="flex flex-wrap gap-3">
-              <Status value="AMENDED" />
-              <span className="text-sm font-medium">{event.reviewer}</span>
-              <span className="muted">
-                {new Date(event.amended_at).toLocaleString()} · version{" "}
-                {event.record_version}
-              </span>
-            </div>
-            <p className="mt-3 text-sm">{event.reason}</p>
-          </div>
-        ))}
-      </section>
+      <AuditTimeline reviews={audit} amendments={amendments} />
       <Dialog
         open={!!confirm}
         onOpenChange={(open) => {

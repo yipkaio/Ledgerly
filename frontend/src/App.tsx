@@ -139,7 +139,7 @@ export default function App() {
               disconnect or reload. Use only on a trusted device.
             </p>
           </div>
-          {error && <Notice error>{error}</Notice>}
+          {error && <Notice variant="destructive">{error}</Notice>}
           <Button className="w-full" disabled={busy}>
             {busy && <LoaderCircle className="animate-spin" />}Connect to
             workspace
@@ -311,7 +311,9 @@ function Workspace({
                 className="text-3xl font-semibold tracking-tight"
               >
                 {selected
-                  ? "Review receipt"
+                  ? view === "reviews"
+                    ? "Review receipt"
+                    : "Receipt details"
                   : view === "dashboard"
                     ? "Main dashboard"
                     : view === "upload"
@@ -339,6 +341,7 @@ function Workspace({
                 key={selected}
                 id={selected}
                 token={token}
+                context={view === "reviews" ? "review" : "history"}
                 onDirty={setDirty}
                 saved={() => {
                   setRefresh((n) => n + 1);
@@ -517,7 +520,7 @@ function Workspace({
                 </p>
               )}
               {error && (
-                <Notice error>
+                <Notice variant="destructive">
                   {error}{" "}
                   <Button
                     variant="outline"
@@ -641,9 +644,9 @@ function Workspace({
                                 <Button
                                   variant="outline"
                                   onClick={() => setSelected(row.receipt_id)}
-                                  aria-label={`Open receipt ${row.vendor || row.receipt_id}`}
+                                  aria-label={`${view === "reviews" ? "Review" : "Open"} receipt ${row.vendor || row.receipt_id}`}
                                 >
-                                  Open
+                                  {view === "reviews" ? "Review" : "Open"}
                                   <ArrowRight />
                                 </Button>
                               </div>
@@ -795,7 +798,7 @@ function UploadForm({
         </p>
       </div>
       {error && (
-        <Notice error>
+        <Notice variant="destructive">
           {error}
           {failedId && (
             <Button variant="outline" onClick={() => open(failedId)}>

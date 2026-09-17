@@ -48,9 +48,11 @@ dist, browser test reports, local data, or credentials.
 
 ## Review a receipt
 
-After connecting, **Main dashboard** shows saved counts and accepted expense charts
-separately for each currency. Navigation then offers **Upload receipt**, **Pending
-reviews**, and **Receipt history**. Hover the eye button beside a history row for
+After connecting, **Main dashboard** shows a focused accepted-spend total, three
+actionable metrics, a monthly trend, category ranking, workflow distribution, and
+attention counts. Currency totals are always viewed separately. Navigation then
+offers **Upload receipt**, **Pending reviews**, and **Receipt history**. Hover the
+eye button beside a history row for
 an animated private preview, or use click/Enter on keyboard and touch devices.
 See [workflow behavior and planned features](workflow-roadmap.md) for implemented
 duplicate/amendment controls, filtered Excel export, and the PDF milestone.
@@ -82,12 +84,15 @@ count stays visible, and **Clear selection** never changes receipt decisions. Se
    business purpose, then click **Upload and process** once. Processing may consume
    gateway credits. On a lost response, check history before uploading again. An
    exact duplicate returns the existing receipt ID without rerunning OCR/LLM.
-3. Open the saved receipt, or choose **Pending reviews**. History and pending lists
-   are paginated in groups of 20. A missing vendor or amount means processing did
-   not extract it; inspect the saved record for errors.
+3. Choose **Pending reviews** to make a decision. **Receipt history** opens a
+   read-only, structured receipt summary; it never puts finalized fields directly
+   into edit mode. Both lists are paginated in groups of 20. A missing vendor or
+   amount means processing did not extract it; inspect the saved record for errors.
 4. Compare the **Original receipt** with all fields, items, discounts, tax, and
-   rounding. The original image loads only when a receipt or preview is opened. Open full size
-   when needed. Read both extraction and classification review reasons.
+   rounding. The original image loads only when a receipt or preview is opened.
+   Open full size when needed. Raw OCR remains stored for traceability and API
+   diagnostics but is intentionally not shown in the normal review interface.
+   Read both extraction and classification review reasons.
 5. Correct verified fields. Empty optional fields remain null. Currency, vendor,
    date and total are required for approval. Discount fields are optional, and zero
    is not a substitute for unknown. Supported review currencies are SGD, MYR,
@@ -99,12 +104,16 @@ count stays visible, and **Clear selection** never changes receipt decisions. Se
 7. Click **Approve receipt** or **Reject receipt** and read the confirmation dialog.
    Approval sends the complete corrected extraction. Rejection omits correction
    and category fields. The UI creates the request UUID and copies the saved version.
-8. Confirm once. The record reloads after saving; inspect **Review audit**. The
-   original AI evidence stays intact and the human decision is final. Approved data
-   and human status appear in history; finalized receipts leave the pending queue.
-9. Open an auto-filed or approved receipt to correct it. **Save amendment** creates
-   a new effective version; enter a specific reason and re-confirm the evidence.
-   Earlier versions stay in the audit and stale concurrent edits are rejected.
+8. Confirm once. The record reloads after saving; inspect **Review audit**. Its
+   timeline shows decision, reviewer, timestamp, evidence confirmation, category,
+   and deterministic before/after field changes without exposing a raw JSON dump.
+   The original AI evidence stays intact and the human decision is final. Approved
+   data and human status appear in history; finalized receipts leave the queue.
+9. Open an auto-filed or approved receipt in history and choose **Create amendment**
+   to enter correction mode. **Save amendment** creates a new effective version;
+   enter a specific reason and re-confirm the evidence. **Cancel amendment** returns
+   to the saved read-only record. Earlier versions stay in the audit and stale
+   concurrent edits are rejected.
 
 For validation errors, correct the identified fields; edits are retained. An
 explicit override explanation is only for an evidence-supported remaining amount
@@ -145,9 +154,11 @@ permissions, account isolation, and audited reopening are future work.
 
 Labels, focus outlines, a skip link, semantic tables, native number inputs, Radix
 select keyboard behavior, and focus-trapped confirmation dialogs support keyboard
-review. At small sizes the two review columns stack and tables scroll within their
-own container. Status uses text as well as color. The review bundle and receipt
-image load on demand. Only one page of history is fetched at a time.
+review. Charts include accessible names and exact values, never rely on color alone,
+and use no additional chart runtime. At small sizes the two review columns stack
+and tables scroll within their own container. Status uses text as well as color.
+The review bundle and receipt image load on demand. Only one page of history is
+fetched at a time.
 
 ## Component sources
 

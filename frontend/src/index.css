@@ -61,6 +61,25 @@
 .panel {
   @apply rounded-xl border bg-white shadow-sm;
 }
+.dashboard-hero {
+  position: relative;
+  background:
+    radial-gradient(circle at 88% 14%, rgb(110 231 183 / 0.22), transparent 27%),
+    linear-gradient(135deg, #173f31 0%, #245c46 55%, #2f7d5d 100%);
+}
+.dashboard-hero::after {
+  position: absolute;
+  right: -4rem;
+  bottom: -7rem;
+  width: 18rem;
+  height: 18rem;
+  content: "";
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 9999px;
+  box-shadow:
+    0 0 0 2.5rem rgb(255 255 255 / 0.035),
+    0 0 0 5rem rgb(255 255 255 / 0.025);
+}
 .field-label {
   @apply mb-1.5 block text-sm font-medium;
 }

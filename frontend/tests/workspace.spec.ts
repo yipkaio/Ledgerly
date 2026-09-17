@@ -181,6 +181,12 @@ async function setup(page: Page, mode = "success") {
       amended_at: "2026-09-13T15:00:00Z",
       identity_source: "self_reported",
       validation_issues: [],
+      before: {
+        record_version: 1,
+        state: "APPROVED",
+        final_data: review?.final_data || extraction,
+        category: String(review?.category || "Office Supplies"),
+      },
     } as Amendment;
     await route.fulfill({ json: amendment });
   });
@@ -232,7 +238,10 @@ async function setup(page: Page, mode = "success") {
   return requests;
 }
 async function open(page: Page) {
-  await page.getByRole("button", { name: "Open receipt MR D.I.Y." }).click();
+  await page
+    .getByRole("button", { name: "Pending reviews", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Review receipt MR D.I.Y." }).click();
   await expect(page.getByLabel("Vendor *")).toHaveValue("MR D.I.Y.");
   await page.getByLabel("Reviewer name").fill("Yip Kai");
   await page
@@ -323,6 +332,13 @@ test("approved receipt can be amended while earlier review remains visible", asy
   await open(page);
   await page.getByRole("button", { name: "Approve receipt" }).click();
   await page.getByRole("button", { name: "Confirm approval" }).click();
+  await page
+    .getByRole("button", { name: "Receipt history", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Open receipt MR D.I.Y." }).click();
+  await expect(page.getByRole("heading", { name: "Receipt details" })).toBeVisible();
+  await expect(page.getByLabel("Vendor *")).toHaveCount(0);
+  await page.getByRole("button", { name: "Create amendment" }).click();
   await expect(page.getByRole("button", { name: "Save amendment" })).toBeVisible();
   await page.getByLabel("Vendor *").fill("Amended MR D.I.Y.");
   await page.getByLabel("Reviewer name").fill("Yip Kai");
@@ -333,10 +349,14 @@ test("approved receipt can be amended while earlier review remains visible", asy
   await page.getByRole("button", { name: "Save amendment" }).click();
   await page.getByRole("button", { name: "Confirm amendment" }).click();
   await expect(page.getByText(/Effective data amended by Yip Kai/)).toBeVisible();
-  await expect(page.getByLabel("Vendor *")).toHaveValue("Amended MR D.I.Y.");
+  await expect(page.getByRole("heading", { name: "Amended MR D.I.Y." })).toBeVisible();
   await expect(
     page.getByText(/Version 2; every earlier version remains in the audit/),
   ).toBeVisible();
+  await expect(page.getByText("Vendor", { exact: true }).last()).toBeVisible();
+  await expect(page.getByText("MR D.I.Y.", { exact: true }).last()).toBeVisible();
+  await expect(page.getByText("Version 1 → 2")).toBeVisible();
+  await expect(page.getByText("Original and final audit data")).toHaveCount(0);
 });
 
 test("dashboard totals stay separate by currency and links open the queue", async ({
@@ -349,7 +369,7 @@ test("dashboard totals stay separate by currency and links open the queue", asyn
   await expect(
     page.getByText("MYR 33.90", { exact: true }).first(),
   ).toBeVisible();
-  await page.getByLabel("Currency", { exact: true }).selectOption("SGD");
+  await page.getByLabel("Reporting currency", { exact: true }).selectOption("SGD");
   await expect(
     page.getByText("SGD 10.00", { exact: true }).first(),
   ).toBeVisible();
@@ -413,7 +433,9 @@ test("preview supports keyboard and small screens without relying on hover", asy
   expect(box!.x + box!.width).toBeLessThanOrEqual(375);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Open full receipt" }).click();
-  await expect(page.getByLabel("Vendor *")).toHaveValue("MR D.I.Y.");
+  await expect(page.getByRole("heading", { name: "Receipt details" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "MR D.I.Y." })).toBeVisible();
+  await expect(page.getByText("OCR text", { exact: false })).toHaveCount(0);
 });
 test("rejection excludes corrected fields and preserves the audit", async ({
   page,
@@ -428,6 +450,9 @@ test("rejection excludes corrected fields and preserves the audit", async ({
   await expect(
     page.getByText(/Rejected by Yip Kai/),
   ).toBeVisible();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Rejected by Yip Kai" }),
+  ).toHaveClass(/text-red-950/);
   expect(sent[0].decision).toBe("REJECTED");
   expect(sent[0]).not.toHaveProperty("corrected_data");
   expect(sent[0]).not.toHaveProperty("category");
@@ -471,7 +496,10 @@ test("missing image blocks evidence confirmation and approval", async ({
   page,
 }) => {
   await setup(page, "missing-image");
-  await page.getByRole("button", { name: "Open receipt MR D.I.Y." }).click();
+  await page
+    .getByRole("button", { name: "Pending reviews", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Review receipt MR D.I.Y." }).click();
   await expect(page.getByRole("checkbox")).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "Approve receipt" }),
@@ -524,7 +552,22 @@ test("upload multipart purpose and saved receipt; pagination", async ({
     .getByLabel("Business purpose (optional)")
     .fill("Mock purpose: office cleaning");
   await page.getByRole("button", { name: "Upload and process" }).click();
-  await expect(page.getByLabel("Vendor *")).toHaveValue("MR D.I.Y.");
+  await expect(page.getByRole("heading", { name: "Receipt details" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "MR D.I.Y." })).toBeVisible();
+});
+
+test("history is read only, hides OCR, and presents a structured receipt summary", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.getByRole("button", { name: "Open receipt MR D.I.Y." }).click();
+  await expect(page.getByRole("heading", { name: "Receipt details" })).toBeVisible();
+  await expect(page.getByText("Effective receipt record")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Merchant details" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Line items" })).toBeVisible();
+  await expect(page.getByText("OCR text", { exact: false })).toHaveCount(0);
+  await expect(page.getByLabel("Vendor *")).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
 test("navigation warns before discarding review edits", async ({ page }) => {
