@@ -19,8 +19,10 @@ are not payments, ledger postings or a deduplicated financial report.
 History stays paginated at 20 records per page. Hover the **eye button** beside a
 receipt for a compact preview anchored to that row, with a short opening delay and
 fade animation. Click or press Enter/Space for keyboard and touch use. Escape,
-the close button or clicking outside closes it. **Open full receipt** opens the saved
-evidence and review form. Reduced-motion preferences disable the transition.
+the close button or clicking outside closes it. **Open full receipt** opens saved
+evidence and a structured, read-only history record. Pending queue items expose the
+review form; accepted history items require **Create amendment** before fields become
+editable. Reduced-motion preferences disable the transition.
 
 Previews request protected originals only when opened, with the app key in a header.
 They do not rerun OCR or LLM extraction. Previews never scroll: vendor title and
@@ -49,7 +51,8 @@ confirmed/not-duplicate disposition remains a later refinement.
 
 ## Editing filed receipts: audited amendments (implemented)
 
-Auto-filed and approved receipts can be corrected through **Save amendment** or
+Auto-filed and approved receipts can be corrected by first choosing **Create
+amendment**, then **Save amendment**, or through
 `POST /receipts/{id}/amendments`. Every change requires reviewer, reason, evidence
 confirmation, current `record_version`, an idempotent request UUID, complete
 validated fields and category. Original OCR, AI extraction, review and every earlier

@@ -26,13 +26,14 @@ The application now provides a secure FastAPI receipt-processing pipeline:
 - A fixed-category expense classifier for unmatched vendors, with optional business purpose and a configurable confidence gate.
 - Automated tests that mock both OCR providers and both gateway agents, so tests do not download models, require OCR installation, make network calls, or consume API credits.
 
-SQLite persistence, authenticated receipt history, human approval/rejection, and append-only amendments are implemented. The React + TypeScript workspace supports uploads, paginated history, pending reviews, protected originals, verified corrections, confirmation dialogs, amendments and audit viewing. Follow the [frontend setup and review guide](docs/frontend.md). See [Human review API](docs/reviews.md) for manual payloads, validation, and migration precautions. Firebase Authentication and Telegram/OpenClaw integration remain TODOs.
+SQLite persistence, authenticated receipt history, human approval/rejection, and append-only amendments are implemented. The React + TypeScript workspace supports uploads, paginated history, pending reviews, protected originals, verified corrections, confirmation dialogs, explicit amendment mode, structured receipt summaries, and field-level audit viewing. Follow the [frontend setup and review guide](docs/frontend.md). See [Human review API](docs/reviews.md) for manual payloads, validation, and migration precautions. Firebase Authentication and Telegram/OpenClaw integration remain TODOs.
 
 ## SQLite persistence and receipt history
 
 The workspace starts with **Main dashboard**, followed by **Upload receipt**,
 **Pending reviews**, and **Receipt history**. The dashboard provides saved counts,
-accepted expense totals, category charts and monthly trends by currency. History
+accepted expense totals, an accessible monthly trend, category ranking, workflow
+distribution, and attention counts without combining currencies. History
 has animated, authenticated previews beside each receipt. See the
 [workflow roadmap](docs/workflow-roadmap.md) for duplicate/amendment behavior,
 filtered Excel export, PDF ingestion, and remaining usability priorities.
