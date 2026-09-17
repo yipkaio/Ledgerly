@@ -589,7 +589,7 @@ test("navigation warns before discarding review edits", async ({ page }) => {
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Back to list" }).click();
   await expect(
-    page.getByRole("heading", { name: "Receipt history" }),
+    page.getByRole("heading", { name: "Pending reviews" }),
   ).toBeVisible();
 });
 
