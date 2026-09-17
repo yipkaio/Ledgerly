@@ -241,7 +241,12 @@ async function open(page: Page) {
   await page
     .getByRole("button", { name: "Pending reviews", exact: true })
     .click();
-  await page.getByRole("button", { name: "Review receipt MR D.I.Y." }).click();
+  await page
+    .getByRole("button", {
+      name: "Review receipt MR D.I.Y.",
+      exact: true,
+    })
+    .click();
   await expect(page.getByLabel("Vendor *")).toHaveValue("MR D.I.Y.");
   await page.getByLabel("Reviewer name").fill("Yip Kai");
   await page
@@ -376,7 +381,7 @@ test("dashboard totals stay separate by currency and links open the queue", asyn
   await expect(page.getByText("MYR 33.90", { exact: true })).toHaveCount(0);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page
-    .getByRole("button", { name: /Pending reviews.*Waiting for/ })
+    .getByRole("button", { name: /Pending reviews.*Needs a human decision/ })
     .click();
   await expect(
     page.getByRole("heading", { name: "Pending reviews" }),
@@ -499,7 +504,12 @@ test("missing image blocks evidence confirmation and approval", async ({
   await page
     .getByRole("button", { name: "Pending reviews", exact: true })
     .click();
-  await page.getByRole("button", { name: "Review receipt MR D.I.Y." }).click();
+  await page
+    .getByRole("button", {
+      name: "Review receipt MR D.I.Y.",
+      exact: true,
+    })
+    .click();
   await expect(page.getByRole("checkbox")).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "Approve receipt" }),
