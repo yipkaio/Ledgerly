@@ -27,6 +27,7 @@ const extraction = {
     },
   ],
   subtotal: 33.92,
+  discount_amount: null,
   tax_amount: null,
   total_before_rounding: 33.92,
   rounding_adjustment: -0.02,
@@ -260,6 +261,7 @@ test("approval edits, automatic UUID, final audit and no persistent key", async 
   const sent = await setup(page);
   await open(page);
   await page.getByLabel("Vendor *").fill("Verified MR D.I.Y.");
+  await page.getByLabel("Discount amount").fill("2.00");
   await page.getByLabel("Rounding adjustment").focus();
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("-0.02");
@@ -280,6 +282,7 @@ test("approval edits, automatic UUID, final audit and no persistent key", async 
   expect(sent[0].corrected_data?.line_items[0].quantity).toBe(2);
   expect(sent[0].corrected_data?.line_items[0].unit_price).toBe(16.96);
   expect(sent[0].corrected_data?.line_items[0].discount_percent).toBeNull();
+  expect(sent[0].corrected_data?.discount_amount).toBe(2);
   expect(
     await page.evaluate(() => [localStorage.length, sessionStorage.length]),
   ).toEqual([0, 0]);

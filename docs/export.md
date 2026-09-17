@@ -53,7 +53,7 @@ The private `.xlsx` is generated from one SQLite read snapshot:
 
 | Sheet | Contents |
 | --- | --- |
-| Receipts | Effective vendor, receipt/date, currency, totals, purpose, category, status, upload time, latest reviewer |
+| Receipts | Effective vendor, receipt/date, currency, subtotal, receipt discount, tax, totals, purpose, category, status, upload time, latest reviewer |
 | Line items | Receipt ID, order, description, quantity, unit price, nullable discounts, line total |
 | Review audit | Approval/rejection/amendment type, version, category, reviewer, timestamp, reason, validation and override |
 

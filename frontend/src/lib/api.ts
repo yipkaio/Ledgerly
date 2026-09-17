@@ -28,6 +28,7 @@ export type Extraction = {
   currency: string | null;
   line_items: LineItem[];
   subtotal: number | null;
+  discount_amount: number | null;
   tax_amount: number | null;
   total_before_rounding: number | null;
   rounding_adjustment: number | null;

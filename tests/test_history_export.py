@@ -64,6 +64,7 @@ def test_selected_export_has_three_safe_effective_sheets(monkeypatch, tmp_path):
         values = base.model_dump(mode="json")
         values["vendor"] = "=HYPERLINK(\"https://evil.invalid\")"
         values["receipt_number"] = "R-1"
+        values["discount_amount"] = 5.00
         values["line_items"] = [{
             "description": "+cmd|' /C calc'!A0",
             "quantity": 1,
@@ -100,6 +101,7 @@ def test_selected_export_has_three_safe_effective_sheets(monkeypatch, tmp_path):
         )
     assert all(name in workbook for name in ("Receipts", "Line items", "Review audit"))
     assert "HYPERLINK" in strings and "cmd|' /C calc'!A0" in strings
+    assert "Receipt Discount" in strings
     assert "<f>" not in worksheets
 
 

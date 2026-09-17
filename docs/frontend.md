@@ -89,13 +89,17 @@ count stays visible, and **Clear selection** never changes receipt decisions. Se
    into edit mode. Both lists are paginated in groups of 20. A missing vendor or
    amount means processing did not extract it; inspect the saved record for errors.
 4. Compare the **Original receipt** with all fields, items, discounts, tax, and
-   rounding. The original image loads only when a receipt or preview is opened.
+   rounding. Receipt discount is the invoice-wide amount applied after subtotal
+   and before tax; line-item discounts remain attached to individual items. The
+   original image loads only when a receipt or preview is opened.
    Open full size when needed. Raw OCR remains stored for traceability and API
    diagnostics but is intentionally not shown in the normal review interface.
    Read both extraction and classification review reasons.
 5. Correct verified fields. Empty optional fields remain null. Currency, vendor,
-   date and total are required for approval. Discount fields are optional, and zero
-   is not a substitute for unknown. Supported review currencies are SGD, MYR,
+   date and total are required for approval. Receipt-level and line-item discount
+   fields are optional, and zero is not a substitute for unknown. Verify that
+   subtotal minus receipt discount plus tax and rounding reconciles to the total.
+   Supported review currencies are SGD, MYR,
    USD, EUR, GBP and AUD. Monetary fields accept two decimal places.
 6. Choose the justified category and supply your name and decision reason. Record
    confirmed business purpose in the reason; the review does not change the original

@@ -138,7 +138,7 @@ def _write_table(workbook, name: str, headers: list[str], rows: list[list[object
     money_columns = {
         index
         for index, value in enumerate(headers)
-        if any(word in value for word in ("Amount", "Subtotal", "Tax", "Rounding", "Price", "Total"))
+        if any(word in value for word in ("Amount", "Subtotal", "Discount", "Tax", "Rounding", "Price", "Total"))
     }
     for row_index, row in enumerate(rows, start=1):
         for column, value in enumerate(row):
@@ -189,6 +189,7 @@ def build_export(store, request: ExportRequest) -> tuple[bytes, int]:
                 data.get("date"),
                 data.get("currency"),
                 data.get("subtotal"),
+                data.get("discount_amount"),
                 data.get("tax_amount"),
                 data.get("rounding_adjustment"),
                 data.get("total_amount"),
@@ -234,7 +235,7 @@ def build_export(store, request: ExportRequest) -> tuple[bytes, int]:
         workbook,
         "Receipts",
         ["Receipt ID", "Vendor", "Receipt Number", "Receipt Date", "Currency", "Subtotal",
-         "Tax Amount", "Rounding", "Total Amount", "Business Purpose", "Category", "Status",
+         "Receipt Discount", "Tax Amount", "Rounding", "Total Amount", "Business Purpose", "Category", "Status",
          "Uploaded At", "Latest Reviewer"],
         receipt_rows,
     )

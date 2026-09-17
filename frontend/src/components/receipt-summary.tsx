@@ -130,6 +130,7 @@ export function ReceiptSummary({
           <dl className="rounded-xl border bg-muted/40 p-4 text-sm">
             {[
               ["Subtotal", data.subtotal],
+              ["Receipt discount", data.discount_amount],
               ["Tax", data.tax_amount],
               ["Before rounding", data.total_before_rounding],
               ["Rounding", data.rounding_adjustment],

@@ -13,6 +13,7 @@ const labels: Record<string, string> = {
   date: "Receipt date",
   currency: "Currency",
   subtotal: "Subtotal",
+  discount_amount: "Receipt discount",
   tax_amount: "Tax",
   total_before_rounding: "Total before rounding",
   rounding_adjustment: "Rounding adjustment",

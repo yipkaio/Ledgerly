@@ -81,6 +81,13 @@ class ReceiptExtraction(BaseModel):
     currency: Annotated[str | None, Field(pattern=r"^[A-Z]{3}$")]
     line_items: Annotated[list[ReceiptLineItem], Field(max_length=200)]
     subtotal: NonNegativeMoney | None
+    discount_amount: NonNegativeMoney | None = Field(
+        default=None,
+        description=(
+            "Receipt-wide discount applied after subtotal and before tax; "
+            "null when it is not printed"
+        ),
+    )
     tax_amount: NonNegativeMoney | None
     total_before_rounding: Money | None
     rounding_adjustment: Money | None
@@ -289,12 +296,16 @@ class GatewayReceiptExtractor:
             and receipt.total_before_rounding is not None
             and abs(
                 receipt.subtotal
+                - (receipt.discount_amount or Decimal("0"))
                 + receipt.tax_amount
                 - receipt.total_before_rounding
             )
             > ARITHMETIC_TOLERANCE
         ):
-            reasons.append("Subtotal and tax do not match total before rounding")
+            reasons.append(
+                "Subtotal minus receipt discount plus tax does not match "
+                "total before rounding"
+            )
 
         if (
             receipt.total_before_rounding is not None
@@ -393,9 +404,14 @@ Correct obvious OCR errors only when repeated text or receipt arithmetic support
 correction. Use null when uncertain. Use ISO 4217 currency codes and YYYY-MM-DD dates.
 Monetary values and quantities must be JSON numbers. rounding_adjustment must be signed.
 Extract every visible line item. total_amount is the final rounded amount payable.
+The root discount_amount is the receipt-wide discount applied after subtotal and before
+tax; keep it null when no receipt-wide discount is explicitly printed. It is separate
+from line-item discounts. Reconcile subtotal - discount_amount + tax_amount to
+total_before_rounding, treating a null discount as zero.
 For each line item, unit_price is the price before its line discount and line_total is
-the amount after that discount. Set discount_percent and discount_amount to null when
-they are not explicitly printed. Do not invent a discount merely to reconcile amounts.
+the amount after that discount. Set line-item discount_percent and discount_amount to
+null when they are not explicitly printed. Do not invent any discount merely to
+reconcile amounts.
 Before returning, verify quantity * unit_price minus the printed discount equals
 line_total. If OCR column order is ambiguous, swap unit_price and discount_percent only
 when exactly one of those two interpretations reconciles; otherwise use null for the
@@ -422,6 +438,7 @@ Return exactly this object shape:
     }}
   ],
   "subtotal": null,
+  "discount_amount": null,
   "tax_amount": null,
   "total_before_rounding": null,
   "rounding_adjustment": null,

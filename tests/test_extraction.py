@@ -49,6 +49,7 @@ def valid_receipt() -> dict:
             },
         ],
         "subtotal": 33.92,
+        "discount_amount": None,
         "tax_amount": 0.00,
         "total_before_rounding": 33.92,
         "rounding_adjustment": -0.02,
@@ -104,12 +105,27 @@ def test_extract_sends_ocr_text_and_returns_validated_receipt() -> None:
     assert str(result.total_amount) == "33.9"
     assert result.line_items[0].discount_percent is None
     assert result.line_items[0].discount_amount is None
+    assert result.discount_amount is None
     assert result.needs_review is False
     prompt = body["messages"][0]["content"]
     assert '"discount_percent": null' in prompt
-    assert '"discount_amount": null' in prompt
-    assert "Do not invent a discount" in prompt
+    assert prompt.count('"discount_amount": null') == 2
+    assert "root discount_amount is the receipt-wide discount" in prompt
+    assert "Do not invent any discount" in prompt
     assert "exactly one of those two interpretations reconciles" in prompt
+
+
+def test_missing_receipt_discount_remains_backward_compatible() -> None:
+    receipt = valid_receipt()
+    receipt.pop("discount_amount")
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=gateway_response(receipt))
+
+    result = asyncio.run(extractor_for(handler).extract("older stored receipt shape"))
+
+    assert result.discount_amount is None
+    assert result.needs_review is False
 
 
 def test_json_markdown_fence_is_accepted() -> None:
@@ -213,6 +229,46 @@ def test_tax_reconciliation_supports_taxed_receipts() -> None:
 
     assert result.needs_review is False
     assert result.review_reasons == []
+
+
+def test_receipt_discount_reconciles_between_subtotal_and_tax() -> None:
+    receipt = deepcopy(valid_receipt())
+    receipt["line_items"] = []
+    receipt["subtotal"] = 1000.00
+    receipt["discount_amount"] = 50.00
+    receipt["tax_amount"] = 76.00
+    receipt["total_before_rounding"] = 1026.00
+    receipt["rounding_adjustment"] = 0.00
+    receipt["total_amount"] = 1026.00
+    receipt["cash_tendered"] = None
+    receipt["change_amount"] = None
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=gateway_response(receipt))
+
+    result = asyncio.run(
+        extractor_for(handler).extract("SUBTOTAL 1000 DISCOUNT 50 TAX 76 TOTAL 1026")
+    )
+
+    assert str(result.discount_amount) == "50.0"
+    assert result.needs_review is False
+    assert result.review_reasons == []
+
+
+def test_receipt_discount_mismatch_is_flagged() -> None:
+    receipt = deepcopy(valid_receipt())
+    receipt["discount_amount"] = 5.00
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=gateway_response(receipt))
+
+    result = asyncio.run(extractor_for(handler).extract("receipt discount mismatch"))
+
+    assert result.needs_review is True
+    assert (
+        "Subtotal minus receipt discount plus tax does not match total before rounding"
+        in result.review_reasons
+    )
 
 
 @pytest.mark.parametrize(

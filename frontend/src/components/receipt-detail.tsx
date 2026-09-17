@@ -690,15 +690,17 @@ export function ReceiptDetail({
                   </Button>
                 )}
                 <p className="muted">
-                  Discount fields are optional. Keep null when absent; use 0
-                  only when zero is printed. Receipt totals may include tax or
-                  rounding.
+                  Line-item and receipt discounts are separate and optional.
+                  Keep either null when absent; use 0 only when zero is printed.
+                  Receipt totals reconcile as subtotal minus receipt discount,
+                  plus tax and rounding.
                 </p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 {(
                   [
                     "subtotal",
+                    "discount_amount",
                     "tax_amount",
                     "total_before_rounding",
                     "rounding_adjustment",
