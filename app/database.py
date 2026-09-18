@@ -40,10 +40,10 @@ class ReceiptStore:
             connection.execute("PRAGMA foreign_keys=ON")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             # Serialize first-use schema creation, without write-locking normal reads.
-            if version in (0, 1, 2):
+            if version in (0, 1, 2, 3):
                 connection.execute("BEGIN IMMEDIATE")
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3):
+            if version not in (0, 1, 2, 3, 4):
                 raise DatabaseError("Unsupported database schema version")
             if version == 0:
                 for statement in SCHEMA:
@@ -63,6 +63,11 @@ class ReceiptStore:
                 for statement in DUPLICATE_SCHEMA + AMENDMENT_SCHEMA:
                     connection.execute(statement)
                 connection.execute("PRAGMA user_version=3")
+            if version in (0, 1, 2, 3):
+                from app.lifecycle import LIFECYCLE_SCHEMA
+                for statement in LIFECYCLE_SCHEMA:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version=4")
             connection.commit()
             with connection:
                 yield connection
@@ -86,7 +91,7 @@ class ReceiptStore:
                 )
             except sqlite3.IntegrityError:
                 duplicate = db.execute(
-                    "SELECT receipt_id FROM receipts WHERE content_sha256=?",
+                    "SELECT receipt_id FROM receipts WHERE content_sha256=? AND lifecycle_state<>'DELETED'",
                     (content_sha256,),
                 ).fetchone()
                 if duplicate:
@@ -103,7 +108,7 @@ class ReceiptStore:
         with self.connect() as db:
             rows = db.execute(
                 "SELECT receipt_id, extraction_json FROM receipts "
-                "WHERE receipt_id<>? AND extraction_json IS NOT NULL "
+                "WHERE receipt_id<>? AND lifecycle_state='ACTIVE' AND extraction_json IS NOT NULL "
                 "AND lower(trim(json_extract(extraction_json,'$.receipt_number')))=lower(trim(?)) "
                 "AND json_extract(extraction_json,'$.date')=? "
                 "AND json_extract(extraction_json,'$.currency')=? "
@@ -205,6 +210,8 @@ class ReceiptStore:
             else:
                 result['effective_data'] = result['extracted_data']
                 result['effective_category'] = (result['classification'] or {}).get('category')
+            result['lifecycle_events'] = [json.loads(event[0]) for event in db.execute(
+                "SELECT event_json FROM lifecycle_events WHERE receipt_id=? ORDER BY version", (receipt_id,))]
             return result
 
     def list(self, decision: str | None, processing_status: str | None,

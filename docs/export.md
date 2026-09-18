@@ -60,3 +60,7 @@ The private `.xlsx` is generated from one SQLite read snapshot:
 Unknown values remain blank and currencies are never combined. Text beginning with
 spreadsheet formula characters remains plain text. The response uses `no-store`;
 the downloaded file itself is sensitive and belongs only in approved storage.
+# Lifecycle exclusions
+
+Deleted and voided receipts are excluded from filtered exports. Explicit selections containing either are rejected with a clear error instead of silently exporting an incomplete selection. Existing downloaded workbooks are not modified. Voided evidence remains accessible in receipt history; deleted evidence remains accessible until its retention deadline and cleanup.
+

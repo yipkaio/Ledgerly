@@ -31,6 +31,7 @@ import type {
 } from "@/lib/api";
 import { Notice, Status } from "@/components/feedback";
 import { ReceiptSummary } from "@/components/receipt-summary";
+import { ReceiptLifecycle } from "@/components/receipt-lifecycle";
 import { AuditTimeline } from "@/components/audit-timeline";
 
 function Field({
@@ -91,8 +92,10 @@ export function ReceiptDetail({
   context,
   saved,
   onDirty,
+  dirty = false,
 }: {
   id: string;
+  dirty?: boolean;
   token: string;
   context: "review" | "history";
   saved: () => void;
@@ -145,8 +148,12 @@ export function ReceiptDetail({
       .then((result) => {
         if (controller.signal.aborted) return;
         setReceipt(result);
-        setData(structuredClone(result.effective_data || result.extracted_data));
-        setCategory(result.effective_category || result.classification?.category || "");
+        setData(
+          structuredClone(result.effective_data || result.extracted_data),
+        );
+        setCategory(
+          result.effective_category || result.classification?.category || "",
+        );
         setPending(null);
         setStale(false);
         setEvidence(false);
@@ -206,13 +213,15 @@ export function ReceiptDetail({
     };
   }, [id, token, revision, onDirty]);
   const reviewable =
+    (!receipt?.lifecycle_state || receipt.lifecycle_state === "ACTIVE") &&
     context === "review" &&
     receipt?.processing_status === "REVIEW_QUEUE" &&
     !receipt.review;
   const canAmend =
-    receipt?.processing_status === "COMPLETED" ||
-    receipt?.review?.decision === "APPROVED" ||
-    !!receipt?.amendment;
+    (!receipt?.lifecycle_state || receipt.lifecycle_state === "ACTIVE") &&
+    (receipt?.processing_status === "COMPLETED" ||
+      receipt?.review?.decision === "APPROVED" ||
+      !!receipt?.amendment);
   const amending = context === "history" && canAmend && editingAmendment;
   const editable = reviewable || amending;
   const locked = busy || !!pending || stale || !editable;
@@ -379,6 +388,9 @@ export function ReceiptDetail({
           )}
           <Status
             value={
+              (receipt.lifecycle_state && receipt.lifecycle_state !== "ACTIVE"
+                ? receipt.lifecycle_state
+                : null) ||
               (receipt.amendment ? "AMENDED" : null) ||
               receipt.review?.decision ||
               receipt.classification?.workflow_decision ||
@@ -387,6 +399,20 @@ export function ReceiptDetail({
           />
         </div>
       </div>
+      <ReceiptLifecycle
+        receipt={receipt}
+        token={token}
+        disabled={busy || !!pending || dirty || editingAmendment}
+        saved={() => {
+          saved();
+          setRevision((n) => n + 1);
+        }}
+      />
+      {dirty && (
+        <p className="muted">
+          Save or discard your edits before deleting or voiding this receipt.
+        </p>
+      )}
       {error && <Notice variant="destructive">{error}</Notice>}
       {pending && !busy && (
         <Notice variant="warning">
@@ -402,21 +428,22 @@ export function ReceiptDetail({
           </div>
         </Notice>
       )}
-      {receipt.review && (
-        <Notice
-          variant={
-            receipt.review.decision === "REJECTED" ? "destructive" : "success"
-          }
-        >
-          {receipt.review.decision === "APPROVED" ? "Approved" : "Rejected"} by{" "}
-          {receipt.review.reviewer} on{" "}
-          {new Date(receipt.review.reviewed_at).toLocaleString()}. The decision
-          and original extraction remain in the audit record
-          {receipt.review.decision === "APPROVED"
-            ? "; approved data can be amended from receipt history."
-            : "; this expense is excluded from accepted totals."}
-        </Notice>
-      )}
+      {receipt.review &&
+        (!receipt.lifecycle_state || receipt.lifecycle_state === "ACTIVE") && (
+          <Notice
+            variant={
+              receipt.review.decision === "REJECTED" ? "destructive" : "success"
+            }
+          >
+            {receipt.review.decision === "APPROVED" ? "Approved" : "Rejected"}{" "}
+            by {receipt.review.reviewer} on{" "}
+            {new Date(receipt.review.reviewed_at).toLocaleString()}. The
+            decision and original extraction remain in the audit record
+            {receipt.review.decision === "APPROVED"
+              ? "; approved data can be amended from receipt history."
+              : "; this expense is excluded from accepted totals."}
+          </Notice>
+        )}
       {receipt.amendment && (
         <Notice variant="info">
           Effective data amended by {receipt.amendment.reviewer} on{" "}
@@ -424,16 +451,14 @@ export function ReceiptDetail({
           {receipt.record_version}; every earlier version remains in the audit.
         </Notice>
       )}
-      {receipt.error && (
-        <Notice variant="destructive">{receipt.error}</Notice>
-      )}
+      {receipt.error && <Notice variant="destructive">{receipt.error}</Notice>}
       {!!receipt.duplicate_candidates?.length && (
         <Notice variant="warning">
           Possible duplicate detected. Compare this receipt with{" "}
           {receipt.duplicate_candidates
             .map((candidate) => candidate.slice(0, 8))
-            .join(", ")}
-          {" "}before accepting it.
+            .join(", ")}{" "}
+          before accepting it.
         </Notice>
       )}
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
@@ -465,7 +490,9 @@ export function ReceiptDetail({
                 title={`Original PDF receipt from ${receipt.extracted_data?.vendor || "uploaded vendor"}`}
                 className="h-full w-full rounded bg-white"
                 onError={() => {
-                  setImageError("The PDF could not be displayed. Use Open full size.");
+                  setImageError(
+                    "The PDF could not be displayed. Use Open full size.",
+                  );
                 }}
               />
             </div>
@@ -528,7 +555,8 @@ export function ReceiptDetail({
                   <div>
                     <p className="font-medium">Need to correct this record?</p>
                     <p className="muted mt-1">
-                      Start an audited amendment. Earlier versions remain unchanged.
+                      Start an audited amendment. Earlier versions remain
+                      unchanged.
                     </p>
                   </div>
                   <Button onClick={() => setEditingAmendment(true)}>
@@ -551,13 +579,17 @@ export function ReceiptDetail({
                   <h2 className="text-lg font-semibold">
                     {amending ? "Amend receipt data" : "Verify receipt data"}
                   </h2>
-                <p className="muted mt-1">
+                  <p className="muted mt-1">
                     Correct fields against the image. Blank values stay null. *
                     Required for {amending ? "an amendment" : "approval"}.
-                </p>
+                  </p>
                 </div>
                 {amending && (
-                  <Button type="button" variant="outline" onClick={cancelAmendment}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={cancelAmendment}
+                  >
                     <X /> Cancel amendment
                   </Button>
                 )}
@@ -879,15 +911,15 @@ export function ReceiptDetail({
               {confirm === "AMENDMENT"
                 ? "Save this amendment?"
                 : confirm === "APPROVED"
-                ? "Approve this expense?"
-                : "Reject this expense?"}
+                  ? "Approve this expense?"
+                  : "Reject this expense?"}
             </DialogTitle>
             <DialogDescription>
               {confirm === "AMENDMENT"
                 ? `Create version ${receipt.record_version + 1} as ${category}; earlier versions remain unchanged.`
                 : confirm === "APPROVED"
-                ? `Save the reviewed data as ${category}.`
-                : "Exclude this expense from accepted expenses and retain the original record."}{" "}
+                  ? `Save the reviewed data as ${category}.`
+                  : "Exclude this expense from accepted expenses and retain the original record."}{" "}
               This change will be attributed to {reviewer}.
             </DialogDescription>
           </DialogHeader>

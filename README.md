@@ -222,3 +222,7 @@ Gateway errors use controlled API responses: `502` for invalid model output, `50
 The backend first checks a small set of manually validated, exact vendor mappings. Vendor names are normalized for case and punctuation, but substring matches are prohibited so broad retailers such as MR D.I.Y. are not mapped accidentally. Unmatched vendors are sent to the classification agent with the extracted receipt and optional business purpose.
 
 The agent must select one fixed category and return a confidence score from zero to one. `CLASSIFICATION_CONFIDENCE_THRESHOLD` defaults to `0.80`. Extraction-review flags, classifier-review flags, or confidence below the threshold produce `REVIEW_QUEUE`; only a clean result at or above the threshold produces `AUTO_FILED`. Invalid or unavailable classification responses also produce a safe review decision rather than losing the accepted receipt.
+# Receipt retention and voiding
+
+The workspace now includes **Deleted receipts** (restore within 30 days) and audited **Void receipt** for approved/auto-filed records. Deletion and voiding exclude records from dashboards and normal exports. Schema v4 migrates existing records without deleting them. Back up the database and uploads before deployment. See [receipt lifecycle](docs/receipt-lifecycle.md) for eligibility, cleanup timing, duplicate handling, and verification.
+

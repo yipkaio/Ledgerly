@@ -9,6 +9,8 @@ from app.classification import ExpenseCategory
 
 
 HistoryState = Literal[
+    "DELETED",
+    "VOIDED",
     "AUTO_FILED",
     "APPROVED",
     "AMENDED",
@@ -42,6 +44,7 @@ class HistoryFilters(BaseModel):
 HISTORY_CTE = """WITH history AS (
  SELECT r.receipt_id, r.content_type, r.size_bytes, r.business_purpose,
  r.processing_status, r.created_at, r.updated_at, c.decision,
+ r.lifecycle_state, r.deleted_at, r.purge_after,
  COALESCE(json_extract(a.result_json, '$.final_data.vendor'),
           json_extract(v.result_json, '$.final_data.vendor'),
           json_extract(r.extraction_json, '$.vendor')) AS vendor,
@@ -60,7 +63,8 @@ HISTORY_CTE = """WITH history AS (
  COALESCE(json_extract(a.result_json, '$.category'),
           json_extract(v.result_json, '$.category'),
           json_extract(c.result_json, '$.category')) AS category,
- CASE WHEN a.version IS NOT NULL THEN 'AMENDED'
+ CASE WHEN r.lifecycle_state<>'ACTIVE' THEN r.lifecycle_state
+      WHEN a.version IS NOT NULL THEN 'AMENDED'
       WHEN v.result_json IS NOT NULL THEN json_extract(v.result_json, '$.decision')
       ELSE COALESCE(c.decision, r.processing_status) END AS workflow_state,
  CASE WHEN a.version IS NOT NULL THEN 'AMENDED'
@@ -77,7 +81,7 @@ HISTORY_CTE = """WITH history AS (
 HISTORY_COLUMNS = (
     "receipt_id, content_type, size_bytes, business_purpose, processing_status, "
     "created_at, updated_at, decision, vendor, receipt_number, receipt_date, "
-    "total_amount, currency, category, workflow_state, review_decision"
+    "total_amount, currency, category, workflow_state, review_decision, lifecycle_state, deleted_at, purge_after"
 )
 
 
@@ -87,7 +91,7 @@ def _contains(value: str) -> str:
 
 
 def filter_clause(filters: HistoryFilters) -> tuple[str, tuple]:
-    clauses: list[str] = []
+    clauses: list[str] = [] if filters.state == 'DELETED' else ["lifecycle_state<>'DELETED'"]
     values: list[object] = []
     if filters.query:
         pattern = _contains(filters.query)

@@ -173,3 +173,7 @@ The UI components are copied from shadcn's `new-york-v4` registry in
 `shadcn-ui/ui/apps/v4/registry/new-york-v4/ui`, with import paths adjusted locally.
 They remain editable source in `src/components/ui`, using Radix primitives and
 Tailwind tokens. See `frontend/THIRD_PARTY_NOTICES.md` for source attribution.
+# Deleted receipts and protected records
+
+Use the **Deleted receipts** tab to inspect restore deadlines and open a record for restoration. Pending, failed and rejected receipts can be moved there from the receipt's management panel. Approved, auto-filed and amended records instead offer **Void receipt**, with a mandatory reason. Voided records remain read-only in history, show a neutral status badge, and cannot be selected for export. Confirmation dialogs explain the effect and preserve an identical request for retries after a connection failure. Unsaved review edits must be saved or discarded first. See [retention rules](receipt-lifecycle.md).
+

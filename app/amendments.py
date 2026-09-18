@@ -150,6 +150,8 @@ def submit_amendment(store, receipt_id: str, request: AmendmentRequest) -> dict:
         ).fetchone()
         if row is None:
             raise ReviewNotFound("Receipt not found")
+        if row['lifecycle_state'] != 'ACTIVE':
+            raise ReviewConflict("Deleted or voided receipts cannot be amended")
         before_data, before_category, before_state, current_version = _effective_before(
             db, row
         )

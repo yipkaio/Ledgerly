@@ -97,7 +97,7 @@ REVIEW_SCHEMA = (
 def pending_reviews(store, limit: int, offset: int) -> dict:
     with store.connect() as db:
         db.execute("BEGIN")
-        source = " FROM receipts r WHERE processing_status='REVIEW_QUEUE' AND NOT EXISTS (SELECT 1 FROM receipt_reviews v WHERE v.receipt_id=r.receipt_id)"
+        source = " FROM receipts r WHERE processing_status='REVIEW_QUEUE' AND lifecycle_state='ACTIVE' AND NOT EXISTS (SELECT 1 FROM receipt_reviews v WHERE v.receipt_id=r.receipt_id)"
         total = db.execute("SELECT count(*)" + source).fetchone()[0]
         rows = db.execute("SELECT receipt_id, created_at, 0 AS review_version, "
                           "json_extract(extraction_json, '$.vendor') AS vendor, "
@@ -130,6 +130,8 @@ def submit_review(store, receipt_id: str, request: ReviewRequest) -> dict:
         row = db.execute("SELECT * FROM receipts WHERE receipt_id=?", (receipt_id,)).fetchone()
         if row is None:
             raise ReviewNotFound("Receipt not found")
+        if row['lifecycle_state'] != 'ACTIVE':
+            raise ReviewConflict("Deleted or voided receipts cannot be reviewed")
         if request.expected_version != 0 or db.execute("SELECT 1 FROM receipt_reviews WHERE receipt_id=?", (receipt_id,)).fetchone():
             raise ReviewConflict("Receipt review version is stale or already finalized")
         if row['processing_status'] != 'REVIEW_QUEUE':

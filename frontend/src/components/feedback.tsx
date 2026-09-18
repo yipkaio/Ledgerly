@@ -30,7 +30,9 @@ export function Status({ value }: { value: string }) {
     <Badge
       variant="outline"
       className={
-        value === "REVIEW_QUEUE"
+        value === "DELETED" || value === "VOIDED" || value === "PROCESSING"
+          ? "border-slate-300 bg-slate-100 text-slate-800"
+        : value === "REVIEW_QUEUE"
           ? "border-amber-300 bg-amber-50 text-amber-900"
         : value === "REJECTED" || value === "FAILED"
             ? "border-red-300 bg-red-50 text-red-900"

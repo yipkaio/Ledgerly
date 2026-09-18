@@ -1,9 +1,11 @@
+import { useClock } from "@/lib/use-clock";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   FileCheck2,
   Upload,
   ListChecks,
   History,
+  Trash2,
   LogOut,
   ArrowLeft,
   ArrowRight,
@@ -160,7 +162,7 @@ function Workspace({
   disconnect: () => void;
 }) {
   const [view, setView] = useState<
-      "dashboard" | "history" | "reviews" | "upload"
+      "dashboard" | "history" | "reviews" | "upload" | "deleted"
     >("dashboard"),
     [selected, setSelected] = useState<string | null>(null),
     [offset, setOffset] = useState(0),
@@ -173,6 +175,7 @@ function Workspace({
     [filters, setFilters] = useState(emptyFilters),
     [checked, setChecked] = useState<Set<string>>(new Set()),
     [exportBusy, setExportBusy] = useState(false);
+  const now = useClock();
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (view === "upload" || view === "dashboard" || selected) return;
@@ -182,6 +185,7 @@ function Workspace({
     setError("");
     setPage(null);
     const params = new URLSearchParams({ limit: "20", offset: String(offset) });
+    if (view === "deleted") params.set("state", "DELETED");
     if (view === "history") {
       for (const [key, value] of Object.entries(filterParams(filters)))
         params.set(key, value);
@@ -225,6 +229,7 @@ function Workspace({
     if (!discardChanges()) return;
     setSelected(null);
     setView(next);
+    setChecked(new Set());
     setOffset(0);
   }
   async function exportExcel(allFiltered: boolean) {
@@ -288,6 +293,7 @@ function Workspace({
               ["upload", Upload, "Upload receipt"],
               ["reviews", ListChecks, "Pending reviews"],
               ["history", History, "Receipt history"],
+              ["deleted", Trash2, "Deleted receipts"],
             ] as const
           ).map(([id, Icon, label]) => (
             <Button
@@ -320,7 +326,9 @@ function Workspace({
                       ? "Upload receipt"
                       : view === "reviews"
                         ? "Pending reviews"
-                        : "Receipt history"}
+                        : view === "deleted"
+                          ? "Deleted receipts"
+                          : "Receipt history"}
               </h1>
             </div>
             {selected && (
@@ -343,6 +351,7 @@ function Workspace({
                 token={token}
                 context={view === "reviews" ? "review" : "history"}
                 onDirty={setDirty}
+                dirty={dirty}
                 saved={() => {
                   setRefresh((n) => n + 1);
                   if (view === "reviews") setOffset(0);
@@ -367,7 +376,9 @@ function Workspace({
               <p className="muted mb-5">
                 {view === "reviews"
                   ? "Check the original receipt and business purpose before making a final decision."
-                  : "Human decisions take precedence over the original automated classification."}
+                  : view === "deleted"
+                    ? "Restore receipts within 30 days. Expired receipts and their files are automatically erased; finalized receipts never enter this area."
+                    : "Human decisions take precedence. Voided receipts remain visible as evidence and are excluded from totals and exports."}
               </p>
               {view === "history" && (
                 <form
@@ -389,7 +400,10 @@ function Workspace({
                       maxLength={100}
                       value={filterDraft.query}
                       onChange={(event) =>
-                        setFilterDraft((old) => ({ ...old, query: event.target.value }))
+                        setFilterDraft((old) => ({
+                          ...old,
+                          query: event.target.value,
+                        }))
                       }
                     />
                   </div>
@@ -441,6 +455,7 @@ function Workspace({
                           "AUTO_FILED",
                           "APPROVED",
                           "AMENDED",
+                          "VOIDED",
                           "REJECTED",
                           "REVIEW_QUEUE",
                           "PROCESSING",
@@ -495,7 +510,10 @@ function Workspace({
                       type="date"
                       value={filterDraft.date_from}
                       onChange={(event) =>
-                        setFilterDraft((old) => ({ ...old, date_from: event.target.value }))
+                        setFilterDraft((old) => ({
+                          ...old,
+                          date_from: event.target.value,
+                        }))
                       }
                     />
                   </div>
@@ -508,7 +526,10 @@ function Workspace({
                       type="date"
                       value={filterDraft.date_to}
                       onChange={(event) =>
-                        setFilterDraft((old) => ({ ...old, date_to: event.target.value }))
+                        setFilterDraft((old) => ({
+                          ...old,
+                          date_to: event.target.value,
+                        }))
                       }
                     />
                   </div>
@@ -535,7 +556,8 @@ function Workspace({
                   {view === "history" && (
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
                       <p className="muted" aria-live="polite">
-                        {checked.size} selected across pages
+                        {checked.size} selected across pages · Voided receipts
+                        excluded
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Button
@@ -550,7 +572,7 @@ function Workspace({
                           disabled={!page.total || exportBusy}
                           onClick={() => void exportExcel(true)}
                         >
-                          <Download /> Export filtered ({page.total})
+                          <Download /> Export filtered
                         </Button>
                         <Button
                           variant="ghost"
@@ -572,14 +594,24 @@ function Workspace({
                                 type="checkbox"
                                 aria-label="Select all receipts on this page"
                                 checked={
-                                  !!page.items.length &&
-                                  page.items.every((row) => checked.has(row.receipt_id))
+                                  !!page.items.filter(
+                                    (row) => rowStatus(row) !== "VOIDED",
+                                  ).length &&
+                                  page.items
+                                    .filter(
+                                      (row) => rowStatus(row) !== "VOIDED",
+                                    )
+                                    .every((row) => checked.has(row.receipt_id))
                                 }
                                 onChange={(event) => {
                                   setChecked((old) => {
                                     const next = new Set(old);
                                     for (const row of page.items) {
-                                      if (event.target.checked) next.add(row.receipt_id);
+                                      if (
+                                        event.target.checked &&
+                                        rowStatus(row) !== "VOIDED"
+                                      )
+                                        next.add(row.receipt_id);
                                       else next.delete(row.receipt_id);
                                     }
                                     return next;
@@ -589,7 +621,11 @@ function Workspace({
                             </TableHead>
                           )}
                           <TableHead>Vendor / receipt</TableHead>
-                          <TableHead>Uploaded</TableHead>
+                          <TableHead>
+                            {view === "deleted"
+                              ? "Restore deadline"
+                              : "Uploaded"}
+                          </TableHead>
                           <TableHead>Amount</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>
@@ -605,11 +641,13 @@ function Workspace({
                                 <input
                                   type="checkbox"
                                   aria-label={`Select receipt ${row.vendor || row.receipt_id}`}
+                                  disabled={rowStatus(row) === "VOIDED"}
                                   checked={checked.has(row.receipt_id)}
                                   onChange={(event) =>
                                     setChecked((old) => {
                                       const next = new Set(old);
-                                      if (event.target.checked) next.add(row.receipt_id);
+                                      if (event.target.checked)
+                                        next.add(row.receipt_id);
                                       else next.delete(row.receipt_id);
                                       return next;
                                     })
@@ -626,7 +664,20 @@ function Workspace({
                               </p>
                             </TableCell>
                             <TableCell>
-                              {new Date(row.created_at).toLocaleDateString()}
+                              {view === "deleted" && row.purge_after ? (
+                                <span className="text-sm">
+                                  <time dateTime={row.purge_after}>
+                                    {new Date(row.purge_after).toLocaleString()}
+                                  </time>
+                                  <span className="muted block">
+                                    {new Date(row.purge_after).getTime() <= now
+                                      ? "Awaiting permanent erasure"
+                                      : `${Math.ceil((new Date(row.purge_after).getTime() - now) / 86400000)} days remaining`}
+                                  </span>
+                                </span>
+                              ) : (
+                                new Date(row.created_at).toLocaleDateString()
+                              )}
                             </TableCell>
                             <TableCell className="whitespace-nowrap">
                               {amount(row.total_amount, row.currency)}
@@ -661,7 +712,9 @@ function Workspace({
                             >
                               {view === "reviews"
                                 ? "No receipts are waiting for review."
-                                : "No receipts yet. Upload one to get started."}
+                                : view === "deleted"
+                                  ? "No deleted receipts. Your workspace is tidy."
+                                  : "No receipts match this view. Try clearing your filters or upload a receipt."}
                             </TableCell>
                           </TableRow>
                         )}
@@ -777,7 +830,8 @@ function UploadForm({
           onChange={(e) => setFile(e.target.files?.[0] || null)}
         />
         <p className="muted mt-2">
-          JPEG, PNG, or PDF · Up to 5 MB · PDF up to 3 pages · One receipt per upload
+          JPEG, PNG, or PDF · Up to 5 MB · PDF up to 3 pages · One receipt per
+          upload
         </p>
       </div>
       <div>

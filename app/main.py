@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+import logging
 import os
 import secrets
 import hashlib
@@ -18,6 +21,7 @@ from pydantic import BaseModel, Field, ValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from app.images import receipt_image, receipt_preview
+from app.lifecycle import LifecycleRequest, apply_lifecycle, purge_expired
 from app.database import DatabaseError, DuplicateReceiptError, ReceiptStore
 from app.amendments import AmendmentRequest, amendment_history, submit_amendment
 from app.exporting import ExportInvalid, ExportRequest, build_export
@@ -174,9 +178,31 @@ def has_expected_signature(content_type: str, prefix: bytes) -> bool:
     )
 
 
+@asynccontextmanager
+async def lifespan(api):
+    async def cleanup():
+        while True:
+            try:
+                settings = get_settings()
+                await run_in_threadpool(purge_expired, ReceiptStore(settings.database_path), settings.upload_dir)
+            except Exception:
+                logging.getLogger(__name__).warning("Receipt retention cleanup failed; will retry")
+            await asyncio.sleep(3600)
+    task = asyncio.create_task(cleanup())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 def create_app() -> FastAPI:
     docs_enabled = api_docs_enabled()
     api = FastAPI(
+        lifespan=lifespan,
         title="Expense Classification Agent",
         version="0.1.0",
         description="Receipt intake for the OCR and expense-classification pipeline.",
@@ -215,6 +241,12 @@ def create_app() -> FastAPI:
     @api.exception_handler(ExportInvalid)
     async def export_invalid_handler(request, exc):
         return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @api.post("/receipts/{receipt_id}/lifecycle", tags=["receipts"],
+              summary="Move to deleted receipts, restore within 30 days, or void a finalized receipt")
+    async def lifecycle(receipt_id: UUID, body: LifecycleRequest,
+                        settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
+        return await run_in_threadpool(apply_lifecycle, ReceiptStore(settings.database_path), str(receipt_id), body)
 
     @api.get("/reviews", tags=["reviews"], summary="1. List receipts awaiting human review",
              description="Read only. Copy a receipt_id, then use GET /receipts/{receipt_id}. Empty items means no pending receipts on THIS server. Local port 8000 and the AWS tunnel port 18000 use separate databases. Finalized, AUTO_FILED, FAILED and PROCESSING receipts are excluded.")

@@ -61,6 +61,13 @@
 .panel {
   @apply rounded-xl border bg-white shadow-sm;
 }
+button {
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+[role="dialog"] {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
 .dashboard-hero {
   position: relative;
   background:

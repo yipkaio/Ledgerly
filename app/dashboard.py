@@ -13,6 +13,7 @@ EFFECTIVE = """WITH effective AS (
  FROM receipts r LEFT JOIN classifications c USING(receipt_id) LEFT JOIN receipt_reviews v USING(receipt_id)
  LEFT JOIN receipt_amendments a ON a.receipt_id=r.receipt_id
  AND a.version=(SELECT max(a2.version) FROM receipt_amendments a2 WHERE a2.receipt_id=r.receipt_id)
+ WHERE r.lifecycle_state='ACTIVE'
 ) """
 
 

@@ -88,7 +88,18 @@ export type Amendment = {
     category: string;
   };
 };
+export type LifecycleEvent = {
+  version: number;
+  action: "DELETE" | "RESTORE" | "VOID";
+  reviewer: string;
+  reason: string;
+  occurred_at: string;
+};
 export type Receipt = {
+  lifecycle_state?: "ACTIVE" | "DELETED" | "VOIDED";
+  lifecycle_version?: number;
+  purge_after?: string | null;
+  lifecycle_events?: LifecycleEvent[];
   receipt_id: string;
   content_type: string;
   processing_status: string;
@@ -118,6 +129,7 @@ export type Row = {
   decision?: string | null;
   review_decision?: string | null;
   workflow_state?: string;
+  purge_after?: string | null;
   receipt_number?: string | null;
   receipt_date?: string | null;
   category?: string | null;
@@ -238,6 +250,7 @@ export function message(error: unknown): string {
 }
 export function rowStatus(row: Row) {
   return (
+    row.workflow_state ||
     row.review_decision ||
     row.decision ||
     row.processing_status ||

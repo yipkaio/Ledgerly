@@ -45,15 +45,16 @@ def _ids_for_export(db, request: ExportRequest) -> list[str]:
         found = {
             row[0]
             for row in db.execute(
-                f"SELECT receipt_id FROM receipts WHERE receipt_id IN ({placeholders})", ids
+                f"SELECT receipt_id FROM receipts WHERE lifecycle_state='ACTIVE' AND receipt_id IN ({placeholders})", ids
             )
         }
         missing = [value for value in ids if value not in found]
         if missing:
-            raise ExportInvalid("One or more selected receipts no longer exist")
+            raise ExportInvalid("One or more selected receipts are deleted, voided, or no longer exist")
         return ids
 
     where, values = filter_clause(request.filters)
+    where += (" AND " if where else " WHERE ") + "lifecycle_state='ACTIVE'"
     rows = db.execute(
         HISTORY_CTE
         + "SELECT receipt_id FROM history"
