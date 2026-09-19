@@ -2,7 +2,7 @@ from io import BytesIO
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-from app.pdf import PDFTimeoutError
+from app.pdf import PDFEncryptedError, PDFTimeoutError, extract_pdf_text
 from test_api import TEST_KEY, configured_client
 
 
@@ -91,6 +91,27 @@ def test_encrypted_and_excess_page_pdfs_fail_before_ocr_or_gateway(monkeypatch, 
     assert ocr.paths == extractor.inputs == classifier.inputs == []
     assert not list(tmp_path.glob("*.pdf"))
     assert not list(tmp_path.glob("*.preview.png"))
+
+
+def test_statement_pdf_password_is_request_only_and_unlocks_parser(tmp_path):
+    source = tmp_path / "encrypted.pdf"
+    source.write_bytes(make_pdf("PRIVATE BANK STATEMENT", encrypted=True))
+    from test_api import StubOCRService
+
+    ocr = StubOCRService()
+    try:
+        extract_pdf_text(source, ocr, max_pages=3, max_render_pixels=30_000_000,
+                         timeout_seconds=30, password="wrong")
+    except PDFEncryptedError:
+        pass
+    else:
+        raise AssertionError("Incorrect PDF password was accepted")
+
+    result = extract_pdf_text(source, ocr, max_pages=3, max_render_pixels=30_000_000,
+                              timeout_seconds=30, password="secret")
+    assert "PRIVATE BANK STATEMENT" in result.text
+    assert result.engine == "pdf:native"
+    assert ocr.paths == []
 
 
 def test_pdf_signature_and_exact_duplicate(monkeypatch, tmp_path):

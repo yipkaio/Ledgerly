@@ -39,7 +39,7 @@ type ReceiptRow = {
 };
 type Reconciliation = {
   month: string; currency: string;
-  statements: { statement_id: string; account_label: string; original_filename: string; uploaded_at: string; row_count: number; skipped_rows: number }[];
+  statements: { statement_id: string; account_label: string; original_filename: string; uploaded_at: string; row_count: number; skipped_rows: number; source_media_type?: string; extraction_method?: string; imported_by?: string }[];
   transactions: Transaction[]; receipts: ReceiptRow[];
   totals: { bank_debits_cents: number; receipt_spend_cents: number; matched_cents: number; difference_cents: number; exception_count: number };
   categories: { category: string; total_cents: number }[];
@@ -152,7 +152,7 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
       {error && <Notice variant="destructive">{error}</Notice>}
       {busy ? <MonthlySkeleton /> : data && <>
         {!data.statements.length && <Notice variant="warning">No {currency} statement is loaded for {month}. Accepted receipts are still shown so you can see what needs a bank match.</Notice>}
-        {!!data.statements.length && <section className="panel flex flex-wrap items-center justify-between gap-4 p-4 sm:px-5" aria-label="Retained source statements"><div><p className="font-medium">{data.statements.length} source statement{data.statements.length === 1 ? "" : "s"} retained</p><p className="muted">Original CSV files remain available with the normalized transactions.</p></div><div className="flex flex-wrap gap-2">{data.statements.map((item) => <Button key={item.statement_id} variant="outline" onClick={() => void downloadSource(item.statement_id, item.original_filename)}><Download /> {item.account_label} · {item.row_count} rows</Button>)}</div></section>}
+        {!!data.statements.length && <section className="panel flex flex-wrap items-center justify-between gap-4 p-4 sm:px-5" aria-label="Retained source statements"><div><p className="font-medium">{data.statements.length} source statement{data.statements.length === 1 ? "" : "s"} retained</p><p className="muted">Original PDF or CSV evidence remains available with the normalized transactions.</p></div><div className="flex flex-wrap gap-2">{data.statements.map((item) => <Button key={item.statement_id} variant="outline" onClick={() => void downloadSource(item.statement_id, item.original_filename)}><Download /> {item.account_label} · {item.row_count} rows{item.imported_by ? ` · ${item.imported_by}` : ""}</Button>)}</div></section>}
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Monthly reconciliation totals">
           <TotalCard icon={<Landmark />} label="Bank debits" value={amount(data.totals.bank_debits_cents / 100, currency)} help={`${data.transactions.length} imported debit transactions`} />
           <TotalCard icon={<FileSpreadsheet />} label="Accepted receipts" value={amount(data.totals.receipt_spend_cents / 100, currency)} help={`${data.receipts.length} receipts dated this month`} />
@@ -193,21 +193,107 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
   );
 }
 
+type StatementPreview = {
+  statement_month: string; currency: string; account_label: string; imported_by: string;
+  extraction_method: "deterministic" | "ai"; text_engine: string;
+  metadata: { bank_name: string | null; account_last_four: string | null; opening_balance_cents: number | null; closing_balance_cents: number | null };
+  validation: { balance_reconciled: boolean | null; confirmable: boolean; warnings: string[]; credits_skipped: number; outside_month: number };
+  transactions: { posted_date: string; description: string; amount_cents: number; reference: string | null; source_row: number }[];
+  transactions_imported: number; debit_total_cents: number;
+};
+
 function StatementUpload({ token, completed }: { token: string; completed: (month: string, currency: string) => void }) {
-  const [open, setOpen] = useState(false), [file, setFile] = useState<File | null>(null), [month, setMonth] = useState(currentMonth), [currency, setCurrency] = useState("SGD"), [account, setAccount] = useState("Operating account"), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const [open, setOpen] = useState(false), [file, setFile] = useState<File | null>(null), [month, setMonth] = useState(currentMonth), [currency, setCurrency] = useState("SGD"), [account, setAccount] = useState("Operating account"), [importer, setImporter] = useState(""), [password, setPassword] = useState(""), [allowAi, setAllowAi] = useState(false), [confirmed, setConfirmed] = useState(false), [preview, setPreview] = useState<StatementPreview | null>(null), [confirmationToken, setConfirmationToken] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const isPdf = file?.name.toLowerCase().endsWith(".pdf") || false;
+  function resetPreview() { setPreview(null); setConfirmationToken(""); setConfirmed(false); }
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setError("");
-    if (!file || !file.name.toLowerCase().endsWith(".csv") || file.size > 2 * 1024 * 1024) { setError("Choose a CSV file up to 2 MB."); return; }
+    if (!file || !/\.(csv|pdf)$/i.test(file.name)) { setError("Choose a PDF or CSV bank statement."); return; }
+    if ((!isPdf && file.size > 2 * 1024 * 1024) || (isPdf && file.size > 10 * 1024 * 1024)) { setError(isPdf ? "Choose a PDF up to 10 MB." : "Choose a CSV up to 2 MB."); return; }
     setBusy(true);
-    const body = new FormData(); body.set("statement", file); body.set("statement_month", month); body.set("currency", currency); body.set("account_label", account.trim());
-    try { await request("/bank-statements/upload", token, { method: "POST", body }); setOpen(false); setFile(null); completed(month, currency); }
+    const body = new FormData(); body.set("statement", file); body.set("statement_month", month); body.set("currency", currency); body.set("account_label", account.trim()); body.set("imported_by", importer.trim());
+    try {
+      if (!isPdf) {
+        await request("/bank-statements/upload", token, { method: "POST", body });
+        setOpen(false); setFile(null); completed(month, currency); return;
+      }
+      if (password) body.set("password", password);
+      body.set("allow_ai", String(allowAi));
+      const result = await request<{ preview: StatementPreview; confirmation_token: string }>("/bank-statements/preview", token, { method: "POST", body, timeoutMs: 180000 });
+      setPreview(result.preview); setConfirmationToken(result.confirmation_token); setPassword("");
+    }
+    catch (e) { setError(message(e)); } finally { setBusy(false); }
+  }
+  async function confirmImport() {
+    if (!file || !preview || !confirmationToken || !confirmed) return;
+    setBusy(true); setError("");
+    const body = new FormData(); body.set("statement", file); body.set("preview_json", JSON.stringify(preview)); body.set("confirmation_token", confirmationToken); body.set("evidence_confirmed", "true");
+    try { await request("/bank-statements/confirm", token, { method: "POST", body, timeoutMs: 60000 }); setOpen(false); setFile(null); resetPreview(); completed(preview.statement_month, preview.currency); }
     catch (e) { setError(message(e)); } finally { setBusy(false); }
   }
   function downloadTemplate() {
     const blob = new Blob(["Date,Description,Debit,Reference\n2026-09-03,Example supplier,125.40,TXN-001\n"], { type: "text/csv" });
     const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "ledgerly-bank-statement-template.csv"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button><Upload /> Upload statement</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Upload monthly bank statement</DialogTitle><DialogDescription>Use a UTF-8 CSV. Ledgerly imports debit transactions and skips credits or blank debit rows.</DialogDescription></DialogHeader><form onSubmit={submit} className="space-y-4"><div className="rounded-lg border border-dashed bg-muted p-4"><label htmlFor="statement-file" className="field-label">Statement CSV</label><Input id="statement-file" type="file" accept=".csv,text/csv" required disabled={busy} onChange={(e) => setFile(e.target.files?.[0] || null)} /><button type="button" onClick={downloadTemplate} className="mt-2 text-sm font-medium text-primary hover:underline">Download CSV template</button></div><div className="grid gap-4 sm:grid-cols-2"><div><label htmlFor="statement-month" className="field-label">Statement month</label><Input id="statement-month" type="month" required value={month} onChange={(e) => setMonth(e.target.value)} /></div><div><label htmlFor="statement-currency" className="field-label">Currency</label><Input id="statement-currency" required minLength={3} maxLength={3} value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} /></div></div><div><label htmlFor="account-label" className="field-label">Account label</label><Input id="account-label" required minLength={2} maxLength={100} value={account} onChange={(e) => setAccount(e.target.value)} /></div><Notice variant="info">For an Amount column without Debit, money out must be negative or marked Debit in a Type column. Review the imported count before closing the month.</Notice>{error && <Notice variant="destructive">{error}</Notice>}<DialogFooter><Button type="submit" disabled={busy || !file}>{busy ? <LoaderCircle className="animate-spin" /> : <Upload />}{busy ? "Importing…" : "Import statement"}</Button></DialogFooter></form></DialogContent></Dialog>;
+  return (
+    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) { setPassword(""); resetPreview(); } }}>
+      <DialogTrigger asChild><Button><Upload /> Upload statement</Button></DialogTrigger>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{preview ? "Confirm extracted statement" : "Upload monthly bank statement"}</DialogTitle>
+          <DialogDescription>{preview ? "Check the extracted debits against the original PDF before anything is retained." : "Upload the bank-issued PDF, or use a normalized UTF-8 CSV fallback."}</DialogDescription>
+        </DialogHeader>
+        {!preview ? (
+          <form onSubmit={submit} className="space-y-4">
+            <div className="rounded-lg border border-dashed bg-muted p-4">
+              <label htmlFor="statement-file" className="field-label">Statement PDF or CSV</label>
+              <Input id="statement-file" type="file" accept=".pdf,application/pdf,.csv,text/csv" required disabled={busy} onChange={(e) => { setFile(e.target.files?.[0] || null); resetPreview(); setError(""); }} />
+              <button type="button" onClick={downloadTemplate} className="mt-2 text-sm font-medium text-primary hover:underline">Download CSV template</button>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><label htmlFor="statement-month" className="field-label">Statement month</label><Input id="statement-month" type="month" required value={month} onChange={(e) => setMonth(e.target.value)} /></div>
+              <div><label htmlFor="statement-currency" className="field-label">Currency</label><Input id="statement-currency" required minLength={3} maxLength={3} value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} /></div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><label htmlFor="account-label" className="field-label">Account label</label><Input id="account-label" required minLength={2} maxLength={100} value={account} onChange={(e) => setAccount(e.target.value)} /></div>
+              <div><label htmlFor="statement-importer" className="field-label">Imported by</label><Input id="statement-importer" required minLength={2} maxLength={100} value={importer} onChange={(e) => setImporter(e.target.value)} placeholder="Your name" /></div>
+            </div>
+            {isPdf && <>
+              <div>
+                <label htmlFor="statement-password" className="field-label">PDF password <span className="font-normal text-muted-foreground">(only if encrypted)</span></label>
+                <Input id="statement-password" type="password" autoComplete="off" maxLength={200} value={password} onChange={(e) => setPassword(e.target.value)} />
+                <p className="mt-1 text-xs text-muted-foreground">Used in memory for this preview only; never saved or sent to the AI gateway.</p>
+              </div>
+              <label className="flex items-start gap-3 rounded-lg border p-3 text-sm">
+                <input type="checkbox" className="mt-1" checked={allowAi} onChange={(e) => setAllowAi(e.target.checked)} />
+                <span><strong className="block">Allow AI fallback for an unfamiliar layout</strong><span className="text-muted-foreground">If deterministic parsing fails, obvious account numbers are masked before extracted statement text—including company and counterparty details—is sent to the configured AI gateway. This may consume credits.</span></span>
+              </label>
+            </>}
+            <Notice variant="info">PDFs are previewed before import. CSV files use the existing deterministic importer. Original files are retained only after import.</Notice>
+            {error && <Notice variant="destructive">{error}</Notice>}
+            <DialogFooter><Button type="submit" disabled={busy || !file || importer.trim().length < 2}>{busy ? <LoaderCircle className="animate-spin" /> : <Upload />}{busy ? "Reading statement…" : isPdf ? "Preview statement" : "Import CSV"}</Button></DialogFooter>
+          </form>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border p-3"><p className="field-label">Detected source</p><p className="font-medium">{preview.metadata.bank_name || "Bank not identified"}{preview.metadata.account_last_four ? ` · •••• ${preview.metadata.account_last_four}` : ""}</p><p className="muted">{preview.extraction_method === "ai" ? "AI-assisted extraction" : "Private deterministic extraction"}</p></div>
+              <div className="rounded-lg border p-3"><p className="field-label">Debits found</p><p className="text-xl font-semibold">{preview.transactions_imported}</p><p className="muted">{preview.validation.credits_skipped} credit row(s) excluded</p></div>
+              <div className="rounded-lg border p-3"><p className="field-label">Debit total</p><p className="text-xl font-semibold tabular-nums">{amount(preview.debit_total_cents / 100, preview.currency)}</p><p className="muted">{preview.statement_month} · {preview.currency}</p></div>
+            </div>
+            {preview.validation.balance_reconciled === true && <Notice variant="info">Opening balance plus credits less debits agrees with the closing balance.</Notice>}
+            {preview.validation.balance_reconciled === false && <Notice variant="destructive">The balances do not reconcile. This preview is blocked from import; obtain a CSV export or check the statement layout.</Notice>}
+            {preview.validation.warnings.map((warning) => <Notice key={warning} variant="warning">{warning}</Notice>)}
+            <div className="max-h-72 overflow-auto rounded-lg border">
+              <table className="w-full text-left text-sm"><thead className="sticky top-0 bg-muted"><tr><th className="p-3">Date</th><th className="p-3">Description</th><th className="p-3 text-right">Debit</th></tr></thead><tbody>{preview.transactions.map((item, index) => <tr key={`${item.source_row}-${index}`} className="border-t"><td className="whitespace-nowrap p-3">{item.posted_date}</td><td className="p-3">{item.description}</td><td className="whitespace-nowrap p-3 text-right tabular-nums">{amount(item.amount_cents / 100, preview.currency)}</td></tr>)}</tbody></table>
+            </div>
+            <label className="flex items-start gap-3 rounded-lg border p-3 text-sm"><input type="checkbox" className="mt-1" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} /><span><strong className="block">I checked the extracted debits against the original PDF</strong><span className="text-muted-foreground">Importing retains the original statement and uses these rows for reconciliation; it does not initiate payments.</span></span></label>
+            {error && <Notice variant="destructive">{error}</Notice>}
+            <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={resetPreview}>Back</Button><Button type="button" disabled={busy || !confirmed || !preview.validation.confirmable} onClick={() => void confirmImport()}>{busy && <LoaderCircle className="animate-spin" />}Confirm and import</Button></DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function PaymentDialog({ token, receipt, saved }: { token: string; receipt: ReceiptRow; saved: () => void }) {

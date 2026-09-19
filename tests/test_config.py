@@ -23,6 +23,11 @@ def test_paddle_is_the_default_ocr_engine(monkeypatch) -> None:
     assert settings.pdf_max_pages == 3
     assert settings.pdf_timeout_seconds == 30
     assert settings.pdf_max_render_pixels == 30_000_000
+    assert settings.statement_pdf_max_bytes == 10_485_760
+    assert settings.statement_pdf_max_pages == 30
+    assert settings.statement_pdf_timeout_seconds == 60
+    assert settings.statement_pdf_max_render_pixels == 60_000_000
+    assert settings.statement_llm_max_output_tokens == 4_000
 
 
 @pytest.mark.parametrize(
@@ -34,6 +39,10 @@ def test_paddle_is_the_default_ocr_engine(monkeypatch) -> None:
         ("PDF_TIMEOUT_SECONDS", "121"),
         ("PDF_MAX_RENDER_PIXELS", "999999"),
         ("PDF_MAX_RENDER_PIXELS", "not-a-number"),
+        ("STATEMENT_PDF_MAX_BYTES", "999999"),
+        ("STATEMENT_PDF_MAX_PAGES", "101"),
+        ("STATEMENT_PDF_TIMEOUT_SECONDS", "181"),
+        ("STATEMENT_PDF_MAX_RENDER_PIXELS", "999999"),
     ],
 )
 def test_invalid_pdf_limits_are_rejected(monkeypatch, name: str, value: str) -> None:
@@ -88,6 +97,12 @@ def test_empty_gateway_key_is_rejected(monkeypatch) -> None:
 def test_invalid_gateway_output_limit_is_rejected(monkeypatch, value: str) -> None:
     with pytest.raises(ConfigurationError):
         configured_settings(monkeypatch, LLM_MAX_OUTPUT_TOKENS=value)
+
+
+@pytest.mark.parametrize("value", ["499", "8001", "not-a-number"])
+def test_invalid_statement_gateway_output_limit_is_rejected(monkeypatch, value: str) -> None:
+    with pytest.raises(ConfigurationError):
+        configured_settings(monkeypatch, STATEMENT_LLM_MAX_OUTPUT_TOKENS=value)
 
 
 def test_classification_confidence_threshold_defaults_to_eighty_percent(

@@ -41,11 +41,16 @@ class Settings:
     pdf_max_pages: int
     pdf_timeout_seconds: int
     pdf_max_render_pixels: int
+    statement_pdf_max_bytes: int
+    statement_pdf_max_pages: int
+    statement_pdf_timeout_seconds: int
+    statement_pdf_max_render_pixels: int
     llm_gateway_url: str
     llm_gateway_api_key: str
     llm_model: str
     llm_timeout_seconds: int
     llm_max_output_tokens: int
+    statement_llm_max_output_tokens: int
     classification_confidence_threshold: float
     database_path: Path = Path("data/expenses.db")
 
@@ -98,6 +103,18 @@ class Settings:
         pdf_max_render_pixels = cls._bounded_integer(
             "PDF_MAX_RENDER_PIXELS", "30000000", 1_000_000, 60_000_000
         )
+        statement_pdf_max_bytes = cls._bounded_integer(
+            "STATEMENT_PDF_MAX_BYTES", "10485760", 1_000_000, 25_000_000
+        )
+        statement_pdf_max_pages = cls._bounded_integer(
+            "STATEMENT_PDF_MAX_PAGES", "30", 1, 100
+        )
+        statement_pdf_timeout_seconds = cls._bounded_integer(
+            "STATEMENT_PDF_TIMEOUT_SECONDS", "60", 1, 180
+        )
+        statement_pdf_max_render_pixels = cls._bounded_integer(
+            "STATEMENT_PDF_MAX_RENDER_PIXELS", "60000000", 1_000_000, 120_000_000
+        )
 
         llm_gateway_url = os.getenv(
             "LLM_GATEWAY_URL", "https://api.softwaresystems.app"
@@ -130,6 +147,9 @@ class Settings:
         llm_max_output_tokens = cls._bounded_integer(
             "LLM_MAX_OUTPUT_TOKENS", "800", 100, 4000
         )
+        statement_llm_max_output_tokens = cls._bounded_integer(
+            "STATEMENT_LLM_MAX_OUTPUT_TOKENS", "4000", 500, 8000
+        )
         classification_confidence_threshold = cls._bounded_float(
             "CLASSIFICATION_CONFIDENCE_THRESHOLD", "0.80", 0.0, 1.0
         )
@@ -155,11 +175,16 @@ class Settings:
             pdf_max_pages=pdf_max_pages,
             pdf_timeout_seconds=pdf_timeout_seconds,
             pdf_max_render_pixels=pdf_max_render_pixels,
+            statement_pdf_max_bytes=statement_pdf_max_bytes,
+            statement_pdf_max_pages=statement_pdf_max_pages,
+            statement_pdf_timeout_seconds=statement_pdf_timeout_seconds,
+            statement_pdf_max_render_pixels=statement_pdf_max_render_pixels,
             llm_gateway_url=llm_gateway_url,
             llm_gateway_api_key=llm_gateway_api_key,
             llm_model=llm_model,
             llm_timeout_seconds=llm_timeout_seconds,
             llm_max_output_tokens=llm_max_output_tokens,
+            statement_llm_max_output_tokens=statement_llm_max_output_tokens,
             classification_confidence_threshold=(
                 classification_confidence_threshold
             ),

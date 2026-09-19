@@ -4,6 +4,8 @@ A hackathon MVP for turning receipt images into structured, reviewable business 
 
 Receipt details now support **Undo deletion**, audited **Reprocess receipt** extraction drafts, and a live totals reconciliation panel. See [reprocessing and reconciliation](docs/reprocessing.md) for workflow, eligibility, costs and schema v5 migration notes.
 
+Monthly close now accepts bank-issued **PDF statements** through a signed preview-and-confirm flow, including request-only passwords for encrypted PDFs, private deterministic parsing, explicit opt-in AI fallback, balance checks, and retained source provenance. Normalized CSV remains available as a fallback.
+
 ## Docker backend
 
 Docker packaging is available for the existing backend, including both OCR
@@ -48,14 +50,14 @@ records can be corrected with append-only amendments; rejected records cannot be
 
 Set `DATABASE_PATH=data/expenses.db` in `.env` (the default). Python's built-in
 SQLite driver is used; no database server or new dependency is required. On first
-database use, schema version 7 and the three initial vendor mappings are created
+database use, schema version 8 and the three initial vendor mappings are created
 transactionally. Existing mappings are not overwritten on restart. The runtime
 lookup reads `vendor_category_mappings`; the dictionary in `app/classification.py`
 is now the initial seed and legacy lookup helper, not the upload lookup source.
 
-Existing version 1–6 databases migrate transactionally on first use. Back up the
+Existing version 1–7 databases migrate transactionally on first use. Back up the
 database and uploads before upgrading; the previous application cannot read
-schema version 7. Human decisions, amendments, lifecycle events, reprocessing attempts,
+schema version 8. Human decisions, amendments, lifecycle events, reprocessing attempts,
 and payment follow-up live in append-only audit tables,
 separately from the original AI evidence.
 
@@ -230,6 +232,6 @@ The workspace now includes **Deleted receipts** (restore within 30 days) and aud
 
 # Monthly reconciliation
 
-The **Monthly close** workspace imports retained bank-statement CSVs, matches debits to accepted receipts, flags duplicates and missing evidence, records audited trade-payable/payment-issue follow-up, shows category and vendor concentration, and exports a highlighted monthly Excel workbook. Schema v6 preserves existing receipt data. See [monthly reconciliation](docs/monthly-reconciliation.md) for the CSV contract, matching rules, and Singapore record-control boundaries.
+The **Monthly close** workspace imports bank-issued PDFs through a signed preview-and-confirm flow, with normalized CSV as a fallback. It matches debits to accepted receipts, flags duplicates and missing evidence, records audited trade-payable/payment-issue follow-up, shows category and vendor concentration, and exports a highlighted monthly Excel workbook. PDF passwords are request-only; deterministic parsing is private-first, and the separate AI fallback requires explicit consent. Schema v8 preserves existing receipt and statement data while adding source and validation provenance. See [monthly reconciliation](docs/monthly-reconciliation.md) for the PDF/CSV contract, matching rules, and Singapore record-control boundaries.
 
 The dashboard can also save a default reporting currency and consolidate accepted spend using a dated, cached ECB reference-rate snapshot. Native amounts remain the source of truth; the converted view is labelled as an indicative management estimate. Schema v7 preserves existing data and adds workspace settings and rate snapshots.

@@ -1,6 +1,16 @@
 # Monthly bank reconciliation
 
-Ledgerly can import a monthly bank statement CSV and compare debit transactions with active, accepted receipts for the same month and currency. The original CSV is retained in the authenticated workspace alongside normalized transactions.
+Ledgerly can import a monthly bank statement PDF or normalized CSV and compare debit transactions with active, accepted receipts for the same month and currency. The original confirmed source is retained in the authenticated workspace alongside normalized transactions.
+
+## PDF input and confirmation
+
+PDF is the primary UI path. Statement PDFs are limited to 10 MB and 30 pages and are parsed in a bounded worker. Embedded text is preferred; only scanned pages use the configured OCR engine. Encrypted PDFs accept a request-only password that is never persisted, logged, or sent to the AI gateway.
+
+The default parser is deterministic and private to the application. An unfamiliar layout fails closed. The user may then either use the CSV fallback or explicitly enable the separate statement AI fallback. Before that optional gateway call, Ledgerly masks obvious account and card numbers; company names, counterparties and transaction descriptions can still be present, so the UI requires an informed opt-in and warns that credits may be consumed. Product owners can cap this separate response with `STATEMENT_LLM_MAX_OUTPUT_TOKENS` without changing receipt extraction limits.
+
+Every PDF produces a preview before import. The server binds the exact file hash and exact normalized preview to a 30-minute HMAC confirmation token. Browser-side changes, a different file, expiry, or replay after a successful import cannot silently create another statement. The user must inspect the debit rows and confirm the evidence. Opening balance plus credits less debits is compared with closing balance when both are available; a mismatch blocks import. Missing balances remain a visible warning rather than a fabricated validation result.
+
+Unconfirmed files are not retained. After confirmation, the original PDF, self-reported importer name, extraction method, masked metadata and validation result are stored with the normalized transactions. The PDF password is not stored. The importer name is an audit label under the shared application key, not verified identity.
 
 ## CSV input
 
@@ -42,7 +52,7 @@ Cost-saving prompts use only accepted receipt totals for the selected month. The
 
 ## Singapore controls
 
-The workflow preserves original receipt evidence, source statement CSVs, review and amendment history, payment follow-up events, and monthly exports. This supports record keeping and accountability but does not certify legal or tax compliance.
+The workflow preserves original receipt evidence, confirmed source statement PDFs or CSVs, review and amendment history, payment follow-up events, and monthly exports. This supports record keeping and accountability but does not certify legal or tax compliance.
 
 - [IRAS record keeping requirements](https://www.iras.gov.sg/taxes/corporate-income-tax/basics-of-corporate-income-tax/record-keeping-requirements) state that companies must retain source documents, accounting records, and bank statements for at least five years from the relevant Year of Assessment.
 - [PDPC data protection obligations](https://www.pdpc.gov.sg/overview-of-pdpa/the-legislation/personal-data-protection-act/data-protection-obligations) remain the organisation's responsibility, including appropriate protection, access, and retention practices.

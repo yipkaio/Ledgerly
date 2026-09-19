@@ -136,6 +136,16 @@ may have cleaned up the image. Check the retained original separately through th
 manual review process if needed; do not claim evidence confirmation without inspection.
 Review actions make no LLM calls and do not create new vendor mappings.
 
+## Import a monthly bank statement
+
+Open **Monthly close** and choose **Upload statement**. A normalized UTF-8 CSV can
+still be imported directly. A PDF is read first and shown as a debit-row preview;
+the original is retained only after the user checks the rows and confirms the
+evidence. Encrypted PDFs accept a password for that request only. Deterministic
+parsing stays inside Ledgerly. The separately labelled AI fallback is opt-in
+because statement text can contain company and counterparty information and the
+gateway call may consume credits. A detected balance mismatch blocks import.
+
 ## Access the AWS container privately
 
 After you have reviewed this commit locally, pull and rebuild on Lightsail using
@@ -176,4 +186,3 @@ Tailwind tokens. See `frontend/THIRD_PARTY_NOTICES.md` for source attribution.
 # Deleted receipts and protected records
 
 Use the **Deleted receipts** tab to inspect restore deadlines and open a record for restoration. Pending, failed and rejected receipts can be moved there from the receipt's management panel. Approved, auto-filed and amended records instead offer **Void receipt**, with a mandatory reason. Voided records remain read-only in history, show a neutral status badge, and cannot be selected for export. Confirmation dialogs explain the effect and preserve an identical request for retries after a connection failure. Unsaved review edits must be saved or discarded first. See [retention rules](receipt-lifecycle.md).
-

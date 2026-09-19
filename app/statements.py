@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import csv
+import base64
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
+import hmac
 import io
 import json
 import re
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.statement_extraction import StatementExtraction
 
 
 STATEMENT_SCHEMA = (
@@ -27,6 +31,16 @@ STATEMENT_SCHEMA = (
     "CREATE TABLE receipt_payment_events (receipt_id TEXT NOT NULL REFERENCES receipts(receipt_id), "
     "version INTEGER NOT NULL, result_json TEXT NOT NULL, PRIMARY KEY(receipt_id, version))",
 )
+
+STATEMENT_MIGRATION_8 = (
+    "ALTER TABLE bank_statements ADD COLUMN source_media_type TEXT NOT NULL DEFAULT 'text/csv'",
+    "ALTER TABLE bank_statements ADD COLUMN extraction_method TEXT NOT NULL DEFAULT 'csv'",
+    "ALTER TABLE bank_statements ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE bank_statements ADD COLUMN validation_json TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE bank_statements ADD COLUMN imported_by TEXT NOT NULL DEFAULT 'Legacy import'",
+)
+
+PREVIEW_TTL_SECONDS = 30 * 60
 
 
 class StatementInvalid(ValueError):
@@ -157,7 +171,12 @@ def parse_statement_csv(content: bytes, statement_month: str) -> tuple[list[dict
 
 
 def import_statement(store, content: bytes, filename: str, statement_month: str,
-                     currency: str, account_label: str) -> dict:
+                     currency: str, account_label: str,
+                     imported_by: str = "Shared workspace user") -> dict:
+    if len(account_label.strip()) < 2:
+        raise StatementInvalid("Account label must contain at least two visible characters")
+    if len(imported_by.strip()) < 2:
+        raise StatementInvalid("Importer name must contain at least two visible characters")
     transactions, skipped = parse_statement_csv(content, statement_month)
     digest = hashlib.sha256(content).hexdigest()
     statement_id = str(uuid4())
@@ -169,9 +188,14 @@ def import_statement(store, content: bytes, filename: str, statement_month: str,
         if duplicate:
             raise StatementDuplicate(duplicate[0])
         db.execute(
-            "INSERT INTO bank_statements VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO bank_statements (statement_id,statement_month,currency,account_label,"
+            "original_filename,content_sha256,source_csv,uploaded_at,row_count,skipped_rows,"
+            "source_media_type,extraction_method,metadata_json,validation_json,imported_by) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (statement_id, statement_month, currency, account_label.strip(), filename[:200],
-             digest, content, uploaded_at, len(transactions), skipped),
+             digest, content, uploaded_at, len(transactions), skipped, "text/csv", "csv",
+             "{}", json.dumps({"preview_confirmed": False, "balance_reconciled": None}),
+             imported_by.strip()),
         )
         db.executemany(
             "INSERT INTO bank_transactions VALUES (?,?,?,?,?,?,?)",
@@ -182,6 +206,184 @@ def import_statement(store, content: bytes, filename: str, statement_month: str,
     return {"statement_id": statement_id, "month": statement_month, "currency": currency,
             "transactions_imported": len(transactions), "rows_skipped": skipped,
             "outside_month": sum(1 for item in transactions if item["outside_month"])}
+
+
+def _cents(value: Decimal | None) -> int | None:
+    if value is None:
+        return None
+    return int((value * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def statement_preview(extraction: StatementExtraction, statement_month: str,
+                      declared_currency: str, account_label: str,
+                      extraction_method: str, text_engine: str,
+                      imported_by: str = "Shared workspace user") -> dict:
+    if len(account_label.strip()) < 2:
+        raise StatementInvalid("Account label must contain at least two visible characters")
+    if len(imported_by.strip()) < 2:
+        raise StatementInvalid("Importer name must contain at least two visible characters")
+    if extraction.currency and extraction.currency != declared_currency:
+        raise StatementInvalid(
+            f"The statement appears to be {extraction.currency}, not {declared_currency}"
+        )
+    transactions = []
+    credit_count = 0
+    net_cents = 0
+    for source_row, item in enumerate(extraction.transactions, start=1):
+        debit = _cents(item.debit_amount) or 0
+        credit = _cents(item.credit_amount) or 0
+        net_cents += credit - debit
+        if debit <= 0:
+            credit_count += 1
+            continue
+        transactions.append({
+            "posted_date": item.posted_date.isoformat(),
+            "description": " ".join(item.description.split())[:300],
+            "amount_cents": debit,
+            "reference": item.reference[:100] if item.reference else None,
+            "source_row": source_row,
+            "outside_month": item.posted_date.strftime("%Y-%m") != statement_month,
+        })
+    if not transactions:
+        raise StatementInvalid("No debit transactions were found in the statement")
+
+    opening = _cents(extraction.opening_balance)
+    closing = _cents(extraction.closing_balance)
+    reconciled: bool | None = None
+    if opening is not None and closing is not None:
+        reconciled = abs((opening + net_cents) - closing) <= 2
+
+    outside = sum(1 for item in transactions if item["outside_month"])
+    if outside == len(transactions):
+        raise StatementInvalid(
+            f"Every extracted debit falls outside the selected month {statement_month}"
+        )
+    warnings = list(dict.fromkeys(extraction.review_reasons))
+    if outside:
+        warnings.append(f"{outside} debit transaction(s) fall outside {statement_month}")
+    if opening is None or closing is None:
+        warnings.append("Opening or closing balance was not available for an arithmetic cross-check")
+    elif reconciled is False:
+        warnings.append("Opening balance plus credits less debits does not equal closing balance")
+    if extraction_method == "ai":
+        warnings.append("AI fallback was used; verify every row against the original statement")
+
+    metadata = {
+        "bank_name": extraction.bank_name,
+        "account_last_four": extraction.account_last_four,
+        "opening_balance_cents": opening,
+        "closing_balance_cents": closing,
+        "statement_start": extraction.statement_start.isoformat() if extraction.statement_start else None,
+        "statement_end": extraction.statement_end.isoformat() if extraction.statement_end else None,
+    }
+    return {
+        "statement_month": statement_month,
+        "currency": declared_currency,
+        "account_label": account_label.strip(),
+        "imported_by": imported_by.strip(),
+        "extraction_method": extraction_method,
+        "text_engine": text_engine,
+        "metadata": metadata,
+        "validation": {
+            "balance_reconciled": reconciled,
+            "confirmable": reconciled is not False,
+            "warnings": warnings,
+            "credits_skipped": credit_count,
+            "outside_month": outside,
+        },
+        "transactions": transactions,
+        "transactions_imported": len(transactions),
+        "debit_total_cents": sum(item["amount_cents"] for item in transactions),
+    }
+
+
+def _preview_bytes(preview: dict) -> bytes:
+    return json.dumps(preview, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False, allow_nan=False).encode("utf-8")
+
+
+def create_preview_token(secret: str, content: bytes, preview: dict) -> str:
+    payload = {
+        "exp": int(datetime.now(timezone.utc).timestamp()) + PREVIEW_TTL_SECONDS,
+        "file_sha256": hashlib.sha256(content).hexdigest(),
+        "preview_sha256": hashlib.sha256(_preview_bytes(preview)).hexdigest(),
+    }
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).rstrip(b"=")
+    signature = hmac.new(secret.encode("utf-8"), encoded, hashlib.sha256).digest()
+    return f"{encoded.decode()}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode()}"
+
+
+def verify_preview_token(secret: str, token: str, content: bytes, preview: dict) -> None:
+    try:
+        encoded_text, signature_text = token.split(".", 1)
+        encoded = encoded_text.encode("ascii")
+        supplied = base64.urlsafe_b64decode(signature_text + "=" * (-len(signature_text) % 4))
+        expected = hmac.new(secret.encode("utf-8"), encoded, hashlib.sha256).digest()
+        if not hmac.compare_digest(supplied, expected):
+            raise ValueError
+        raw = base64.urlsafe_b64decode(encoded_text + "=" * (-len(encoded_text) % 4))
+        payload = json.loads(raw)
+        if int(payload["exp"]) < int(datetime.now(timezone.utc).timestamp()):
+            raise StatementInvalid("Statement preview expired; preview the file again")
+        if not hmac.compare_digest(payload["file_sha256"], hashlib.sha256(content).hexdigest()):
+            raise ValueError
+        preview_hash = hashlib.sha256(_preview_bytes(preview)).hexdigest()
+        if not hmac.compare_digest(payload["preview_sha256"], preview_hash):
+            raise ValueError
+    except StatementInvalid:
+        raise
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError, UnicodeError) as exc:
+        raise StatementInvalid("Statement confirmation is invalid; preview the file again") from exc
+
+
+def import_previewed_statement(store, content: bytes, filename: str, media_type: str,
+                               preview: dict) -> dict:
+    validation = preview.get("validation") or {}
+    if validation.get("confirmable") is not True:
+        raise StatementInvalid("This statement cannot be imported until its balances reconcile")
+    transactions = preview.get("transactions")
+    if not isinstance(transactions, list) or not transactions:
+        raise StatementInvalid("Statement preview contains no debit transactions")
+    digest = hashlib.sha256(content).hexdigest()
+    statement_id = str(uuid4())
+    uploaded_at = datetime.now(timezone.utc).isoformat()
+    with store.connect() as db:
+        duplicate = db.execute(
+            "SELECT statement_id FROM bank_statements WHERE content_sha256=?", (digest,)
+        ).fetchone()
+        if duplicate:
+            raise StatementDuplicate(duplicate[0])
+        db.execute(
+            "INSERT INTO bank_statements (statement_id,statement_month,currency,account_label,"
+            "original_filename,content_sha256,source_csv,uploaded_at,row_count,skipped_rows,"
+            "source_media_type,extraction_method,metadata_json,validation_json,imported_by) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (statement_id, preview["statement_month"], preview["currency"],
+             preview["account_label"], filename[:200], digest, content, uploaded_at,
+             len(transactions), int(validation.get("credits_skipped", 0)), media_type,
+             preview.get("extraction_method", "unknown"),
+             json.dumps({**(preview.get("metadata") or {}),
+                         "text_engine": preview.get("text_engine")}, allow_nan=False),
+             json.dumps({**validation, "preview_confirmed": True}, allow_nan=False),
+             preview["imported_by"]),
+        )
+        db.executemany(
+            "INSERT INTO bank_transactions VALUES (?,?,?,?,?,?,?)",
+            [(str(uuid4()), statement_id, item["posted_date"], item["description"],
+              int(item["amount_cents"]), item.get("reference"), int(item["source_row"]))
+             for item in transactions],
+        )
+    return {
+        "statement_id": statement_id,
+        "month": preview["statement_month"],
+        "currency": preview["currency"],
+        "transactions_imported": len(transactions),
+        "rows_skipped": int(validation.get("credits_skipped", 0)),
+        "outside_month": int(validation.get("outside_month", 0)),
+        "extraction_method": preview.get("extraction_method"),
+    }
 
 
 def _normal(value: str | None) -> str:
@@ -231,7 +433,8 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
     with store.connect() as db:
         db.execute("BEGIN")
         statements = [dict(row) for row in db.execute(
-            "SELECT statement_id,account_label,original_filename,uploaded_at,row_count,skipped_rows "
+            "SELECT statement_id,account_label,original_filename,uploaded_at,row_count,skipped_rows,"
+            "source_media_type,extraction_method,metadata_json,validation_json,imported_by "
             "FROM bank_statements WHERE statement_month=? AND currency=? ORDER BY uploaded_at",
             (month, currency),
         )]
@@ -345,15 +548,15 @@ def list_periods(store) -> list[dict]:
         )]
 
 
-def statement_source(store, statement_id: str) -> tuple[str, bytes]:
+def statement_source(store, statement_id: str) -> tuple[str, str, bytes]:
     with store.connect() as db:
         row = db.execute(
-            "SELECT original_filename,source_csv FROM bank_statements WHERE statement_id=?",
+            "SELECT original_filename,source_media_type,source_csv FROM bank_statements WHERE statement_id=?",
             (statement_id,),
         ).fetchone()
     if not row:
         raise StatementInvalid("Bank statement was not found")
-    return row[0], bytes(row[1])
+    return row[0], row[1], bytes(row[2])
 
 
 def update_payment_state(store, receipt_id: str, body: PaymentUpdate) -> dict:
@@ -384,7 +587,10 @@ def build_monthly_export(store, month: str, currency: str) -> bytes:
 
     data = monthly_reconciliation(store, month, currency)
     output = io.BytesIO()
-    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    workbook = xlsxwriter.Workbook(
+        output,
+        {"in_memory": True, "strings_to_formulas": False, "strings_to_urls": False},
+    )
     header = workbook.add_format({"bold": True, "bg_color": "#245C46", "font_color": "white", "border": 1})
     money = workbook.add_format({"num_format": f'"{currency}" #,##0.00', "border": 1})
     cell = workbook.add_format({"border": 1})

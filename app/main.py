@@ -9,9 +9,11 @@ import os
 import re
 import secrets
 import hashlib
+import json
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Annotated
 from uuid import UUID, uuid4
 from typing import Literal
@@ -31,10 +33,22 @@ from app.statements import (
     StatementInvalid,
     build_monthly_export,
     import_statement,
+    import_previewed_statement,
     list_periods,
     monthly_reconciliation,
+    create_preview_token,
+    statement_preview,
     statement_source,
     update_payment_state,
+    verify_preview_token,
+)
+from app.statement_extraction import (
+    GatewayStatementExtractor,
+    StatementExtractionError,
+    StatementExtractionUnavailable,
+    StatementExtractor,
+    deterministic_statement_extract,
+    redact_statement_text_for_ai,
 )
 from app.database import DatabaseError, DuplicateReceiptError, ReceiptStore
 from app.amendments import AmendmentRequest, amendment_history, submit_amendment
@@ -88,8 +102,10 @@ from app.pdf import (
     PDFEncryptedError,
     PDFError,
     PDFPageLimitError,
+    PDFOCRPageLimitError,
     PDFTimeoutError,
     extract_pdf,
+    extract_pdf_text,
 )
 
 CHUNK_SIZE = 64 * 1024
@@ -194,6 +210,18 @@ def get_expense_classifier(
     )
 
 
+def get_statement_extractor(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StatementExtractor:
+    return GatewayStatementExtractor(
+        base_url=settings.llm_gateway_url,
+        api_key=settings.llm_gateway_api_key,
+        model=settings.llm_model,
+        timeout_seconds=settings.llm_timeout_seconds,
+        max_output_tokens=settings.statement_llm_max_output_tokens,
+    )
+
+
 def get_fx_rate_provider() -> ECBRateProvider:
     return ECBRateProvider()
 
@@ -286,6 +314,7 @@ def create_app() -> FastAPI:
         currency: Annotated[str, Form(pattern=r"^[A-Z]{3}$")],
         account_label: Annotated[str, Form(min_length=2, max_length=100)],
         settings: Annotated[Settings, Depends(require_api_key)],
+        imported_by: Annotated[str, Form(min_length=2, max_length=100)] = "Shared workspace user",
     ) -> dict:
         filename = statement.filename or "statement.csv"
         if not filename.lower().endswith(".csv"):
@@ -293,7 +322,138 @@ def create_app() -> FastAPI:
         content = await statement.read(2 * 1024 * 1024 + 1)
         return await run_in_threadpool(
             import_statement, ReceiptStore(settings.database_path), content, filename,
-            statement_month, currency, account_label,
+            statement_month, currency, account_label, imported_by,
+        )
+
+    @api.post("/bank-statements/preview", tags=["reconciliation"],
+              summary="Safely preview a PDF bank statement before import")
+    async def preview_bank_statement(
+        statement: Annotated[UploadFile, File()],
+        statement_month: Annotated[str, Form(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")],
+        currency: Annotated[str, Form(pattern=r"^[A-Z]{3}$")],
+        account_label: Annotated[str, Form(min_length=2, max_length=100)],
+        settings: Annotated[Settings, Depends(require_api_key)],
+        ocr_service: Annotated[OCRService, Depends(get_ocr_service)],
+        statement_extractor: Annotated[StatementExtractor, Depends(get_statement_extractor)],
+        password: Annotated[str | None, Form(max_length=200)] = None,
+        allow_ai: Annotated[bool, Form()] = False,
+        imported_by: Annotated[str, Form(min_length=2, max_length=100)] = "Shared workspace user",
+    ) -> dict:
+        filename = statement.filename or "statement.pdf"
+        if not filename.lower().endswith(".pdf"):
+            raise HTTPException(status_code=415, detail="Statement preview requires a PDF file")
+        content = await statement.read(settings.statement_pdf_max_bytes + 1)
+        await statement.close()
+        if len(content) > settings.statement_pdf_max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Bank statement PDF must be no larger than {settings.statement_pdf_max_bytes // (1024 * 1024)} MB",
+            )
+        if not content.startswith(b"%PDF-"):
+            raise HTTPException(status_code=415, detail="Bank statement file is not a valid PDF")
+        try:
+            with TemporaryDirectory(prefix="ledgerly-statement-") as directory:
+                source = Path(directory) / "statement.pdf"
+                source.write_bytes(content)
+                ocr_result = await run_in_threadpool(
+                    extract_pdf_text,
+                    source,
+                    ocr_service,
+                    max_pages=settings.statement_pdf_max_pages,
+                    max_render_pixels=settings.statement_pdf_max_render_pixels,
+                    timeout_seconds=settings.statement_pdf_timeout_seconds,
+                    password=password,
+                )
+        except PDFEncryptedError as exc:
+            raise HTTPException(
+                status_code=422, detail="This PDF is encrypted; enter its password and try again"
+            ) from exc
+        except PDFPageLimitError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Bank statement PDF must contain 1 to {settings.statement_pdf_max_pages} pages",
+            ) from exc
+        except PDFOCRPageLimitError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="Scanned statements are limited to 10 OCR pages; use the bank's text PDF or CSV export",
+            ) from exc
+        except PDFTimeoutError as exc:
+            raise HTTPException(status_code=504, detail="Bank statement PDF timed out") from exc
+        except PDFError as exc:
+            raise HTTPException(status_code=422, detail="Bank statement PDF could not be processed") from exc
+        except OCRTimeoutError as exc:
+            raise HTTPException(status_code=504, detail="Bank statement OCR timed out") from exc
+        except OCRUnavailableError as exc:
+            raise HTTPException(status_code=503, detail="OCR service is unavailable") from exc
+        except (OCRProcessingError, OCRNoTextError) as exc:
+            raise HTTPException(status_code=422, detail="Bank statement text could not be extracted") from exc
+
+        method = "deterministic"
+        try:
+            extraction = await run_in_threadpool(
+                deterministic_statement_extract, ocr_result.text, statement_month
+            )
+        except StatementExtractionError:
+            if not allow_ai:
+                raise StatementInvalid(
+                    "This PDF layout needs the optional AI fallback. Review the privacy notice and retry with AI enabled, or upload a normalized CSV."
+                )
+            method = "ai"
+            try:
+                extraction = await statement_extractor.extract(
+                    redact_statement_text_for_ai(ocr_result.text)
+                )
+            except StatementExtractionUnavailable as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            except StatementExtractionError as exc:
+                raise HTTPException(
+                    status_code=502, detail="Bank statement AI extraction returned an invalid result"
+                ) from exc
+        preview = statement_preview(
+            extraction, statement_month, currency, account_label, method, ocr_result.engine,
+            imported_by,
+        )
+        return {
+            "preview": preview,
+            "confirmation_token": create_preview_token(settings.app_api_key, content, preview),
+            "expires_in_seconds": 30 * 60,
+        }
+
+    @api.post("/bank-statements/confirm", tags=["reconciliation"],
+              summary="Confirm and retain an exact PDF statement preview")
+    async def confirm_bank_statement(
+        statement: Annotated[UploadFile, File()],
+        preview_json: Annotated[str, Form(max_length=2_000_000)],
+        confirmation_token: Annotated[str, Form(min_length=20, max_length=1000)],
+        evidence_confirmed: Annotated[bool, Form()],
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> dict:
+        if not evidence_confirmed:
+            raise StatementInvalid("Confirm that the extracted rows were checked against the PDF")
+        filename = statement.filename or "statement.pdf"
+        if not filename.lower().endswith(".pdf"):
+            raise HTTPException(status_code=415, detail="Statement confirmation requires the same PDF")
+        content = await statement.read(settings.statement_pdf_max_bytes + 1)
+        await statement.close()
+        if len(content) > settings.statement_pdf_max_bytes:
+            raise HTTPException(status_code=413, detail="Bank statement PDF is too large")
+        if not content.startswith(b"%PDF-"):
+            raise HTTPException(status_code=415, detail="Bank statement file is not a valid PDF")
+        try:
+            preview = json.loads(preview_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise StatementInvalid("Statement preview is invalid; preview the file again") from exc
+        verify_preview_token(
+            settings.app_api_key, confirmation_token, content, preview
+        )
+        return await run_in_threadpool(
+            import_previewed_statement,
+            ReceiptStore(settings.database_path),
+            content,
+            filename,
+            "application/pdf",
+            preview,
         )
 
     @api.get("/bank-statements/periods", tags=["reconciliation"],
@@ -304,16 +464,17 @@ def create_app() -> FastAPI:
         return {"items": await run_in_threadpool(list_periods, ReceiptStore(settings.database_path))}
 
     @api.get("/bank-statements/{statement_id}/source", tags=["reconciliation"],
-             summary="Download the retained original bank statement CSV")
+             summary="Download the retained original bank statement PDF or CSV")
     async def download_bank_statement(
         statement_id: UUID,
         settings: Annotated[Settings, Depends(require_api_key)],
     ) -> Response:
-        filename, content = await run_in_threadpool(
+        filename, media_type, content = await run_in_threadpool(
             statement_source, ReceiptStore(settings.database_path), str(statement_id),
         )
         safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", filename) or "statement.csv"
-        return Response(content=content, media_type="text/csv; charset=utf-8",
+        response_type = "text/csv; charset=utf-8" if media_type == "text/csv" else media_type
+        return Response(content=content, media_type=response_type,
                         headers={"Content-Disposition": f'attachment; filename="{safe_name}"'})
 
     @api.get("/reconciliation", tags=["reconciliation"],

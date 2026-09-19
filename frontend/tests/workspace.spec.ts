@@ -139,6 +139,33 @@ test("monthly close shows evidence gaps, spend concentration, and grounded promp
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
+test("PDF statement preview requires evidence confirmation before import", async ({ page }) => {
+  await setup(page);
+  let confirmed = false;
+  const preview = {
+    statement_month: "2026-09", currency: "SGD", account_label: "Operating account", imported_by: "Finance tester",
+    extraction_method: "deterministic", text_engine: "pdf:native",
+    metadata: { bank_name: "OCBC", account_last_four: "4321", opening_balance_cents: 100000, closing_balance_cents: 88000 },
+    validation: { balance_reconciled: true, confirmable: true, warnings: ["Confirm every extracted row against the original PDF before import"], credits_skipped: 0, outside_month: 0 },
+    transactions: [{ posted_date: "2026-09-01", description: "ACME MAINTENANCE", amount_cents: 12000, reference: null, source_row: 1 }],
+    transactions_imported: 1, debit_total_cents: 12000,
+  };
+  await page.route("**/bank-statements/preview", (route) => route.fulfill({ json: { preview, confirmation_token: "signed-test-token-that-is-long-enough" } }));
+  await page.route("**/bank-statements/confirm", async (route) => { confirmed = true; await route.fulfill({ json: { statement_id: "88d896c9-eb7f-4c22-996b-b89fbb8f77da", month: "2026-09", currency: "SGD", transactions_imported: 1 } }); });
+  await page.getByRole("button", { name: "Monthly close", exact: true }).click();
+  await page.getByRole("button", { name: "Upload statement", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Statement PDF or CSV").setInputFiles({ name: "ocbc-september.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-test") });
+  await dialog.getByLabel("Imported by").fill("Finance tester");
+  await dialog.getByRole("button", { name: "Preview statement", exact: true }).click();
+  await expect(dialog.getByText("OCBC · •••• 4321")).toBeVisible();
+  await expect(dialog.getByText("ACME MAINTENANCE")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Confirm and import" })).toBeDisabled();
+  await dialog.getByLabel("I checked the extracted debits against the original PDF").check();
+  await dialog.getByRole("button", { name: "Confirm and import" }).click();
+  await expect.poll(() => confirmed).toBe(true);
+});
+
 test("default currency consolidates spend with a dated rate snapshot", async ({ page }) => {
   await setup(page);
   let defaultCurrency = "SGD";
