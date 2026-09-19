@@ -11,6 +11,7 @@ import {
   ArrowRight,
   LoaderCircle,
   LayoutDashboard,
+  Landmark,
   Download,
   X,
 } from "lucide-react";
@@ -54,6 +55,9 @@ const ReceiptDetail = lazy(() =>
   import("@/components/receipt-detail").then((m) => ({
     default: m.ReceiptDetail,
   })),
+);
+const MonthlyClose = lazy(() =>
+  import("@/components/monthly-close").then((m) => ({ default: m.MonthlyClose })),
 );
 
 type HistoryFilterValues = {
@@ -162,7 +166,7 @@ function Workspace({
   disconnect: () => void;
 }) {
   const [view, setView] = useState<
-      "dashboard" | "history" | "reviews" | "upload" | "deleted"
+      "dashboard" | "monthly" | "history" | "reviews" | "upload" | "deleted"
     >("dashboard"),
     [selected, setSelected] = useState<string | null>(null),
     [offset, setOffset] = useState(0),
@@ -178,7 +182,7 @@ function Workspace({
   const now = useClock();
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    if (view === "upload" || view === "dashboard" || selected) return;
+    if (view === "upload" || view === "dashboard" || view === "monthly" || selected) return;
     const controller = new AbortController();
     // oxlint-disable-next-line react/set-state-in-effect -- Reset status for this cancellable API read.
     setBusy(true);
@@ -290,6 +294,7 @@ function Workspace({
           {(
             [
               ["dashboard", LayoutDashboard, "Main dashboard"],
+              ["monthly", Landmark, "Monthly close"],
               ["upload", Upload, "Upload receipt"],
               ["reviews", ListChecks, "Pending reviews"],
               ["history", History, "Receipt history"],
@@ -322,6 +327,8 @@ function Workspace({
                     : "Receipt details"
                   : view === "dashboard"
                     ? "Main dashboard"
+                    : view === "monthly"
+                      ? "Monthly close"
                     : view === "upload"
                       ? "Upload receipt"
                       : view === "reviews"
@@ -361,6 +368,10 @@ function Workspace({
           ) : view === "dashboard" ? (
             <Suspense fallback={<p role="status">Loading dashboard…</p>}>
               <Dashboard token={token} navigate={navigate} />
+            </Suspense>
+          ) : view === "monthly" ? (
+            <Suspense fallback={<p role="status">Loading monthly close…</p>}>
+              <MonthlyClose token={token} openReceipt={(id) => { setView("history"); setSelected(id); }} />
             </Suspense>
           ) : view === "upload" ? (
             <UploadForm

@@ -32,8 +32,8 @@ SQLite persistence, authenticated receipt history, human approval/rejection, and
 
 ## SQLite persistence and receipt history
 
-The workspace starts with **Main dashboard**, followed by **Upload receipt**,
-**Pending reviews**, and **Receipt history**. The dashboard provides saved counts,
+The workspace starts with **Main dashboard**, followed by **Monthly close**, **Upload receipt**,
+**Pending reviews**, **Receipt history**, and **Deleted receipts**. The dashboard provides saved counts,
 accepted expense totals, an accessible monthly trend, category ranking, workflow
 distribution, and attention counts without combining currencies. History
 has animated, authenticated previews beside each receipt. See the
@@ -48,20 +48,20 @@ records can be corrected with append-only amendments; rejected records cannot be
 
 Set `DATABASE_PATH=data/expenses.db` in `.env` (the default). Python's built-in
 SQLite driver is used; no database server or new dependency is required. On first
-database use, schema version 3 and the three initial vendor mappings are created
+database use, schema version 6 and the three initial vendor mappings are created
 transactionally. Existing mappings are not overwritten on restart. The runtime
 lookup reads `vendor_category_mappings`; the dictionary in `app/classification.py`
 is now the initial seed and legacy lookup helper, not the upload lookup source.
 
-Existing version-1 databases migrate transactionally on first use. Back up the
+Existing version 1–5 databases migrate transactionally on first use. Back up the
 database and uploads before upgrading; the previous application cannot read
-schema version 3. Human decisions and amendments live in append-only audit tables,
+schema version 6. Human decisions, amendments, lifecycle events, reprocessing attempts,
+and payment follow-up live in append-only audit tables,
 separately from the original AI evidence.
 
-Tables: `receipts` (metadata, OCR, extraction JSON and timestamps), `line_items`
-(ordered item JSON), `classifications` (decision and result JSON), and
-`vendor_category_mappings`. JSON preserves the existing validated response fields;
-this is not yet a reporting schema with separately indexed monetary fields.
+Core tables include `receipts` (metadata, OCR, extraction JSON and timestamps), `line_items`
+(ordered item JSON), `classifications`, review/lifecycle audit tables, `bank_statements`,
+`bank_transactions`, and `receipt_payment_events`. JSON preserves the existing validated response fields.
 Foreign keys are enabled on every connection. Final extraction, line items and
 classification are committed together. No transaction stays open during OCR or
 gateway calls. Database operations run outside the async event loop.
@@ -227,3 +227,7 @@ The agent must select one fixed category and return a confidence score from zero
 # Receipt retention and voiding
 
 The workspace now includes **Deleted receipts** (restore within 30 days) and audited **Void receipt** for approved/auto-filed records. Deletion and voiding exclude records from dashboards and normal exports. Schema v4 migrates existing records without deleting them. Back up the database and uploads before deployment. See [receipt lifecycle](docs/receipt-lifecycle.md) for eligibility, cleanup timing, duplicate handling, and verification.
+
+# Monthly reconciliation
+
+The **Monthly close** workspace imports retained bank-statement CSVs, matches debits to accepted receipts, flags duplicates and missing evidence, records audited trade-payable/payment-issue follow-up, shows category and vendor concentration, and exports a highlighted monthly Excel workbook. Schema v6 preserves existing receipt data. See [monthly reconciliation](docs/monthly-reconciliation.md) for the CSV contract, matching rules, and Singapore record-control boundaries.

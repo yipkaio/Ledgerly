@@ -113,6 +113,31 @@ test("reprocessing creates an unsaved review draft with reconciliation and prove
   expect(requests[0].corrected_data?.discount_amount).toBe(10);
   expect(requests[0].reprocess_request_id).toBeTruthy();
 });
+
+test("monthly close shows evidence gaps, spend concentration, and grounded prompts", async ({ page }) => {
+  await setup(page);
+  await page.route("**/bank-statements/periods", (route) => route.fulfill({ json: { items: [{ month: "2026-09", currency: "SGD", statement_count: 1, transaction_count: 2 }] } }));
+  await page.route("**/reconciliation?*", (route) => route.fulfill({ json: {
+    month: "2026-09", currency: "SGD", generated_at: "2026-09-19T00:00:00Z",
+    statements: [{ statement_id: "88d896c9-eb7f-4c22-996b-b89fbb8f77da", account_label: "Operating", original_filename: "sep.csv", uploaded_at: "2026-09-19T00:00:00Z", row_count: 2, skipped_rows: 0 }],
+    totals: { bank_debits_cents: 15000, receipt_spend_cents: 12000, matched_cents: 10000, difference_cents: 3000, exception_count: 2 },
+    transactions: [
+      { transaction_id: "t1", posted_date: "2026-09-03", description: "Acme", amount_cents: 10000, reference: null, receipt_id: id, receipt_vendor: "Acme", status: "MATCHED" },
+      { transaction_id: "t2", posted_date: "2026-09-04", description: "Unknown", amount_cents: 5000, reference: null, receipt_id: null, receipt_vendor: null, status: "MISSING_RECEIPT" },
+    ],
+    receipts: [{ receipt_id: id, receipt_date: "2026-09-03", vendor: "Acme", category: "Repairs and Maintenance", amount_cents: 12000, status: "NO_BANK_MATCH", transaction_id: null, duplicate_receipt: false }],
+    categories: [{ category: "Repairs and Maintenance", total_cents: 12000 }],
+    vendors: [{ vendor: "Acme", total_cents: 12000 }],
+    suggestions: [{ title: "Review Repairs and Maintenance", detail: "It is the largest category. Compare recurring charges and request fresh quotes." }],
+  } }));
+  await page.getByRole("button", { name: "Monthly close", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Monthly close" })).toBeVisible();
+  await expect(page.getByText("SGD 150.00", { exact: true })).toBeVisible();
+  await expect(page.getByText("Missing receipt", { exact: true })).toBeVisible();
+  await expect(page.getByText("Highest spend by company")).toBeVisible();
+  await expect(page.getByText("Review Repairs and Maintenance", { exact: true })).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
 async function setup(page: Page, mode = "success") {
   const reprocessing: Record<string, unknown>[] = [];
   let review: Record<string, unknown> | null = null;

@@ -34,8 +34,10 @@ export function Status({ value }: { value: string }) {
           ? "border-slate-300 bg-slate-100 text-slate-800"
         : value === "REVIEW_QUEUE"
           ? "border-amber-300 bg-amber-50 text-amber-900"
-        : value === "REJECTED" || value === "FAILED"
+        : ["REJECTED", "FAILED", "PAYMENT_ISSUE", "MISSING_RECEIPT", "DUPLICATE_TRANSACTION", "DUPLICATE_RECEIPT"].includes(value)
             ? "border-red-300 bg-red-50 text-red-900"
+          : ["TRADE_PAYABLE", "NO_BANK_MATCH"].includes(value)
+            ? "border-amber-300 bg-amber-50 text-amber-900"
             : value === "AMENDED"
               ? "border-sky-200 bg-sky-50 text-sky-900"
               : "border-emerald-200 bg-emerald-50 text-emerald-900"

@@ -5,6 +5,7 @@ import {
   CircleCheckBig,
   Clock3,
   ReceiptText,
+  Landmark,
   RefreshCw,
   TrendingUp,
 } from "lucide-react";
@@ -26,7 +27,7 @@ type Summary = {
   accepted_missing_value: number;
   generated_at: string;
 };
-type View = "history" | "reviews" | "upload";
+type View = "history" | "reviews" | "upload" | "monthly";
 
 export function Dashboard({
   token,
@@ -114,7 +115,16 @@ export function Dashboard({
             )}
           </section>
 
-          <section className="grid gap-4 sm:grid-cols-3" aria-label="Workspace summary">
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Workspace summary">
+            <MetricCard
+              label="Monthly close"
+              value="Reconcile"
+              help="Match bank debits and receipt evidence"
+              icon={<Landmark />}
+              tone="violet"
+              action="Open monthly close"
+              onClick={() => navigate("monthly")}
+            />
             <MetricCard
               label="Pending reviews"
               value={data.counts.REVIEW_QUEUE || 0}
@@ -175,10 +185,10 @@ function MetricCard({
   onClick,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   help: string;
   icon: React.ReactNode;
-  tone: "amber" | "green" | "blue";
+  tone: "amber" | "green" | "blue" | "violet";
   action: string;
   onClick: () => void;
 }) {
@@ -186,6 +196,7 @@ function MetricCard({
     amber: "bg-amber-50 text-amber-800",
     green: "bg-emerald-50 text-emerald-800",
     blue: "bg-sky-50 text-sky-800",
+    violet: "bg-violet-50 text-violet-800",
   };
   return (
     <button className="panel group p-5 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-md" onClick={onClick}>

@@ -108,7 +108,7 @@ def purge_expired(store, upload_dir: Path) -> int:
                     (upload_dir / (receipt_id + extension)).unlink(missing_ok=True)
             except OSError:
                 continue
-            for table in ('receipt_reprocessing', 'review_audit', 'receipt_reviews', 'line_items', 'classifications', 'lifecycle_events'):
+            for table in ('receipt_payment_events', 'receipt_reprocessing', 'review_audit', 'receipt_reviews', 'line_items', 'classifications', 'lifecycle_events'):
                 db.execute(f"DELETE FROM {table} WHERE receipt_id=?", (receipt_id,))
             db.execute("DELETE FROM receipts WHERE receipt_id=?", (receipt_id,))
             removed += 1

@@ -6,6 +6,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import logging
 import os
+import re
 import secrets
 import hashlib
 from datetime import date
@@ -23,6 +24,18 @@ from fastapi.staticfiles import StaticFiles
 from app.images import receipt_image, receipt_preview
 from app.lifecycle import LifecycleRequest, apply_lifecycle, purge_expired
 from app.reprocessing import ReprocessRequest, reprocess
+from app.statements import (
+    MonthlyExportRequest,
+    PaymentUpdate,
+    StatementDuplicate,
+    StatementInvalid,
+    build_monthly_export,
+    import_statement,
+    list_periods,
+    monthly_reconciliation,
+    statement_source,
+    update_payment_state,
+)
 from app.database import DatabaseError, DuplicateReceiptError, ReceiptStore
 from app.amendments import AmendmentRequest, amendment_history, submit_amendment
 from app.exporting import ExportInvalid, ExportRequest, build_export
@@ -242,6 +255,90 @@ def create_app() -> FastAPI:
     @api.exception_handler(ExportInvalid)
     async def export_invalid_handler(request, exc):
         return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @api.exception_handler(StatementInvalid)
+    async def statement_invalid_handler(request, exc):
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @api.exception_handler(StatementDuplicate)
+    async def statement_duplicate_handler(request, exc):
+        return JSONResponse(status_code=409, content={
+            "detail": str(exc), "statement_id": exc.statement_id,
+        })
+
+    @api.post("/bank-statements/upload", tags=["reconciliation"],
+              summary="Import a normalized monthly bank statement CSV")
+    async def upload_bank_statement(
+        statement: Annotated[UploadFile, File()],
+        statement_month: Annotated[str, Form(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")],
+        currency: Annotated[str, Form(pattern=r"^[A-Z]{3}$")],
+        account_label: Annotated[str, Form(min_length=2, max_length=100)],
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> dict:
+        filename = statement.filename or "statement.csv"
+        if not filename.lower().endswith(".csv"):
+            raise HTTPException(status_code=415, detail="Bank statement must be a CSV file")
+        content = await statement.read(2 * 1024 * 1024 + 1)
+        return await run_in_threadpool(
+            import_statement, ReceiptStore(settings.database_path), content, filename,
+            statement_month, currency, account_label,
+        )
+
+    @api.get("/bank-statements/periods", tags=["reconciliation"],
+             summary="List imported statement months")
+    async def bank_statement_periods(
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> dict:
+        return {"items": await run_in_threadpool(list_periods, ReceiptStore(settings.database_path))}
+
+    @api.get("/bank-statements/{statement_id}/source", tags=["reconciliation"],
+             summary="Download the retained original bank statement CSV")
+    async def download_bank_statement(
+        statement_id: UUID,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> Response:
+        filename, content = await run_in_threadpool(
+            statement_source, ReceiptStore(settings.database_path), str(statement_id),
+        )
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", filename) or "statement.csv"
+        return Response(content=content, media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'})
+
+    @api.get("/reconciliation", tags=["reconciliation"],
+             summary="Compare accepted receipts with imported bank debits")
+    async def reconciliation(
+        month: Annotated[str, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")],
+        currency: Annotated[str, Query(pattern=r"^[A-Z]{3}$")],
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> dict:
+        return await run_in_threadpool(
+            monthly_reconciliation, ReceiptStore(settings.database_path), month, currency,
+        )
+
+    @api.post("/receipts/{receipt_id}/payment-state", tags=["reconciliation"],
+              summary="Record an audited payable or payment-issue status")
+    async def payment_state(
+        receipt_id: UUID,
+        body: PaymentUpdate,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> dict:
+        return await run_in_threadpool(
+            update_payment_state, ReceiptStore(settings.database_path), str(receipt_id), body,
+        )
+
+    @api.post("/reconciliation/export", tags=["reconciliation"],
+              summary="Export a monthly reconciliation workbook")
+    async def export_reconciliation(
+        body: MonthlyExportRequest,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> Response:
+        content = await run_in_threadpool(
+            build_monthly_export, ReceiptStore(settings.database_path), body.month, body.currency,
+        )
+        filename = f"ledgerly-reconciliation-{body.month}-{body.currency}.xlsx"
+        return Response(content=content,
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
     @api.post("/receipts/{receipt_id}/reprocess", tags=["receipts"],
               summary="Create a review draft from saved OCR (may incur AI cost)")
@@ -713,7 +810,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
     @api.middleware('http')
     async def privacy_headers(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(('/receipts', '/reviews', '/dashboard', '/ui')):
+        if request.url.path.startswith(('/receipts', '/reviews', '/dashboard', '/bank-statements', '/reconciliation', '/ui')):
             response.headers['X-Content-Type-Options'] = 'nosniff'
             response.headers['Referrer-Policy'] = 'no-referrer'
             if not request.url.path.startswith('/ui/assets/'):

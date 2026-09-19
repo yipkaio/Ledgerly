@@ -40,10 +40,10 @@ class ReceiptStore:
             connection.execute("PRAGMA foreign_keys=ON")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             # Serialize first-use schema creation, without write-locking normal reads.
-            if version in (0, 1, 2, 3, 4):
+            if version in (0, 1, 2, 3, 4, 5):
                 connection.execute("BEGIN IMMEDIATE")
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5):
+            if version not in (0, 1, 2, 3, 4, 5, 6):
                 raise DatabaseError("Unsupported database schema version")
             if version == 0:
                 for statement in SCHEMA:
@@ -73,6 +73,11 @@ class ReceiptStore:
                 for statement in REPROCESS_SCHEMA:
                     connection.execute(statement)
                 connection.execute("PRAGMA user_version=5")
+            if version in (0, 1, 2, 3, 4, 5):
+                from app.statements import STATEMENT_SCHEMA
+                for statement in STATEMENT_SCHEMA:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version=6")
             connection.commit()
             with connection:
                 yield connection
@@ -219,6 +224,8 @@ class ReceiptStore:
                 "SELECT event_json FROM lifecycle_events WHERE receipt_id=? ORDER BY version", (receipt_id,))]
             result['reprocessing'] = [json.loads(event[0]) for event in db.execute(
                 "SELECT result_json FROM receipt_reprocessing WHERE receipt_id=? ORDER BY started_at DESC", (receipt_id,))]
+            result['payment_events'] = [json.loads(event[0]) for event in db.execute(
+                "SELECT result_json FROM receipt_payment_events WHERE receipt_id=? ORDER BY version DESC", (receipt_id,))]
             return result
 
     def list(self, decision: str | None, processing_status: str | None,
