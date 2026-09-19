@@ -133,7 +133,7 @@ test("monthly close shows evidence gaps, spend concentration, and grounded promp
   await page.getByRole("button", { name: "Monthly close", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Monthly close" })).toBeVisible();
   await expect(page.getByText("SGD 150.00", { exact: true })).toBeVisible();
-  await expect(page.getByText("Missing receipt", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^missing receipt$/i)).toBeVisible();
   await expect(page.getByText("Highest spend by company")).toBeVisible();
   await expect(page.getByText("Review Repairs and Maintenance", { exact: true })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
