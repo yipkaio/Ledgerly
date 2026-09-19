@@ -2,6 +2,8 @@
 
 A hackathon MVP for turning receipt images into structured, reviewable business expenses.
 
+Receipt details now support **Undo deletion**, audited **Reprocess receipt** extraction drafts, and a live totals reconciliation panel. See [reprocessing and reconciliation](docs/reprocessing.md) for workflow, eligibility, costs and schema v5 migration notes.
+
 ## Docker backend
 
 Docker packaging is available for the existing backend, including both OCR
@@ -225,4 +227,3 @@ The agent must select one fixed category and return a confidence score from zero
 # Receipt retention and voiding
 
 The workspace now includes **Deleted receipts** (restore within 30 days) and audited **Void receipt** for approved/auto-filed records. Deletion and voiding exclude records from dashboards and normal exports. Schema v4 migrates existing records without deleting them. Back up the database and uploads before deployment. See [receipt lifecycle](docs/receipt-lifecycle.md) for eligibility, cleanup timing, duplicate handling, and verification.
-

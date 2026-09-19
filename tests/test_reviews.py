@@ -152,7 +152,7 @@ def test_existing_v1_migrates_without_changing_evidence(tmp_path):
     store = ReceiptStore(path)
     assert store.get('old')['processing_status'] == 'FAILED'
     with store.connect() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 4
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 5
         assert db.execute('SELECT image_path FROM receipts').fetchone()[0] == 'secret'
         assert db.execute('SELECT count(*) FROM vendor_category_mappings').fetchone()[0] == 0
 

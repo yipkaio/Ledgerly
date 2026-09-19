@@ -156,6 +156,26 @@ test("delete, restore, void protection and mobile confirmation", async ({
     page.getByRole("heading", { name: "In deleted receipts" }),
   ).toBeVisible();
   await page
+    .getByRole("button", { name: "Undo deletion", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Manage this receipt" }),
+  ).toBeVisible();
+  expect(events).toHaveLength(2);
+  await page
+    .getByRole("button", { name: "Move to deleted receipts", exact: true })
+    .click();
+  await dialog.getByLabel("Your name").fill("Tester");
+  await dialog
+    .getByLabel("Reason", { exact: true })
+    .fill("Deleted again for restore testing");
+  await dialog
+    .getByRole("button", { name: "Move to deleted receipts", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "In deleted receipts" }),
+  ).toBeVisible();
+  await page
     .getByRole("button", { name: "Deleted receipts", exact: true })
     .click();
   await expect(page.getByText("days remaining")).toBeVisible();

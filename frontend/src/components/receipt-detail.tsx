@@ -31,6 +31,8 @@ import type {
 } from "@/lib/api";
 import { Notice, Status } from "@/components/feedback";
 import { ReceiptSummary } from "@/components/receipt-summary";
+import { Reconciliation } from "@/components/reconciliation";
+import { ReprocessReceipt } from "@/components/reprocess-receipt";
 import { ReceiptLifecycle } from "@/components/receipt-lifecycle";
 import { AuditTimeline } from "@/components/audit-timeline";
 
@@ -125,6 +127,10 @@ export function ReceiptDetail({
     >(null),
     [stale, setStale] = useState(false),
     [editingAmendment, setEditingAmendment] = useState(false);
+  const [draftSource, setDraftSource] = useState<string | null>(null);
+  const [undo, setUndo] = useState<object | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const undoLock = useRef(false);
   const form = useRef<HTMLFormElement>(null),
     submitting = useRef(false),
     active = useRef(true);
@@ -161,6 +167,7 @@ export function ReceiptDetail({
         setNote("");
         setOverride("");
         setEditingAmendment(false);
+        setDraftSource(null);
         onDirty(false);
       })
       .catch((e) => {
@@ -214,7 +221,7 @@ export function ReceiptDetail({
   }, [id, token, revision, onDirty]);
   const reviewable =
     (!receipt?.lifecycle_state || receipt.lifecycle_state === "ACTIVE") &&
-    context === "review" &&
+    (context === "review" || !!draftSource) &&
     receipt?.processing_status === "REVIEW_QUEUE" &&
     !receipt.review;
   const canAmend =
@@ -222,7 +229,7 @@ export function ReceiptDetail({
     (receipt?.processing_status === "COMPLETED" ||
       receipt?.review?.decision === "APPROVED" ||
       !!receipt?.amendment);
-  const amending = context === "history" && canAmend && editingAmendment;
+  const amending = canAmend && editingAmendment;
   const editable = reviewable || amending;
   const locked = busy || !!pending || stale || !editable;
   async function submit(
@@ -296,6 +303,7 @@ export function ReceiptDetail({
         reason: note.trim(),
         evidence_confirmed: true,
         final_data: structuredClone(data),
+        ...(draftSource ? { reprocess_request_id: draftSource } : {}),
         category,
       };
       if (override.trim()) payload.override_reason = override.trim();
@@ -310,6 +318,7 @@ export function ReceiptDetail({
       reviewer: reviewer.trim(),
       note: note.trim(),
       evidence_confirmed: true,
+      ...(draftSource ? { reprocess_request_id: draftSource } : {}),
     };
     if (confirm === "APPROVED" && data) {
       payload.corrected_data = structuredClone(data);
@@ -371,7 +380,31 @@ export function ReceiptDetail({
     setOverride("");
     setEvidence(false);
     setEditingAmendment(false);
+    setDraftSource(null);
     onDirty(false);
+  }
+  async function undoDeletion() {
+    if (!undo || undoLock.current) return;
+    undoLock.current = true;
+    setUndoBusy(true);
+    setError("");
+    try {
+      await request(`/receipts/${id}/lifecycle`, token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(undo),
+      });
+      setUndo(null);
+      saved();
+      setRevision((n) => n + 1);
+    } catch (e) {
+      setError(message(e));
+      // Preserve the same UUID on uncertain responses; never retry a conflict blindly.
+      if (e instanceof ApiError && e.status < 500) setUndo(null);
+    } finally {
+      undoLock.current = false;
+      setUndoBusy(false);
+    }
   }
   return (
     <div className="space-y-5">
@@ -399,15 +432,73 @@ export function ReceiptDetail({
           />
         </div>
       </div>
+      {undo && receipt.lifecycle_state === "DELETED" && (
+        <Notice variant="info">
+          Receipt moved to Deleted receipts. Restore it now if this was
+          accidental.
+          <Button
+            className="ml-3"
+            variant="outline"
+            disabled={undoBusy}
+            onClick={() => void undoDeletion()}
+          >
+            {undoBusy ? "Restoring…" : "Undo deletion"}
+          </Button>
+        </Notice>
+      )}
       <ReceiptLifecycle
         receipt={receipt}
         token={token}
-        disabled={busy || !!pending || dirty || editingAmendment}
+        disabled={busy || !!pending || dirty || editingAmendment || undoBusy}
+        onDeleted={(version, actor) =>
+          setUndo({
+            request_id: crypto.randomUUID(),
+            action: "RESTORE",
+            expected_version: version,
+            expected_record_version: receipt.record_version || 0,
+            reviewer: actor,
+            reason: "Undo accidental receipt deletion",
+          })
+        }
         saved={() => {
           saved();
           setRevision((n) => n + 1);
         }}
       />
+      <ReprocessReceipt
+        receipt={receipt}
+        token={token}
+        disabled={busy || !!pending || dirty || editingAmendment || undoBusy}
+        saved={() => {
+          saved();
+          setRevision((n) => n + 1);
+        }}
+        onUseDraft={(draft) => {
+          if (!draft.extracted_data) return;
+          setData(structuredClone(draft.extracted_data));
+          setDraftSource(draft.request_id);
+          setEditingAmendment(canAmend);
+          setEvidence(false);
+          setReviewer("");
+          setNote("");
+          setOverride("");
+          onDirty(true);
+        }}
+      />
+      {draftSource && (
+        <Notice variant="warning">
+          You are reviewing a new extraction draft. Confirm every field and the
+          category before saving.
+          <Button
+            variant="outline"
+            className="ml-3"
+            disabled={busy || !!pending}
+            onClick={cancelAmendment}
+          >
+            Discard draft edits
+          </Button>
+        </Notice>
+      )}
       {dirty && (
         <p className="muted">
           Save or discard your edits before deleting or voiding this receipt.
@@ -451,7 +542,11 @@ export function ReceiptDetail({
           {receipt.record_version}; every earlier version remains in the audit.
         </Notice>
       )}
-      {receipt.error && <Notice variant="destructive">{receipt.error}</Notice>}
+      {receipt.error && (
+        <Notice variant="warning">
+          Original processing error: {receipt.error}
+        </Notice>
+      )}
       {!!receipt.duplicate_candidates?.length && (
         <Notice variant="warning">
           Possible duplicate detected. Compare this receipt with{" "}
@@ -756,6 +851,7 @@ export function ReceiptDetail({
               </div>
             </form>
           )}
+          {editable && data && <Reconciliation data={data} />}
           {editable && (
             <section
               className="panel space-y-4 p-5"

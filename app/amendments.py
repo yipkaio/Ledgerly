@@ -16,6 +16,7 @@ from app.review import (
     ReviewNotFound,
     SUPPORTED_REVIEW_CURRENCIES,
     reject_placeholder,
+    same_saved_request,
 )
 
 
@@ -33,6 +34,7 @@ class AmendmentRequest(BaseModel):
     evidence_confirmed: Literal[True]
     final_data: ReceiptExtraction
     category: ExpenseCategory
+    reprocess_request_id: UUID | None = None
     override_reason: Annotated[str | None, Field(min_length=10, max_length=2000)] = None
 
     @field_validator("evidence_confirmed", mode="before")
@@ -142,7 +144,7 @@ def submit_amendment(store, receipt_id: str, request: AmendmentRequest) -> dict:
             (str(request.request_id),),
         ).fetchone()
         if prior:
-            if prior["receipt_id"] == receipt_id and prior["request_json"] == request_json:
+            if prior["receipt_id"] == receipt_id and same_saved_request(prior["request_json"], request_json):
                 return json.loads(prior["result_json"])
             raise ReviewConflict("Request ID was already used with different content")
         row = db.execute(
@@ -152,6 +154,8 @@ def submit_amendment(store, receipt_id: str, request: AmendmentRequest) -> dict:
             raise ReviewNotFound("Receipt not found")
         if row['lifecycle_state'] != 'ACTIVE':
             raise ReviewConflict("Deleted or voided receipts cannot be amended")
+        from app.reprocessing import validate_source
+        validate_source(db, receipt_id, request.reprocess_request_id)
         before_data, before_category, before_state, current_version = _effective_before(
             db, row
         )
@@ -176,6 +180,7 @@ def submit_amendment(store, receipt_id: str, request: AmendmentRequest) -> dict:
             "record_version": version,
             "request_id": str(request.request_id),
             "event_type": "AMENDMENT",
+            "reprocess_request_id": str(request.reprocess_request_id) if request.reprocess_request_id else None,
             "reviewer": request.reviewer,
             "identity_source": "self_reported",
             "amended_at": now(),
@@ -219,4 +224,3 @@ def amendment_history(store, receipt_id: str) -> dict:
             (receipt_id,),
         ).fetchall()
     return {"items": [json.loads(row[0]) for row in rows]}
-

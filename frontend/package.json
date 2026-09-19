@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:unit": "node --experimental-strip-types --test tests/reconciliation.test.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

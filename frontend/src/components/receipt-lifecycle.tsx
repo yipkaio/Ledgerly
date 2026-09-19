@@ -35,11 +35,13 @@ export function ReceiptLifecycle({
   token,
   disabled,
   saved,
+  onDeleted,
 }: {
   receipt: Receipt;
   token: string;
   disabled: boolean;
   saved: () => void;
+  onDeleted?: (version: number, reviewer: string) => void;
 }) {
   const [action, setAction] = useState<Action | null>(null);
   const now = useClock();
@@ -85,14 +87,19 @@ export function ReceiptLifecycle({
     };
     attempt.current = payload;
     try {
-      await request(`/receipts/${receipt.receipt_id}/lifecycle`, token, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const result = await request<{ version: number }>(
+        `/receipts/${receipt.receipt_id}/lifecycle`,
+        token,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
       setAction(null);
       setUncertain(false);
       attempt.current = null;
+      if (action === "DELETE") onDeleted?.(result.version, name.trim());
       saved();
     } catch (e) {
       setError(message(e));

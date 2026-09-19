@@ -42,6 +42,15 @@ class ReviewInvalid(ValueError):
     pass
 
 
+def same_saved_request(saved: str, current: str) -> bool:
+    """A missing optional draft link in pre-v5 requests still means null."""
+    left, right = json.loads(saved), json.loads(current)
+    for value in (left, right):
+        if value.get('reprocess_request_id') is None:
+            value.pop('reprocess_request_id', None)
+    return left == right
+
+
 class ReviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -53,6 +62,7 @@ class ReviewRequest(BaseModel):
     evidence_confirmed: Literal[True] = Field(description="Set true only after checking the original receipt image. This cannot verify that you actually viewed it.")
     corrected_data: ReceiptExtraction | None = Field(default=None, description="Approval: copy the COMPLETE extracted_data from GET receipt detail, then correct verified fields. Rejection: omit.")
     category: ExpenseCategory | None = None
+    reprocess_request_id: UUID | None = None
     override_reason: Annotated[str | None, Field(min_length=10, max_length=2000)] = None
 
     @field_validator("evidence_confirmed", mode="before")
@@ -124,7 +134,7 @@ def submit_review(store, receipt_id: str, request: ReviewRequest) -> dict:
         db.execute("BEGIN IMMEDIATE")
         prior = db.execute("SELECT * FROM receipt_reviews WHERE request_id=?", (str(request.request_id),)).fetchone()
         if prior:
-            if prior['receipt_id'] == receipt_id and prior['request_json'] == request_json:
+            if prior['receipt_id'] == receipt_id and same_saved_request(prior['request_json'], request_json):
                 return json.loads(prior['result_json'])
             raise ReviewConflict("Request ID was already used with different content")
         row = db.execute("SELECT * FROM receipts WHERE receipt_id=?", (receipt_id,)).fetchone()
@@ -136,11 +146,14 @@ def submit_review(store, receipt_id: str, request: ReviewRequest) -> dict:
             raise ReviewConflict("Receipt review version is stale or already finalized")
         if row['processing_status'] != 'REVIEW_QUEUE':
             raise ReviewConflict("Only queued receipts can be reviewed")
-        before = json.loads(row['extraction_json'])
+        from app.reprocessing import validate_source
+        validate_source(db, receipt_id, request.reprocess_request_id)
+        before = json.loads(row['extraction_json']) if row['extraction_json'] else {}
         before['line_items'] = [json.loads(item[0]) for item in db.execute(
             "SELECT item_json FROM line_items WHERE receipt_id=? ORDER BY position", (receipt_id,))]
-        original_classification = json.loads(db.execute(
-            "SELECT result_json FROM classifications WHERE receipt_id=?", (receipt_id,)).fetchone()[0])
+        classification_row = db.execute(
+            "SELECT result_json FROM classifications WHERE receipt_id=?", (receipt_id,)).fetchone()
+        original_classification = json.loads(classification_row[0]) if classification_row else None
         final_data = None
         issues = []
         if request.corrected_data is not None:
@@ -152,6 +165,7 @@ def submit_review(store, receipt_id: str, request: ReviewRequest) -> dict:
             final_data = checked.model_dump(mode="json")
         result = {
             "receipt_id": receipt_id, "review_version": 1, "request_id": str(request.request_id),
+            "reprocess_request_id": str(request.reprocess_request_id) if request.reprocess_request_id else None,
             "decision": request.decision, "reviewer": request.reviewer,
             "identity_source": "self_reported", "reviewed_at": now(), "note": request.note,
             "evidence_confirmed": True, "final_data": final_data,

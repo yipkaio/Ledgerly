@@ -49,6 +49,7 @@ export type Classification = {
   workflow_decision: string;
 };
 export type Review = {
+  reprocess_request_id?: string | null;
   receipt_id?: string;
   review_version?: number;
   decision: "APPROVED" | "REJECTED";
@@ -68,6 +69,7 @@ export type Review = {
   };
 };
 export type Amendment = {
+  reprocess_request_id?: string | null;
   receipt_id: string;
   record_version: number;
   request_id: string;
@@ -95,7 +97,18 @@ export type LifecycleEvent = {
   reason: string;
   occurred_at: string;
 };
+export type ReprocessAttempt = {
+  request_id: string;
+  status: "RUNNING" | "SUCCEEDED" | "FAILED" | "SUPERSEDED";
+  started_at: string;
+  expires_at: string;
+  reviewer: string;
+  reason: string;
+  extracted_data: Extraction | null;
+  error: string | null;
+};
 export type Receipt = {
+  reprocessing?: ReprocessAttempt[];
   lifecycle_state?: "ACTIVE" | "DELETED" | "VOIDED";
   lifecycle_version?: number;
   purge_after?: string | null;
@@ -141,6 +154,7 @@ export type Page = {
   limit: number;
 };
 export type ReviewRequest = {
+  reprocess_request_id?: string;
   request_id: string;
   expected_version: number;
   decision: "APPROVED" | "REJECTED";
@@ -152,6 +166,7 @@ export type ReviewRequest = {
   override_reason?: string;
 };
 export type AmendmentRequest = {
+  reprocess_request_id?: string;
   request_id: string;
   expected_version: number;
   reviewer: string;

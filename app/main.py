@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from app.images import receipt_image, receipt_preview
 from app.lifecycle import LifecycleRequest, apply_lifecycle, purge_expired
+from app.reprocessing import ReprocessRequest, reprocess
 from app.database import DatabaseError, DuplicateReceiptError, ReceiptStore
 from app.amendments import AmendmentRequest, amendment_history, submit_amendment
 from app.exporting import ExportInvalid, ExportRequest, build_export
@@ -241,6 +242,14 @@ def create_app() -> FastAPI:
     @api.exception_handler(ExportInvalid)
     async def export_invalid_handler(request, exc):
         return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @api.post("/receipts/{receipt_id}/reprocess", tags=["receipts"],
+              summary="Create a review draft from saved OCR (may incur AI cost)")
+    async def reprocess_receipt(receipt_id: UUID, body: ReprocessRequest,
+                                settings: Annotated[Settings, Depends(require_api_key)],
+                                extractor: Annotated[ReceiptExtractor, Depends(get_receipt_extractor)]) -> dict:
+        return await reprocess(ReceiptStore(settings.database_path), str(receipt_id), body,
+                               extractor, settings.llm_model)
 
     @api.post("/receipts/{receipt_id}/lifecycle", tags=["receipts"],
               summary="Move to deleted receipts, restore within 30 days, or void a finalized receipt")

@@ -65,7 +65,56 @@ const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG1sAAAAASUVORK5CYII=",
   "base64",
 );
+
+test("reprocessing creates an unsaved review draft with reconciliation and provenance", async ({
+  page,
+}) => {
+  const requests = await setup(page);
+  await page
+    .getByRole("button", { name: "Open receipt MR D.I.Y.", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Reprocess receipt", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(/may consume credits/)).toBeVisible();
+  await dialog.getByLabel("Your name").fill("Tester");
+  await dialog
+    .getByLabel("Reason for reprocessing")
+    .fill("Recover the newly supported receipt discount");
+  await dialog
+    .getByRole("button", { name: "Create extraction draft", exact: true })
+    .click();
+  await expect(
+    page.getByText("Latest attempt · Draft ready for review"),
+  ).toBeVisible();
+  expect(requests).toHaveLength(0);
+  await page
+    .getByRole("button", { name: "Use draft for review", exact: true })
+    .click();
+  await expect(page.getByLabel("Vendor *")).toHaveValue("Reprocessed vendor");
+  await expect(page.getByLabel("Discount amount", { exact: true })).toHaveValue(
+    "10",
+  );
+  expect(requests).toHaveLength(0);
+  await page.getByLabel("Reviewer name").fill("Tester");
+  await page
+    .getByLabel("Decision reason")
+    .fill("Verified new extraction against the retained original receipt");
+  await page.getByRole("checkbox").check();
+  await page
+    .getByRole("button", { name: "Approve receipt", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /Confirm approval/ })
+    .click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].corrected_data?.discount_amount).toBe(10);
+  expect(requests[0].reprocess_request_id).toBeTruthy();
+});
 async function setup(page: Page, mode = "success") {
+  const reprocessing: Record<string, unknown>[] = [];
   let review: Record<string, unknown> | null = null;
   let amendment: Amendment | null = null;
   const requests: ReviewRequest[] = [];
@@ -131,13 +180,42 @@ async function setup(page: Page, mode = "success") {
         amendment,
         record_version: amendment ? 2 : review ? 1 : 0,
         effective_data:
-          amendment?.final_data || review?.final_data || original.extracted_data,
+          amendment?.final_data ||
+          review?.final_data ||
+          original.extracted_data,
         effective_category:
-          amendment?.category || review?.category || original.classification.category,
+          amendment?.category ||
+          review?.category ||
+          original.classification.category,
         duplicate_candidates: [],
+        reprocessing,
       },
     }),
   );
+  await page.route(`**/receipts/${id}/reprocess`, (route) => {
+    const body = route.request().postDataJSON();
+    const result = {
+      ...body,
+      status: "SUCCEEDED",
+      started_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 600000).toISOString(),
+      error: null,
+      extracted_data: {
+        ...extraction,
+        vendor: "Reprocessed vendor",
+        subtotal: 50,
+        discount_amount: 10,
+        tax_amount: 0,
+        total_before_rounding: 40,
+        rounding_adjustment: 0,
+        total_amount: 40,
+        cash_tendered: null,
+        change_amount: null,
+      },
+    };
+    reprocessing.unshift(result);
+    return route.fulfill({ json: result });
+  });
   await page.route(`**/receipts/${id}/image`, (route) =>
     route.fulfill({
       contentType: "image/png",
@@ -272,9 +350,7 @@ test("approval edits, automatic UUID, final audit and no persistent key", async 
   await expect(page.getByRole("dialog")).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Confirm approval" }).click();
-  await expect(
-    page.getByText(/Approved by Yip Kai/),
-  ).toBeVisible();
+  await expect(page.getByText(/Approved by Yip Kai/)).toBeVisible();
   expect(sent).toHaveLength(1);
   expect(sent[0].request_id).toMatch(/^[a-f0-9-]{36}$/);
   expect(sent[0].corrected_data?.vendor).toBe("Verified MR D.I.Y.");
@@ -344,10 +420,14 @@ test("approved receipt can be amended while earlier review remains visible", asy
     .getByRole("button", { name: "Receipt history", exact: true })
     .click();
   await page.getByRole("button", { name: "Open receipt MR D.I.Y." }).click();
-  await expect(page.getByRole("heading", { name: "Receipt details" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Receipt details" }),
+  ).toBeVisible();
   await expect(page.getByLabel("Vendor *")).toHaveCount(0);
   await page.getByRole("button", { name: "Create amendment" }).click();
-  await expect(page.getByRole("button", { name: "Save amendment" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Save amendment" }),
+  ).toBeVisible();
   await page.getByLabel("Vendor *").fill("Amended MR D.I.Y.");
   await page.getByLabel("Reviewer name").fill("Yip Kai");
   await page
@@ -356,13 +436,19 @@ test("approved receipt can be amended while earlier review remains visible", asy
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Save amendment" }).click();
   await page.getByRole("button", { name: "Confirm amendment" }).click();
-  await expect(page.getByText(/Effective data amended by Yip Kai/)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Amended MR D.I.Y." })).toBeVisible();
+  await expect(
+    page.getByText(/Effective data amended by Yip Kai/),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Amended MR D.I.Y." }),
+  ).toBeVisible();
   await expect(
     page.getByText(/Version 2; every earlier version remains in the audit/),
   ).toBeVisible();
   await expect(page.getByText("Vendor", { exact: true }).last()).toBeVisible();
-  await expect(page.getByText("MR D.I.Y.", { exact: true }).last()).toBeVisible();
+  await expect(
+    page.getByText("MR D.I.Y.", { exact: true }).last(),
+  ).toBeVisible();
   await expect(page.getByText("Version 1 → 2")).toBeVisible();
   await expect(page.getByText("Original and final audit data")).toHaveCount(0);
 });
@@ -377,7 +463,9 @@ test("dashboard totals stay separate by currency and links open the queue", asyn
   await expect(
     page.getByText("MYR 33.90", { exact: true }).first(),
   ).toBeVisible();
-  await page.getByLabel("Reporting currency", { exact: true }).selectOption("SGD");
+  await page
+    .getByLabel("Reporting currency", { exact: true })
+    .selectOption("SGD");
   await expect(
     page.getByText("SGD 10.00", { exact: true }).first(),
   ).toBeVisible();
@@ -441,7 +529,9 @@ test("preview supports keyboard and small screens without relying on hover", asy
   expect(box!.x + box!.width).toBeLessThanOrEqual(375);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Open full receipt" }).click();
-  await expect(page.getByRole("heading", { name: "Receipt details" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Receipt details" }),
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "MR D.I.Y." })).toBeVisible();
   await expect(page.getByText("OCR text", { exact: false })).toHaveCount(0);
 });
@@ -455,9 +545,7 @@ test("rejection excludes corrected fields and preserves the audit", async ({
     .fill("Confirmed personal purchase; not a business expense.");
   await page.getByRole("button", { name: "Reject receipt" }).click();
   await page.getByRole("button", { name: "Confirm rejection" }).click();
-  await expect(
-    page.getByText(/Rejected by Yip Kai/),
-  ).toBeVisible();
+  await expect(page.getByText(/Rejected by Yip Kai/)).toBeVisible();
   await expect(
     page.getByRole("alert").filter({ hasText: "Rejected by Yip Kai" }),
   ).toHaveClass(/text-red-950/);
@@ -472,9 +560,7 @@ test("lost response retries identical frozen payload", async ({ page }) => {
   await page.getByRole("button", { name: "Confirm approval" }).click();
   await expect(page.getByLabel("Vendor *")).toBeDisabled();
   await page.getByRole("button", { name: "Retry same change" }).click();
-  await expect(
-    page.getByText(/Approved by Yip Kai/),
-  ).toBeVisible();
+  await expect(page.getByText(/Approved by Yip Kai/)).toBeVisible();
   expect(sent).toHaveLength(2);
   expect(sent[0]).toEqual(sent[1]);
 });
@@ -565,7 +651,9 @@ test("upload multipart purpose and saved receipt; pagination", async ({
     .getByLabel("Business purpose (optional)")
     .fill("Mock purpose: office cleaning");
   await page.getByRole("button", { name: "Upload and process" }).click();
-  await expect(page.getByRole("heading", { name: "Receipt details" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Receipt details" }),
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "MR D.I.Y." })).toBeVisible();
 });
 
@@ -574,9 +662,13 @@ test("history is read only, hides OCR, and presents a structured receipt summary
 }) => {
   await setup(page);
   await page.getByRole("button", { name: "Open receipt MR D.I.Y." }).click();
-  await expect(page.getByRole("heading", { name: "Receipt details" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Receipt details" }),
+  ).toBeVisible();
   await expect(page.getByText("Effective receipt record")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Merchant details" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Merchant details" }),
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Line items" })).toBeVisible();
   await expect(page.getByText("OCR text", { exact: false })).toHaveCount(0);
   await expect(page.getByLabel("Vendor *")).toHaveCount(0);
