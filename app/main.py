@@ -41,6 +41,14 @@ from app.amendments import AmendmentRequest, amendment_history, submit_amendment
 from app.exporting import ExportInvalid, ExportRequest, build_export
 from app.history import HistoryFilters
 from app.dashboard import dashboard_summary
+from app.fx import (
+    ECBRateProvider,
+    FXUnavailable,
+    WorkspaceCurrency,
+    latest_snapshot,
+    set_workspace_currency,
+    workspace_currency,
+)
 from app.review import (ReviewRequest, ReviewConflict, ReviewNotFound, ReviewInvalid,
                         pending_reviews, review_history, submit_review)
 
@@ -184,6 +192,10 @@ def get_expense_classifier(
         timeout_seconds=settings.llm_timeout_seconds,
         max_output_tokens=settings.llm_max_output_tokens,
     )
+
+
+def get_fx_rate_provider() -> ECBRateProvider:
+    return ECBRateProvider()
 
 
 def has_expected_signature(content_type: str, prefix: bytes) -> bool:
@@ -438,10 +450,38 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
         )
 
     @api.get('/dashboard', tags=['dashboard'], summary='Workspace counts and accepted expense totals',
-             description='Read only and authenticated. Human decisions take precedence. Amounts include APPROVED and AUTO_FILED receipts only, grouped by currency; rejected, pending, failed and processing records are excluded from expense totals. Integer cents avoid adding binary floating-point amounts. Trends use receipt dates and show up to the latest 12 months with accepted receipts per currency, not upload dates. These are workflow totals, not accounting postings.',
+             description='Read only and authenticated. Human decisions take precedence. Native amounts include APPROVED and AUTO_FILED receipts only and remain grouped by currency. When a default currency is configured, a separately labelled management estimate converts them with a dated ECB reference-rate snapshot; original amounts are unchanged and receipt-to-bank matching never uses converted values. Rejected, pending, failed and processing records are excluded. Trends use receipt dates and show up to the latest 12 months. These are workflow estimates, not accounting postings or transaction rates.',
              responses={401: {'description': 'Missing or wrong app key'}, 503: {'description': 'Database or configuration unavailable'}})
-    async def dashboard(settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
-        return await run_in_threadpool(dashboard_summary, ReceiptStore(settings.database_path))
+    async def dashboard(
+        settings: Annotated[Settings, Depends(require_api_key)],
+        fx_provider: Annotated[ECBRateProvider, Depends(get_fx_rate_provider)],
+    ) -> dict:
+        store = ReceiptStore(settings.database_path)
+        default = await run_in_threadpool(workspace_currency, store)
+        snapshot = None
+        if default:
+            try:
+                snapshot = await latest_snapshot(store, fx_provider)
+            except FXUnavailable:
+                pass
+        return await run_in_threadpool(dashboard_summary, store, snapshot)
+
+    @api.get('/workspace/settings', tags=['dashboard'], summary='Read workspace reporting settings')
+    async def read_workspace_settings(
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> dict:
+        return {'default_currency': await run_in_threadpool(
+            workspace_currency, ReceiptStore(settings.database_path)
+        )}
+
+    @api.put('/workspace/settings', tags=['dashboard'], summary='Choose the default reporting currency')
+    async def update_workspace_settings(
+        body: WorkspaceCurrency,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> dict:
+        return await run_in_threadpool(
+            set_workspace_currency, ReceiptStore(settings.database_path), body.default_currency
+        )
 
     @api.get("/receipts", tags=["receipts"])
     async def list_receipts(
@@ -810,7 +850,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
     @api.middleware('http')
     async def privacy_headers(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(('/receipts', '/reviews', '/dashboard', '/bank-statements', '/reconciliation', '/ui')):
+        if request.url.path.startswith(('/receipts', '/reviews', '/dashboard', '/workspace', '/bank-statements', '/reconciliation', '/ui')):
             response.headers['X-Content-Type-Options'] = 'nosniff'
             response.headers['Referrer-Policy'] = 'no-referrer'
             if not request.url.path.startswith('/ui/assets/'):

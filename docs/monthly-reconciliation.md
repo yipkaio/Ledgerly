@@ -49,3 +49,19 @@ The workflow preserves original receipt evidence, source statement CSVs, review 
 - [CPF Board guidance on payments attracting CPF](https://www.cpf.gov.sg/employer/employer-obligations/what-payments-attract-cpf-contributions) distinguishes qualifying official-purpose reimbursements from wages. Finance or HR must review the facts; receipt classification alone cannot decide CPF treatment.
 
 Back up the SQLite database and retained receipt files as one evidence set. Restrict the shared API key to trusted staff and devices.
+
+## Default reporting currency
+
+The dashboard lets the workspace choose SGD, MYR, USD, EUR, GBP, or AUD as its default reporting currency. Accepted totals, category concentration, and the 12-month trend can then be viewed as one consolidated management estimate.
+
+Conversion uses the latest available [European Central Bank reference-rate snapshot](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html), cached for 12 hours. The dashboard shows the rate date, source, and whether a cached fallback was used. If the current fetch fails, a snapshot older than seven days is rejected and Ledgerly shows native totals instead of a partial or misleading conversion. Original receipt and bank-statement amounts are never overwritten.
+
+ECB states that its rates are normally updated each working day, are published for information purposes, and are not intended as transaction rates. Ledgerly therefore uses latest-rate conversion only for live management comparisons. Receipt-to-bank matching continues in the original currency.
+
+For formal accounting reports, choose and document a stable policy with the accountant:
+
+- transaction-date rates for individual transactions;
+- a monthly average where permitted and volatility is not material; or
+- a locked month-end closing rate for period-end balance translation.
+
+Historical reports should store the applied rate snapshot so they do not change when a later rate is published. Automated locked-period translation is a future workflow; the current Excel reconciliation remains in its selected original currency.

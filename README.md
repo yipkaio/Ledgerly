@@ -48,14 +48,14 @@ records can be corrected with append-only amendments; rejected records cannot be
 
 Set `DATABASE_PATH=data/expenses.db` in `.env` (the default). Python's built-in
 SQLite driver is used; no database server or new dependency is required. On first
-database use, schema version 6 and the three initial vendor mappings are created
+database use, schema version 7 and the three initial vendor mappings are created
 transactionally. Existing mappings are not overwritten on restart. The runtime
 lookup reads `vendor_category_mappings`; the dictionary in `app/classification.py`
 is now the initial seed and legacy lookup helper, not the upload lookup source.
 
-Existing version 1–5 databases migrate transactionally on first use. Back up the
+Existing version 1–6 databases migrate transactionally on first use. Back up the
 database and uploads before upgrading; the previous application cannot read
-schema version 6. Human decisions, amendments, lifecycle events, reprocessing attempts,
+schema version 7. Human decisions, amendments, lifecycle events, reprocessing attempts,
 and payment follow-up live in append-only audit tables,
 separately from the original AI evidence.
 
@@ -231,3 +231,5 @@ The workspace now includes **Deleted receipts** (restore within 30 days) and aud
 # Monthly reconciliation
 
 The **Monthly close** workspace imports retained bank-statement CSVs, matches debits to accepted receipts, flags duplicates and missing evidence, records audited trade-payable/payment-issue follow-up, shows category and vendor concentration, and exports a highlighted monthly Excel workbook. Schema v6 preserves existing receipt data. See [monthly reconciliation](docs/monthly-reconciliation.md) for the CSV contract, matching rules, and Singapore record-control boundaries.
+
+The dashboard can also save a default reporting currency and consolidate accepted spend using a dated, cached ECB reference-rate snapshot. Native amounts remain the source of truth; the converted view is labelled as an indicative management estimate. Schema v7 preserves existing data and adds workspace settings and rate snapshots.

@@ -138,6 +138,33 @@ test("monthly close shows evidence gaps, spend concentration, and grounded promp
   await expect(page.getByText("Review Repairs and Maintenance", { exact: true })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
+
+test("default currency consolidates spend with a dated rate snapshot", async ({ page }) => {
+  await setup(page);
+  let defaultCurrency = "SGD";
+  await page.route("**/workspace/settings", async (route) => {
+    defaultCurrency = route.request().postDataJSON().default_currency;
+    await route.fulfill({ json: { default_currency: defaultCurrency, updated_at: "2026-09-19T00:00:00Z" } });
+  });
+  await page.route("**/dashboard", (route) => route.fulfill({ json: {
+    total_receipts: 2, counts: { AUTO_FILED: 2, APPROVED: 0, REJECTED: 0, REVIEW_QUEUE: 0, PROCESSING: 0, FAILED: 0 },
+    accepted_missing_value: 0, generated_at: "2026-09-19T00:00:00Z", default_currency: defaultCurrency,
+    currencies: [
+      { currency: "SGD", total_cents: 15000, receipt_count: 1, categories: [{ category: "Office Supplies", total_cents: 15000 }], months: [{ month: "2026-09", total_cents: 15000 }] },
+      { currency: "MYR", total_cents: 50000, receipt_count: 1, categories: [{ category: "Repairs and Maintenance", total_cents: 50000 }], months: [{ month: "2026-09", total_cents: 50000 }] },
+    ],
+    reporting: { currency: defaultCurrency, available: true, total_cents: defaultCurrency === "SGD" ? 30000 : 100000, receipt_count: 2,
+      categories: [{ category: "Repairs and Maintenance", total_cents: defaultCurrency === "SGD" ? 15000 : 50000 }],
+      months: [{ month: "2026-09", total_cents: defaultCurrency === "SGD" ? 30000 : 100000 }],
+      as_of: "2026-09-18", source: "European Central Bank", stale: false, components: [] },
+  } }));
+  await page.getByRole("button", { name: "Main dashboard", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "SGD 300.00" })).toBeVisible();
+  await expect(page.getByText(/reference rates dated 2026-09-18/)).toBeVisible();
+  await page.getByLabel("Default currency").selectOption("MYR");
+  await expect(page.getByRole("heading", { name: "MYR 1000.00" })).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
 async function setup(page: Page, mode = "success") {
   const reprocessing: Record<string, unknown>[] = [];
   let review: Record<string, unknown> | null = null;

@@ -25,9 +25,18 @@ type Summary = {
   counts: Record<string, number>;
   currencies: Currency[];
   accepted_missing_value: number;
+  default_currency: string | null;
+  reporting: (Currency & {
+    available: boolean;
+    as_of: string | null;
+    source: string | null;
+    stale: boolean;
+    components: { currency: string; original_cents: number; converted_cents: number }[];
+  }) | null;
   generated_at: string;
 };
 type View = "history" | "reviews" | "upload" | "monthly";
+const reportingCurrencies = ["SGD", "MYR", "USD", "EUR", "GBP", "AUD"];
 
 export function Dashboard({
   token,
@@ -39,7 +48,8 @@ export function Dashboard({
   const [data, setData] = useState<Summary | null>(null),
     [error, setError] = useState(""),
     [refresh, setRefresh] = useState(0),
-    [currency, setCurrency] = useState("");
+    [currency, setCurrency] = useState("reporting"),
+    [settingsBusy, setSettingsBusy] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     // oxlint-disable-next-line react/set-state-in-effect -- Clear the previous snapshot while loading a cancellable read.
@@ -55,9 +65,23 @@ export function Dashboard({
     return () => controller.abort();
   }, [token, refresh]);
 
-  const current =
-    data?.currencies.find((item) => item.currency === currency) ||
-    data?.currencies[0];
+  const converted = data?.reporting?.available ? data.reporting : null;
+  const current = currency === "reporting" && converted
+    ? converted
+    : data?.currencies.find((item) => item.currency === currency) || data?.currencies[0];
+  const showingConverted = !!converted && current === converted;
+
+  async function chooseDefault(next: string) {
+    setSettingsBusy(true); setError("");
+    try {
+      await request("/workspace/settings", token, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ default_currency: next }),
+      });
+      setCurrency("reporting");
+      setRefresh((value) => value + 1);
+    } catch (e) { setError(message(e)); } finally { setSettingsBusy(false); }
+  }
 
   return (
     <div className="space-y-6">
@@ -65,9 +89,19 @@ export function Dashboard({
         <p className="muted">
           A clear view of accepted spend, review workload, and processing health.
         </p>
-        <Button variant="outline" onClick={() => setRefresh((n) => n + 1)}>
-          <RefreshCw /> Refresh
-        </Button>
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <label htmlFor="default-currency" className="field-label text-xs">Default currency</label>
+            <select id="default-currency" className="h-10 rounded-md border bg-white px-3" disabled={settingsBusy}
+              value={data?.default_currency || ""} onChange={(event) => void chooseDefault(event.target.value)}>
+              <option value="" disabled>Choose currency</option>
+              {reportingCurrencies.map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </div>
+          <Button variant="outline" onClick={() => setRefresh((n) => n + 1)}>
+            <RefreshCw /> Refresh
+          </Button>
+        </div>
       </div>
       {error ? (
         <Notice variant="destructive">{error}</Notice>
@@ -75,6 +109,8 @@ export function Dashboard({
         <DashboardSkeleton />
       ) : (
         <>
+          {!data.default_currency && <Notice variant="info">Choose a default currency to see one consolidated management estimate. Original receipt currencies remain unchanged.</Notice>}
+          {data.default_currency && !converted && <Notice variant="warning">Latest reference rates are temporarily unavailable. Native currency totals remain available and no partial consolidated total is shown.</Notice>}
           <section className="dashboard-hero overflow-hidden rounded-2xl border p-6 text-white shadow-sm sm:p-8" aria-labelledby="accepted-expenses-title">
             <div className="relative z-10 flex flex-wrap items-start justify-between gap-6">
               <div>
@@ -86,23 +122,26 @@ export function Dashboard({
                 </h2>
                 <p className="mt-3 max-w-xl text-sm text-emerald-50/90">
                   {current
-                    ? `${current.receipt_count} approved or auto-filed receipts. Currencies stay separate.`
+                    ? showingConverted
+                      ? `${current.receipt_count} accepted receipts converted using the latest available ECB reference rates.`
+                      : `${current.receipt_count} approved or auto-filed receipts in the original currency.`
                     : "Upload and approve a receipt to begin tracking expenses."}
                 </p>
               </div>
               {!!data.currencies.length && (
                 <div>
                   <label htmlFor="dashboard-currency" className="mb-1.5 block text-xs font-semibold tracking-wide text-emerald-100 uppercase">
-                    Reporting currency
+                    Dashboard view
                   </label>
                   <select
                     id="dashboard-currency"
                     className="h-10 rounded-lg border border-white/30 bg-white/10 px-3 text-white backdrop-blur focus:bg-white focus:text-foreground"
-                    value={current?.currency || ""}
+                    value={showingConverted ? "reporting" : current?.currency || ""}
                     onChange={(event) => setCurrency(event.target.value)}
                   >
+                    {data.default_currency && <option className="text-foreground" value="reporting">Consolidated · {data.default_currency}</option>}
                     {data.currencies.map((item) => (
-                      <option className="text-foreground" key={item.currency}>{item.currency}</option>
+                      <option className="text-foreground" key={item.currency} value={item.currency}>Original · {item.currency}</option>
                     ))}
                   </select>
                 </div>
@@ -114,6 +153,16 @@ export function Dashboard({
               </Button>
             )}
           </section>
+
+          {showingConverted && data.reporting && (
+            <section className="panel flex flex-wrap items-center justify-between gap-4 p-4 sm:px-5" aria-label="Currency conversion method">
+              <div>
+                <p className="font-medium">Indicative consolidated view</p>
+                <p className="muted">{data.reporting.source} reference rates dated {data.reporting.as_of}{data.reporting.stale ? " · cached rate used" : ""}. Original amounts are preserved.</p>
+              </div>
+              <p className="text-xs text-muted-foreground">Latest-rate conversion is for management comparison, not transaction settlement or formal month-end accounting.</p>
+            </section>
+          )}
 
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Workspace summary">
             <MetricCard
@@ -156,8 +205,8 @@ export function Dashboard({
 
           {current && (
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(20rem,0.85fr)]">
-              <TrendChart currency={current.currency} items={current.months} />
-              <CategoryBreakdown currency={current.currency} items={current.categories} />
+              <TrendChart currency={current.currency} items={current.months} estimated={showingConverted} />
+              <CategoryBreakdown currency={current.currency} items={current.categories} estimated={showingConverted} />
             </div>
           )}
 
@@ -218,9 +267,11 @@ function MetricCard({
 function TrendChart({
   currency,
   items,
+  estimated = false,
 }: {
   currency: string;
   items: Currency["months"];
+  estimated?: boolean;
 }) {
   const width = 720;
   const height = 250;
@@ -242,7 +293,7 @@ function TrendChart({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="trend-title" className="text-lg font-semibold">Expense trend</h2>
-          <p className="muted mt-1">Accepted spend by receipt month · latest 12 active months</p>
+          <p className="muted mt-1">{estimated ? "Estimated consolidated spend" : "Accepted spend"} by receipt month · latest 12 active months</p>
         </div>
         <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">{currency}</span>
       </div>
@@ -290,15 +341,17 @@ function TrendChart({
 function CategoryBreakdown({
   currency,
   items,
+  estimated = false,
 }: {
   currency: string;
   items: Currency["categories"];
+  estimated?: boolean;
 }) {
   const max = Math.max(1, ...items.map((item) => item.total_cents));
   return (
     <section className="panel p-5 sm:p-6" aria-labelledby="category-title">
       <h2 id="category-title" className="text-lg font-semibold">Top categories</h2>
-      <p className="muted mt-1">Where accepted expenses are concentrated</p>
+      <p className="muted mt-1">Where {estimated ? "estimated consolidated" : "accepted"} expenses are concentrated</p>
       {!items.length ? (
         <p className="muted py-12 text-center">No category totals yet.</p>
       ) : (
