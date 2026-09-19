@@ -516,7 +516,7 @@ test("dashboard totals stay separate by currency and links open the queue", asyn
     page.getByText("MYR 33.90", { exact: true }).first(),
   ).toBeVisible();
   await page
-    .getByLabel("Reporting currency", { exact: true })
+    .getByLabel("Dashboard view", { exact: true })
     .selectOption("SGD");
   await expect(
     page.getByText("SGD 10.00", { exact: true }).first(),
