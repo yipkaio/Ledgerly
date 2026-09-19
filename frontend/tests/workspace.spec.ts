@@ -364,7 +364,7 @@ test("approval edits, automatic UUID, final audit and no persistent key", async 
   const sent = await setup(page);
   await open(page);
   await page.getByLabel("Vendor *").fill("Verified MR D.I.Y.");
-  await page.getByLabel("Discount amount").fill("2.00");
+  await page.getByLabel("Discount amount", { exact: true }).fill("2.00");
   await page.getByLabel("Rounding adjustment").focus();
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("-0.02");

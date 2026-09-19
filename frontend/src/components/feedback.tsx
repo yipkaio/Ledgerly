@@ -26,6 +26,10 @@ export function Notice({
   );
 }
 export function Status({ value }: { value: string }) {
+  const label = value
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
   return (
     <Badge
       variant="outline"
@@ -43,7 +47,7 @@ export function Status({ value }: { value: string }) {
               : "border-emerald-200 bg-emerald-50 text-emerald-900"
       }
     >
-      {value.replaceAll("_", " ")}
+      {label}
     </Badge>
   );
 }
