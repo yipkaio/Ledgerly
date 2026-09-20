@@ -54,9 +54,9 @@ type Answer = {
   advisory_only: true;
 };
 type Result =
-  | { kind: "explanation"; data: Explanation; audit: Audit; fallback: boolean }
-  | { kind: "brief"; data: Brief; audit: Audit; fallback: boolean }
-  | { kind: "answer"; data: Answer; audit: Audit; fallback: boolean };
+  | { kind: "explanation"; data: Explanation; audit: Audit; fallback: boolean; source?: "ai" | "deterministic" }
+  | { kind: "brief"; data: Brief; audit: Audit; fallback: boolean; source?: "ai" | "deterministic" }
+  | { kind: "answer"; data: Answer; audit: Audit; fallback: boolean; source?: "ai" | "deterministic" };
 
 type SuggestedQuestion = {
   label: string;
@@ -139,12 +139,14 @@ export function FinanceCopilot({
         timeoutMs: 120000,
       });
       const fallback = response.fallback === true;
+      const source = response.source === "deterministic" ? "deterministic" : "ai";
       if (kind === "explain")
         setResult({
           kind: "explanation",
           data: response.explanation as Explanation,
           audit: response.audit as Audit,
           fallback,
+          source,
         });
       else if (kind === "brief")
         setResult({
@@ -152,6 +154,7 @@ export function FinanceCopilot({
           data: response.brief as Brief,
           audit: response.audit as Audit,
           fallback,
+          source,
         });
       else
         setResult({
@@ -159,6 +162,7 @@ export function FinanceCopilot({
           data: response.answer as Answer,
           audit: response.audit as Audit,
           fallback,
+          source,
         });
     } catch (caught) {
       setError(message(caught));
@@ -432,6 +436,12 @@ function QuickAction({
 function CopilotResult({ result }: { result: Result }) {
   return (
     <div className="mt-5 border-t border-emerald-100 pt-5" aria-live="polite">
+      {result.source === "deterministic" && (
+        <p className="mb-4 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+          Answered directly from recorded reconciliation data. No AI call was required.
+        </p>
+      )}
       {result.fallback && (
         <p className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
@@ -490,9 +500,11 @@ function CopilotResult({ result }: { result: Result }) {
       )}
 
       <p className="mt-4 border-t pt-3 text-[11px] text-muted-foreground">
-        {result.fallback
-          ? "Deterministic fallback · no AI interpretation used"
-          : result.audit.cached
+        {result.source === "deterministic"
+          ? "Direct reconciliation result · no AI call"
+          : result.fallback
+            ? "Deterministic fallback · no AI interpretation used"
+            : result.audit.cached
             ? "Cached result"
             : "New model call"}{" "}
         · prompt {result.audit.prompt_version} · request {result.audit.request_id.slice(0, 8)}
