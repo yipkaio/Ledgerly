@@ -42,9 +42,9 @@ type Answer = {
   advisory_only: true;
 };
 type Result =
-  | { kind: "explanation"; data: Explanation; audit: Audit }
-  | { kind: "brief"; data: Brief; audit: Audit }
-  | { kind: "answer"; data: Answer; audit: Audit };
+  | { kind: "explanation"; data: Explanation; audit: Audit; fallback: boolean }
+  | { kind: "brief"; data: Brief; audit: Audit; fallback: boolean }
+  | { kind: "answer"; data: Answer; audit: Audit; fallback: boolean };
 
 export function FinanceCopilot({
   token,
@@ -64,6 +64,7 @@ export function FinanceCopilot({
     if (kind === "ask" && question.trim().length < 5) return;
     setBusy(kind);
     setError("");
+    setResult(null);
     try {
       const body = { month, currency, ...(kind === "ask" ? { question: question.trim() } : {}) };
       const endpoint =
@@ -78,23 +79,27 @@ export function FinanceCopilot({
         body: JSON.stringify(body),
         timeoutMs: 120000,
       });
+      const fallback = response.fallback === true;
       if (kind === "explain")
         setResult({
           kind: "explanation",
           data: response.explanation as Explanation,
           audit: response.audit as Audit,
+          fallback,
         });
       else if (kind === "brief")
         setResult({
           kind,
           data: response.brief as Brief,
           audit: response.audit as Audit,
+          fallback,
         });
       else
         setResult({
           kind: "answer",
           data: response.answer as Answer,
           audit: response.audit as Audit,
+          fallback,
         });
     } catch (caught) {
       setError(message(caught));
@@ -157,6 +162,10 @@ export function FinanceCopilot({
           Ask
         </Button>
       </form>
+      <p className="muted mt-2 text-xs">
+        Ask only about this month&apos;s receipts, bank transactions, reconciliation, or close
+        status. Unrelated questions and requests for secrets or system instructions are refused.
+      </p>
 
       {error && <Notice variant="destructive">{error}</Notice>}
       {result && <CopilotResult result={result} />}
@@ -167,6 +176,12 @@ export function FinanceCopilot({
 function CopilotResult({ result }: { result: Result }) {
   return (
     <div className="mt-5 rounded-xl border bg-muted/20 p-4" aria-live="polite">
+      {result.fallback && (
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          The AI response could not be safely used, so this result comes from the recorded
+          reconciliation totals and statuses.
+        </p>
+      )}
       {result.kind === "explanation" ? (
         <>
           <h3 className="font-semibold">Exception explanation</h3>
@@ -199,14 +214,18 @@ function CopilotResult({ result }: { result: Result }) {
       ) : (
         <>
           <h3 className="font-semibold">Copilot answer</h3>
-          <p className="mt-2 text-sm whitespace-pre-wrap">{result.data.answer}</p>
+          <p className="mt-2 whitespace-pre-wrap text-sm">{result.data.answer}</p>
           <List title="Evidence used" items={result.data.evidence} />
           <List title="Limitations" items={result.data.limitations} />
         </>
       )}
       <p className="muted mt-4 border-t pt-3 text-xs">
-        {result.audit.cached ? "Cached result" : "New model call"} · prompt{" "}
-        {result.audit.prompt_version} · request {result.audit.request_id.slice(0, 8)}
+        {result.fallback
+          ? "Deterministic fallback · no AI interpretation used"
+          : result.audit.cached
+            ? "Cached result"
+            : "New model call"}{" "}
+        · prompt {result.audit.prompt_version} · request {result.audit.request_id.slice(0, 8)}
       </p>
     </div>
   );
