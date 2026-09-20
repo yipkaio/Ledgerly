@@ -826,6 +826,19 @@ function MultiCheckboxFilter({
   );
 }
 
+const businessPurposes = [
+  "Client meeting or business meal",
+  "Office supplies for business operations",
+  "Business travel or transport",
+  "Software or subscription for work",
+  "Professional or consulting services",
+  "Utilities or telecommunications",
+  "Repairs or maintenance",
+  "Inventory or materials for resale",
+  "Staff welfare or team activity",
+  "Other",
+];
+
 function UploadForm({
   token,
   open,
@@ -834,7 +847,8 @@ function UploadForm({
   open: (id: string) => void;
 }) {
   const [file, setFile] = useState<File | null>(null),
-    [purpose, setPurpose] = useState(""),
+    [selectedPurpose, setSelectedPurpose] = useState(""),
+    [otherPurpose, setOtherPurpose] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [failedId, setFailedId] = useState<string | null>(null);
@@ -859,11 +873,17 @@ function UploadForm({
       setError("Choose a JPEG, PNG, or PDF receipt up to 5 MB.");
       return;
     }
+    const purpose =
+      selectedPurpose === "Other" ? otherPurpose.trim() : selectedPurpose;
+    if (!purpose) {
+      setError("Choose the business purpose for this receipt.");
+      return;
+    }
     submitting.current = true;
     setBusy(true);
     const body = new FormData();
     body.set("receipt", file);
-    if (purpose.trim()) body.set("business_purpose", purpose.trim());
+    body.set("business_purpose", purpose);
     try {
       const result = await request<{ receipt_id: string }>(
         "/receipts/upload",
@@ -903,23 +923,58 @@ function UploadForm({
           upload
         </p>
       </div>
-      <div>
-        <label htmlFor="purpose" className="field-label">
-          Business purpose (optional)
-        </label>
-        <Textarea
-          id="purpose"
-          maxLength={500}
-          value={purpose}
-          disabled={busy}
-          onChange={(e) => setPurpose(e.target.value)}
-          placeholder="For example: cleaning supplies for the office"
-        />
-        <p className="muted mt-2">
-          Explain how the purchase is used. Missing purpose may require human
-          review.
+      <fieldset>
+        <legend className="field-label">Business purpose</legend>
+        <p className="muted mb-3">
+          Choose the closest business use. This gives the classifier useful context.
         </p>
-      </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {businessPurposes.map((value) => {
+            const selected = selectedPurpose === value;
+            return (
+              <label
+                key={value}
+                className={`cursor-pointer rounded-xl border p-3 text-sm transition ${
+                  selected
+                    ? "border-emerald-500 bg-emerald-50 font-medium text-emerald-950 shadow-sm"
+                    : "bg-white hover:border-emerald-300 hover:bg-emerald-50/40"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="business-purpose"
+                  className="sr-only"
+                  required
+                  disabled={busy}
+                  checked={selected}
+                  onChange={() => {
+                    setSelectedPurpose(value);
+                    if (value !== "Other") setOtherPurpose("");
+                  }}
+                />
+                {value}
+              </label>
+            );
+          })}
+        </div>
+        {selectedPurpose === "Other" && (
+          <div className="mt-3">
+            <label htmlFor="purpose-other" className="field-label">
+              Describe the business purpose
+            </label>
+            <Textarea
+              id="purpose-other"
+              required
+              minLength={3}
+              maxLength={500}
+              value={otherPurpose}
+              disabled={busy}
+              onChange={(event) => setOtherPurpose(event.target.value)}
+              placeholder="For example: cleaning supplies for the office pantry"
+            />
+          </div>
+        )}
+      </fieldset>
       {error && (
         <Notice variant="destructive">
           {error}
@@ -930,7 +985,14 @@ function UploadForm({
           )}
         </Notice>
       )}
-      <Button disabled={busy || !file}>
+      <Button
+        disabled={
+          busy ||
+          !file ||
+          !selectedPurpose ||
+          (selectedPurpose === "Other" && otherPurpose.trim().length < 3)
+        }
+      >
         {busy ? <LoaderCircle className="animate-spin" /> : <Upload />}
         {busy ? "Processing receipt…" : "Upload and process"}
       </Button>
