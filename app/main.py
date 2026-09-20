@@ -107,6 +107,7 @@ from app.pdf import (
     PDFTimeoutError,
     extract_pdf,
     extract_pdf_text,
+    render_pdf_first_page,
 )
 
 CHUNK_SIZE = 64 * 1024
@@ -479,6 +480,41 @@ def create_app() -> FastAPI:
         response_type = "text/csv; charset=utf-8" if media_type == "text/csv" else media_type
         return Response(content=content, media_type=response_type,
                         headers={"Content-Disposition": f'attachment; filename="{safe_name}"'})
+
+    @api.get(
+        "/bank-statements/{statement_id}/source-preview",
+        tags=["reconciliation"],
+        summary="Render a safe first-page PNG preview of a retained bank statement PDF",
+    )
+    async def preview_bank_statement_source(
+        statement_id: UUID,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> Response:
+        _, media_type, content = await run_in_threadpool(
+            statement_source, ReceiptStore(settings.database_path), str(statement_id),
+        )
+        if media_type != "application/pdf" and not content.startswith(b"%PDF-"):
+            raise HTTPException(status_code=404, detail="Statement preview is available for PDF sources only")
+        try:
+            preview = await run_in_threadpool(
+                render_pdf_first_page,
+                content,
+                max_pages=settings.statement_pdf_max_pages,
+                max_render_pixels=settings.statement_pdf_max_render_pixels,
+                timeout_seconds=settings.statement_pdf_timeout_seconds,
+            )
+        except PDFTimeoutError as exc:
+            raise HTTPException(status_code=504, detail="Statement preview timed out") from exc
+        except PDFError as exc:
+            raise HTTPException(status_code=422, detail="Statement preview could not be rendered") from exc
+        return Response(
+            content=preview,
+            media_type="image/png",
+            headers={
+                "Content-Disposition": f'inline; filename="{statement_id}-preview.png"',
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+            },
+        )
 
     @api.get("/reconciliation", tags=["reconciliation"],
              summary="Compare accepted receipts with imported bank debits")
