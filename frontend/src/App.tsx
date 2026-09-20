@@ -389,7 +389,19 @@ function Workspace({
             </Suspense>
           ) : view === "dashboard" ? (
             <Suspense fallback={<p role="status">Loading dashboard…</p>}>
-              <Dashboard token={token} navigate={navigate} />
+              <Dashboard
+                token={token}
+                navigate={navigate}
+                showAcceptedReceipts={() => {
+                  const accepted = {
+                    ...emptyFilters,
+                    state: ["AUTO_FILED", "APPROVED"],
+                  };
+                  setFilterDraft(accepted);
+                  setFilters(accepted);
+                  navigate("history");
+                }}
+              />
             </Suspense>
           ) : view === "monthly" ? (
             <Suspense fallback={<p role="status">Loading monthly close…</p>}>
