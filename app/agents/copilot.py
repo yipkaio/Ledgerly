@@ -187,6 +187,61 @@ def minimal_reconciliation_context(result: dict[str, Any]) -> dict[str, Any]:
     return sanitized
 
 
+def deterministic_copilot_answer(
+    question: str,
+    reconciliation: dict[str, Any],
+) -> CopilotAnswer | None:
+    """Answer exact reconciliation lookups without spending tokens or risking invalid JSON."""
+
+    lowered = " ".join(question.casefold().split())
+    asks_for_missing_receipts = (
+        ("bank" in lowered or "debit" in lowered)
+        and "missing" in lowered
+        and ("receipt" in lowered or "evidence" in lowered)
+    )
+    if not asks_for_missing_receipts:
+        return None
+
+    rows = [
+        row
+        for row in reconciliation.get("transactions") or []
+        if row.get("status") == "MISSING_RECEIPT"
+    ]
+    currency = str(reconciliation.get("currency") or "")
+    month = str(reconciliation.get("month") or "the selected month")
+    if not rows:
+        return CopilotAnswer(
+            answer=f"No bank debits are currently marked as missing receipt evidence for {month}.",
+            evidence=[],
+            limitations=[],
+        )
+
+    evidence = []
+    for row in rows[:8]:
+        amount = int(row.get("amount_cents") or 0) / 100
+        description = str(row.get("description") or "Bank debit")[:70]
+        posted_date = str(row.get("posted_date") or "date unavailable")
+        transaction_id = str(row.get("transaction_id") or "ID unavailable")
+        evidence.append(
+            f"{posted_date} · {description} · {currency} {amount:,.2f} · {transaction_id}"
+        )
+
+    limitations = []
+    if len(rows) > len(evidence):
+        limitations.append(
+            f"Showing the first {len(evidence)} of {len(rows)} missing-receipt debits; "
+            "the transaction table contains the complete list."
+        )
+    return CopilotAnswer(
+        answer=(
+            f"{len(rows)} bank debit{' is' if len(rows) == 1 else 's are'} marked as "
+            f"missing receipt evidence for {month}."
+        ),
+        evidence=evidence,
+        limitations=limitations,
+    )
+
+
 def deterministic_reconciliation_fallback(
     reconciliation: dict[str, Any],
 ) -> ReconciliationExplanation:
