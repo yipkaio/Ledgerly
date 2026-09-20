@@ -31,7 +31,8 @@ def test_dashboard_uses_human_final_values_and_excludes_rejections(monkeypatch, 
     assert result['counts']['APPROVED'] == 1
     assert result['currencies'] == [{'currency': 'SGD', 'total_cents': 3390, 'receipt_count': 1,
                                     'categories': [{'category': 'Repairs and Maintenance', 'total_cents': 3390}],
-                                    'months': [{'month': '2026-09', 'total_cents': 3390}]}]
+                                    'months': [{'month': '2026-09', 'total_cents': 3390,
+                                                'receipt_count': 1}]}]
     client, original, body, _ = setup_review(monkeypatch, tmp_path)
     rejection = {k: v for k, v in body.items() if k not in ('category', 'corrected_data')}
     rejection['decision'] = 'REJECTED'
