@@ -37,9 +37,17 @@ New authenticated, on-demand endpoints are available under `/ai`:
 
 Advisory calls use task-specific Pydantic schemas, bounded/minimised inputs,
 prompt-injection instructions, safe failures, 15-minute in-process caching and
-audit metadata with a prompt version and SHA-256 input fingerprint. See
-[AI agent architecture](docs/ai-agents.md) for endpoint examples, authority
-boundaries, privacy controls and the human workflow.
+audit metadata with a prompt version and SHA-256 input fingerprint. Finance
+Copilot answers are deliberately concise: direct answers come first, exception
+lists are bounded, and advisory generation is limited to 500 output tokens.
+
+Questions outside receipt, bank-transaction, reconciliation and monthly-close
+context are refused before any model call. Requests for secrets, hidden prompts
+or system instructions are also refused. If the model returns malformed output
+for an exception explanation or close brief, the API returns a clearly labelled
+deterministic fallback based only on recorded reconciliation totals and statuses;
+it does not invent an AI interpretation. See [AI agent architecture](docs/ai-agents.md)
+for endpoint examples, authority boundaries, privacy controls and the human workflow.
 
 ## Docker backend
 
