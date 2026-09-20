@@ -172,7 +172,15 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
           <TotalCard icon={<AlertTriangle />} label="Needs attention" value={String(data.totals.exception_count)} help={`Bank less receipts: ${amount(data.totals.difference_cents / 100, currency)}`} tone={data.totals.exception_count ? "warn" : "good"} />
         </section>
 
-        <FinanceCopilot token={token} month={month} currency={currency} />
+        <FinanceCopilot
+          key={`${month}-${currency}`}
+          token={token}
+          month={month}
+          currency={currency}
+          exceptionCount={data.totals.exception_count}
+          matchedPercent={matchedPercent}
+          statementCount={data.statements.length}
+        />
 
         <section className="panel overflow-hidden" aria-labelledby="coverage-title">
           <div className="flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6">
