@@ -8,6 +8,7 @@ from app.agents.compliance import assess_receipt_controls
 from app.agents.copilot import (
     CopilotScopeError,
     FinanceCopilotAgent,
+    deterministic_copilot_answer,
     deterministic_reconciliation_fallback,
 )
 from app.agents.gateway import StructuredGatewayClient
@@ -211,3 +212,46 @@ def test_deterministic_fallback_is_concise_and_evidence_based() -> None:
     assert len(result.exceptions) == 2
     assert result.exceptions[0].evidence_ids == ["tx-1"]
     assert "deterministic reconciliation results only" in result.limitations[0]
+
+
+
+def test_missing_receipt_question_uses_direct_reconciliation_data() -> None:
+    result = deterministic_copilot_answer(
+        "Which bank debits are missing receipt evidence?",
+        {
+            "month": "2026-09",
+            "currency": "SGD",
+            "transactions": [
+                {
+                    "transaction_id": "tx-1",
+                    "posted_date": "2026-09-03",
+                    "description": "Example supplier",
+                    "amount_cents": 12540,
+                    "status": "MISSING_RECEIPT",
+                },
+                {
+                    "transaction_id": "tx-2",
+                    "posted_date": "2026-09-04",
+                    "description": "Matched supplier",
+                    "amount_cents": 5000,
+                    "status": "MATCHED",
+                },
+            ],
+        },
+    )
+
+    assert result is not None
+    assert result.answer == (
+        "1 bank debit is marked as missing receipt evidence for 2026-09."
+    )
+    assert result.evidence == [
+        "2026-09-03 · Example supplier · SGD 125.40 · tx-1"
+    ]
+    assert result.limitations == []
+
+
+def test_unrecognized_question_still_uses_copilot_model_path() -> None:
+    assert deterministic_copilot_answer(
+        "Which expense categories need attention?",
+        {"transactions": []},
+    ) is None
