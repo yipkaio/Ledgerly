@@ -56,7 +56,7 @@ def test_history_filters_use_latest_effective_values(monkeypatch, tmp_path):
     ).status_code == 422
 
 
-def test_selected_export_has_three_safe_effective_sheets(monkeypatch, tmp_path):
+def test_selected_export_has_polished_safe_effective_sheets(monkeypatch, tmp_path):
     client, _, extractor, _ = configured_client(monkeypatch, tmp_path)
 
     async def formula_data(text):
@@ -92,6 +92,7 @@ def test_selected_export_has_three_safe_effective_sheets(monkeypatch, tmp_path):
     assert response.headers["cache-control"] == "no-store"
 
     with ZipFile(BytesIO(response.content)) as archive:
+        names = archive.namelist()
         workbook = archive.read("xl/workbook.xml").decode()
         strings = archive.read("xl/sharedStrings.xml").decode()
         worksheets = "".join(
@@ -99,7 +100,9 @@ def test_selected_export_has_three_safe_effective_sheets(monkeypatch, tmp_path):
             for name in archive.namelist()
             if name.startswith("xl/worksheets/sheet")
         )
-    assert all(name in workbook for name in ("Receipts", "Line items", "Review audit"))
+    assert all(name in workbook for name in ("Overview", "Receipts", "Line items", "Review audit"))
+    assert all(value in strings for value in ("Totals by currency", "Workflow status", "Spend by category and currency"))
+    assert any(name.startswith("xl/tables/table") for name in names)
     assert "HYPERLINK" in strings and "cmd|' /C calc'!A0" in strings
     assert "Receipt Discount" in strings
     assert "<f>" not in worksheets

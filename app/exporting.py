@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+from datetime import datetime, timezone
 from io import BytesIO
 import json
 from typing import Annotated
@@ -125,31 +127,168 @@ def _records(db, ids: list[str]) -> list[dict]:
     return records
 
 
-def _write_table(workbook, name: str, headers: list[str], rows: list[list[object]]) -> None:
+def _formats(workbook) -> dict:
+    return {
+        "title": workbook.add_format({"bold": True, "font_size": 16, "font_color": "#17324D"}),
+        "subtitle": workbook.add_format({"font_size": 9, "font_color": "#64748B", "italic": True}),
+        "section": workbook.add_format({"bold": True, "font_color": "#17324D", "bottom": 2, "bottom_color": "#B8CBD8"}),
+        "label": workbook.add_format({"bold": True, "font_color": "#526577", "font_size": 9}),
+        "kpi": workbook.add_format({"bold": True, "font_size": 14, "font_color": "#17324D", "bg_color": "#EDF5F7", "border": 1, "border_color": "#D5E3E8"}),
+        "money": workbook.add_format({"num_format": "#,##0.00;[Red](#,##0.00);-"}),
+        "count": workbook.add_format({"num_format": "#,##0"}),
+        "total_label": workbook.add_format({"bold": True, "top": 1, "top_color": "#94A3B8"}),
+        "total_money": workbook.add_format({"bold": True, "top": 1, "top_color": "#94A3B8", "num_format": "#,##0.00;[Red](#,##0.00);-"}),
+        "warning": workbook.add_format({"bg_color": "#FFF4E5", "font_color": "#9A3412"}),
+        "issue": workbook.add_format({"bg_color": "#FDECEC", "font_color": "#9F1239"}),
+        "good": workbook.add_format({"bg_color": "#ECFDF3", "font_color": "#166534"}),
+    }
+
+
+def _write_table_sheet(
+    workbook,
+    formats: dict,
+    name: str,
+    title: str,
+    subtitle: str,
+    headers: list[str],
+    rows: list[list[object]],
+    *,
+    status_column: str | None = None,
+    total_column: str | None = None,
+) -> None:
     sheet = workbook.add_worksheet(name)
-    header = workbook.add_format(
-        {"bold": True, "bg_color": "#E8EEF8", "font_color": "#172033", "border": 1}
-    )
-    money = workbook.add_format({"num_format": "0.00"})
-    sheet.freeze_panes(1, 0)
-    sheet.autofilter(0, 0, max(1, len(rows)), len(headers) - 1)
-    for column, value in enumerate(headers):
-        sheet.write(0, column, value, header)
+    sheet.hide_gridlines(2)
+    sheet.set_landscape()
+    sheet.fit_to_pages(1, 0)
+    sheet.set_margins(0.35, 0.35, 0.5, 0.5)
+    sheet.set_tab_color("#2A6F75" if name == "Receipts" else "#7BA7AE")
+    sheet.write(1, 0, title, formats["title"])
+    sheet.write(2, 0, subtitle, formats["subtitle"])
+    table_row = 4
+    last_column = len(headers) - 1
     widths = [len(value) for value in headers]
     money_columns = {
-        index
-        for index, value in enumerate(headers)
+        index for index, value in enumerate(headers)
         if any(word in value for word in ("Amount", "Subtotal", "Discount", "Tax", "Rounding", "Price", "Total"))
     }
-    for row_index, row in enumerate(rows, start=1):
+    if rows:
+        sheet.add_table(
+            table_row,
+            0,
+            table_row + len(rows),
+            last_column,
+            {
+                "name": "Ledgerly" + "".join(character for character in name.title() if character.isalnum()),
+                "style": "Table Style Medium 2",
+                "columns": [{"header": value} for value in headers],
+                "data": rows,
+            },
+        )
+    else:
+        empty_header = workbook.add_format({"bold": True, "bg_color": "#245C65", "font_color": "#FFFFFF", "border": 0})
+        sheet.write_row(table_row, 0, headers, empty_header)
+        sheet.autofilter(table_row, 0, table_row, last_column)
+        sheet.write(table_row + 1, 0, "No records matched this export.", formats["subtitle"])
+    for row in rows:
         for column, value in enumerate(row):
-            if value is None:
-                continue
-            cell_format = money if column in money_columns and isinstance(value, (int, float)) else None
-            sheet.write(row_index, column, value, cell_format)
-            widths[column] = min(60, max(widths[column], len(str(value))))
+            if value is not None:
+                widths[column] = min(60, max(widths[column], len(str(value))))
     for column, width in enumerate(widths):
-        sheet.set_column(column, column, max(10, min(60, width + 2)))
+        cell_format = formats["money"] if column in money_columns else None
+        sheet.set_column(column, column, max(11, min(45, width + 2)), cell_format)
+    sheet.freeze_panes(table_row + 1, 0)
+    sheet.repeat_rows(table_row)
+    sheet.set_row(table_row, 24)
+    if rows and status_column in headers:
+        column = headers.index(status_column)
+        start, end = table_row + 1, table_row + len(rows)
+        letter = xlsxwriter.utility.xl_col_to_name(column)
+        for value in ("APPROVED", "AUTO_FILED", "PAID", "MATCHED", "AMENDED"):
+            sheet.conditional_format(start, column, end, column, {
+                "type": "text", "criteria": "containing", "value": value, "format": formats["good"],
+            })
+        for value in ("REJECTED", "FAILED", "MISSING", "DUPLICATE", "PAYMENT_ISSUE", "NO_BANK_MATCH"):
+            sheet.conditional_format(start, column, end, column, {
+                "type": "text", "criteria": "containing", "value": value, "format": formats["issue"],
+            })
+    if rows and total_column in headers:
+        column = headers.index(total_column)
+        total_row = table_row + len(rows) + 2
+        sheet.write(total_row, max(0, column - 1), "Total", formats["total_label"])
+        total = sum(float(row[column] or 0) for row in rows)
+        sheet.write_number(total_row, column, total, formats["total_money"])
+
+
+def _write_receipt_overview(workbook, formats: dict, records: list[dict],
+                            line_count: int, audit_count: int) -> None:
+    sheet = workbook.add_worksheet("Overview")
+    sheet.hide_gridlines(2)
+    sheet.set_landscape()
+    sheet.fit_to_pages(1, 1)
+    sheet.set_margins(0.35, 0.35, 0.5, 0.5)
+    sheet.set_tab_color("#17324D")
+    sheet.set_column("A:A", 28)
+    sheet.set_column("B:B", 30)
+    sheet.set_column("C:F", 18)
+    sheet.write("A2", "Receipt history", formats["title"])
+    sheet.write("A3", f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}. Totals remain separate by currency.", formats["subtitle"])
+    kpis = [("Receipts", len(records)), ("Line items", line_count), ("Review events", audit_count),
+            ("Currencies", len({(record["data"] or {}).get("currency") for record in records if (record["data"] or {}).get("currency")}))]
+    for index, (label, value) in enumerate(kpis):
+        column = index + 1
+        sheet.write(5, column, label, formats["label"])
+        sheet.write_number(6, column, value, formats["kpi"])
+
+    currency_totals: dict[str, dict[str, float]] = defaultdict(lambda: {"count": 0, "subtotal": 0, "discount": 0, "tax": 0, "total": 0})
+    status_counts: dict[str, int] = defaultdict(int)
+    category_totals: dict[tuple[str, str], float] = defaultdict(float)
+    for record in records:
+        data = record["data"] or {}
+        currency = data.get("currency") or "Unknown"
+        bucket = currency_totals[currency]
+        bucket["count"] += 1
+        for key in ("subtotal", "discount_amount", "tax_amount", "total_amount"):
+            if data.get(key) is not None:
+                bucket[{"discount_amount": "discount", "tax_amount": "tax", "total_amount": "total"}.get(key, key)] += float(data[key])
+        status_counts[record["state"]] += 1
+        category_totals[(currency, record["category"] or "Uncategorized")] += float(data.get("total_amount") or 0)
+
+    row = 9
+    sheet.write(row, 0, "Totals by currency", formats["section"])
+    headers = ["Currency", "Receipts", "Subtotal", "Discounts", "Tax", "Total spend"]
+    rows = [[currency, values["count"], values["subtotal"], values["discount"], values["tax"], values["total"]]
+            for currency, values in sorted(currency_totals.items())]
+    if rows:
+        sheet.add_table(row + 1, 0, row + 1 + len(rows), 5, {
+            "name": "ReceiptCurrencyTotals", "style": "Table Style Medium 2",
+            "columns": [{"header": value} for value in headers], "data": rows,
+        })
+        sheet.set_column("C:F", 16, formats["money"])
+    else:
+        sheet.write_row(row + 1, 0, headers)
+        sheet.write(row + 2, 0, "No records matched this export.", formats["subtitle"])
+
+    row += max(5, len(rows) + 4)
+    sheet.write(row, 0, "Workflow status", formats["section"])
+    status_rows = [[name, count] for name, count in sorted(status_counts.items())]
+    if status_rows:
+        sheet.add_table(row + 1, 0, row + 1 + len(status_rows), 1, {
+            "name": "ReceiptStatusTotals", "style": "Table Style Medium 4",
+            "columns": [{"header": "Status"}, {"header": "Receipts"}], "data": status_rows,
+        })
+
+    row += max(7, len(status_rows) + 4)
+    sheet.write(row, 0, "Spend by category and currency", formats["section"])
+    category_rows = [[currency, category, total] for (currency, category), total in
+                     sorted(category_totals.items(), key=lambda item: (item[0][0], -item[1], item[0][1]))]
+    if category_rows:
+        sheet.add_table(row + 1, 0, row + 1 + len(category_rows), 2, {
+            "name": "ReceiptCategoryTotals", "style": "Table Style Medium 2",
+            "columns": [{"header": "Currency"}, {"header": "Category"}, {"header": "Total spend"}],
+            "data": category_rows,
+        })
+        sheet.set_column("C:C", 16, formats["money"])
+    sheet.freeze_panes(9, 0)
 
 
 def build_export(store, request: ExportRequest) -> tuple[bytes, int]:
@@ -232,27 +371,40 @@ def build_export(store, request: ExportRequest) -> tuple[bytes, int]:
         {"in_memory": True, "strings_to_formulas": False, "strings_to_urls": False},
     )
     workbook.set_properties({"title": "Receipt history export", "author": "Ledgerly"})
-    _write_table(
+    formats = _formats(workbook)
+    _write_receipt_overview(workbook, formats, records, len(line_rows), len(audit_rows))
+    _write_table_sheet(
         workbook,
+        formats,
         "Receipts",
+        "Receipt details",
+        "Latest effective values for active receipts. Monetary totals are summarized by currency on Overview.",
         ["Receipt ID", "Vendor", "Receipt Number", "Receipt Date", "Currency", "Subtotal",
          "Receipt Discount", "Tax Amount", "Rounding", "Total Amount", "Business Purpose", "Category", "Status",
          "Uploaded At", "Latest Reviewer"],
         receipt_rows,
+        status_column="Status",
     )
-    _write_table(
+    _write_table_sheet(
         workbook,
+        formats,
         "Line items",
+        "Receipt line items",
+        "Item-level values tied to the receipt identifiers in the Receipts sheet.",
         ["Receipt ID", "Line", "Description", "Quantity", "Unit Price", "Discount Percent",
          "Discount Amount", "Line Total"],
         line_rows,
     )
-    _write_table(
+    _write_table_sheet(
         workbook,
+        formats,
         "Review audit",
+        "Review and amendment history",
+        "Human decisions and corrections retained for audit review.",
         ["Receipt ID", "Event", "Version", "Decision", "Category", "Reviewer", "Timestamp",
          "Reason", "Validation Issues", "Override Reason"],
         audit_rows,
+        status_column="Decision",
     )
     workbook.close()
     return output.getvalue(), len(records)

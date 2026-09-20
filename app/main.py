@@ -678,7 +678,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
         "/receipts/export",
         tags=["receipts"],
         summary="Export selected or filtered receipt history to Excel",
-        description="Authenticated, read-only export using the latest effective receipt values and one SQLite snapshot. Supply 1-500 receipt_ids for selected rows, or omit receipt_ids and supply filters to export up to 1000 matching rows. The workbook contains Receipts, Line items and Review audit sheets. It never runs OCR or the LLM.",
+        description="Authenticated, read-only export using the latest effective receipt values and one SQLite snapshot. Supply 1-500 receipt_ids for selected rows, or omit receipt_ids and supply filters to export up to 1000 matching rows. The workbook contains Overview, Receipts, Line items and Review audit sheets. It never runs OCR or the LLM.",
         responses={200: {"content": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}}},
                    422: {"description": "Invalid selection, missing selected record, or filtered result too large."}},
     )

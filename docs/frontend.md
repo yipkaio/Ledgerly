@@ -146,6 +146,15 @@ parsing stays inside Ledgerly. The separately labelled AI fallback is opt-in
 because statement text can contain company and counterparty information and the
 gateway call may consume credits. A detected balance mismatch blocks import.
 
+After import, choose **View source** to keep the retained PDF or CSV in a
+read-only side panel while reviewing all normalized debits. CSV content is
+displayed as plain text, never interpreted as HTML. Matched and unmatched
+accepted receipts are listed in the same monthly workspace and can be opened in
+Ledgerly to inspect their retained evidence, effective values, and audit history.
+Downloaded receipt-history and monthly-close workbooks start with a summary,
+keep currencies separate, include static totals and status breakdowns, and use
+formatted, filterable detail tables with one-page-wide print settings.
+
 ## Access the AWS container privately
 
 After you have reviewed this commit locally, pull and rebuild on Lightsail using

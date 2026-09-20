@@ -53,14 +53,16 @@ The private `.xlsx` is generated from one SQLite read snapshot:
 
 | Sheet | Contents |
 | --- | --- |
+| Overview | Receipt, line-item and audit counts; totals by currency; workflow status counts; category spend by currency |
 | Receipts | Effective vendor, receipt/date, currency, subtotal, receipt discount, tax, totals, purpose, category, status, upload time, latest reviewer |
 | Line items | Receipt ID, order, description, quantity, unit price, nullable discounts, line total |
 | Review audit | Approval/rejection/amendment type, version, category, reviewer, timestamp, reason, validation and override |
 
 Unknown values remain blank and currencies are never combined. Text beginning with
-spreadsheet formula characters remains plain text. The response uses `no-store`;
-the downloaded file itself is sensitive and belongs only in approved storage.
+spreadsheet formula characters remains plain text. Summary and detail sheets use
+filterable tables, frozen headers, status highlighting and one-page-wide print
+settings. The response uses `no-store`; the downloaded file itself is sensitive
+and belongs only in approved storage.
 # Lifecycle exclusions
 
 Deleted and voided receipts are excluded from filtered exports. Explicit selections containing either are rejected with a clear error instead of silently exporting an incomplete selection. Existing downloaded workbooks are not modified. Voided evidence remains accessible in receipt history; deleted evidence remains accessible until its retention deadline and cleanup.
-

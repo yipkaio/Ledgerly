@@ -266,6 +266,18 @@ def test_statement_upload_reconciliation_payment_audit_and_export(monkeypatch, t
 
     workbook = build_monthly_export(store, "2026-09", "SGD")
     assert workbook.startswith(b"PK")
+    with ZipFile(BytesIO(workbook)) as archive:
+        names = archive.namelist()
+        workbook_xml = archive.read("xl/workbook.xml").decode()
+        strings = archive.read("xl/sharedStrings.xml").decode()
+    assert all(name in workbook_xml for name in (
+        "Summary", "Bank transactions", "Receipts", "Statement sources"
+    ))
+    assert all(value in strings for value in (
+        "Bank less accepted receipts", "Spend by category", "Total bank debits",
+        "Total accepted receipts", "Retained statement sources",
+    ))
+    assert any(name.startswith("xl/tables/table") for name in names)
     exported = client.post("/reconciliation/export", headers=HEADERS,
                            json={"month": "2026-09", "currency": "SGD"})
     assert exported.status_code == 200

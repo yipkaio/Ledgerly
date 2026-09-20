@@ -44,7 +44,13 @@ Matching is deterministic and read-only. It uses exact currency and cents, a rec
 
 These exceptions are review signals, not proof of fraud. A person must inspect the source receipt, statement, and business context before escalating suspected fraud.
 
-The monthly Excel workbook includes Summary, Bank transactions, and Receipts sheets. Exception rows are highlighted and currencies are kept separate.
+The monthly workspace lists every imported debit and every accepted receipt, not
+only exceptions. A retained PDF or CSV can be opened in a read-only side panel
+for cross-reference; receipts open in Ledgerly's existing evidence view. The
+monthly Excel workbook includes Summary, Bank transactions, Receipts, and
+Statement sources sheets. It shows reconciliation totals, matched coverage,
+category and company shares, static detail totals, source provenance and
+highlighted exceptions. Each export remains in the selected original currency.
 
 ## Cost prompts
 

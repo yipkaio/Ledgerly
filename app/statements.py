@@ -591,41 +591,148 @@ def build_monthly_export(store, month: str, currency: str) -> bytes:
         output,
         {"in_memory": True, "strings_to_formulas": False, "strings_to_urls": False},
     )
-    header = workbook.add_format({"bold": True, "bg_color": "#245C46", "font_color": "white", "border": 1})
-    money = workbook.add_format({"num_format": f'"{currency}" #,##0.00', "border": 1})
-    cell = workbook.add_format({"border": 1})
-    issue = workbook.add_format({"border": 1, "bg_color": "#FDECEC", "font_color": "#9F1239"})
-    ok = workbook.add_format({"border": 1, "bg_color": "#ECFDF3", "font_color": "#166534"})
+    title = workbook.add_format({"bold": True, "font_size": 16, "font_color": "#17324D"})
+    subtitle = workbook.add_format({"font_size": 9, "font_color": "#64748B", "italic": True})
+    section = workbook.add_format({"bold": True, "font_color": "#17324D", "bottom": 2, "bottom_color": "#B8CBD8"})
+    label = workbook.add_format({"bold": True, "font_color": "#526577", "font_size": 9})
+    money = workbook.add_format({"num_format": f'"{currency}" #,##0.00;[Red]("{currency}" #,##0.00);-'})
+    percent = workbook.add_format({"num_format": "0.0%"})
+    kpi = workbook.add_format({"bold": True, "font_size": 14, "font_color": "#17324D", "bg_color": "#EDF5F7", "border": 1, "border_color": "#D5E3E8", "num_format": f'"{currency}" #,##0.00;[Red]("{currency}" #,##0.00);-'})
+    kpi_count = workbook.add_format({"bold": True, "font_size": 14, "font_color": "#9A3412", "bg_color": "#FFF4E5", "border": 1, "border_color": "#FED7AA", "num_format": "#,##0"})
+    total_label = workbook.add_format({"bold": True, "top": 1, "top_color": "#94A3B8"})
+    total_money = workbook.add_format({"bold": True, "top": 1, "top_color": "#94A3B8", "num_format": f'"{currency}" #,##0.00;[Red]("{currency}" #,##0.00);-'})
+    issue = workbook.add_format({"bg_color": "#FDECEC", "font_color": "#9F1239"})
+    ok = workbook.add_format({"bg_color": "#ECFDF3", "font_color": "#166534"})
+
+    def add_table(sheet, name: str, start_row: int, headers: list[str], rows: list[list[object]],
+                  style: str = "Table Style Medium 2") -> None:
+        if rows:
+            sheet.add_table(start_row, 0, start_row + len(rows), len(headers) - 1, {
+                "name": name, "style": style,
+                "columns": [{"header": value} for value in headers], "data": rows,
+            })
+        else:
+            empty_header = workbook.add_format({"bold": True, "bg_color": "#245C65", "font_color": "#FFFFFF"})
+            sheet.write_row(start_row, 0, headers, empty_header)
+            sheet.autofilter(start_row, 0, start_row, len(headers) - 1)
+            sheet.write(start_row + 1, 0, "No records for this period.", subtitle)
+
     summary = workbook.add_worksheet("Summary")
-    summary.write_row(0, 0, ["Monthly reconciliation", f"{month} · {currency}"], header)
-    labels = [("Bank debits", "bank_debits_cents"), ("Accepted receipt spend", "receipt_spend_cents"),
-              ("Matched", "matched_cents"), ("Difference", "difference_cents")]
-    for index, (label, key) in enumerate(labels, start=2):
-        summary.write(index, 0, label, cell)
-        summary.write_number(index, 1, data["totals"][key] / 100, money)
-    summary.write(7, 0, "Exceptions", cell)
-    summary.write_number(7, 1, data["totals"]["exception_count"], issue if data["totals"]["exception_count"] else ok)
-    summary.set_column("A:A", 30); summary.set_column("B:B", 22)
+    summary.hide_gridlines(2)
+    summary.set_landscape(); summary.fit_to_pages(1, 1); summary.set_margins(0.35, 0.35, 0.5, 0.5)
+    summary.set_tab_color("#17324D")
+    summary.set_column("A:A", 27); summary.set_column("B:E", 18); summary.set_column("F:F", 3); summary.set_column("G:L", 17)
+    summary.write("A2", "Monthly close", title)
+    summary.write("A3", f"{month} · {currency} · generated {data['generated_at'][:16].replace('T', ' ')} UTC", subtitle)
+    kpis = [
+        ("Bank debits", data["totals"]["bank_debits_cents"] / 100, kpi),
+        ("Accepted receipts", data["totals"]["receipt_spend_cents"] / 100, kpi),
+        ("Matched paid", data["totals"]["matched_cents"] / 100, kpi),
+        ("Exceptions", data["totals"]["exception_count"], kpi_count),
+    ]
+    for index, (name, value, value_format) in enumerate(kpis):
+        column = index + 1
+        summary.write(5, column, name, label)
+        summary.write_number(6, column, value, value_format)
+
+    summary.write("A10", "Reconciliation", section)
+    matched_ratio = (data["totals"]["matched_cents"] / data["totals"]["receipt_spend_cents"]
+                     if data["totals"]["receipt_spend_cents"] else 0)
+    summary_rows = [
+        ["Bank debits", data["totals"]["bank_debits_cents"] / 100],
+        ["Accepted receipt spend", data["totals"]["receipt_spend_cents"] / 100],
+        ["Matched receipt spend", data["totals"]["matched_cents"] / 100],
+        ["Bank less accepted receipts", data["totals"]["difference_cents"] / 100],
+    ]
+    add_table(summary, "MonthlyReconciliationTotals", 10, ["Measure", "Amount"], summary_rows)
+    summary.set_column("B:B", 18, money)
+    summary.write(16, 0, "Matched coverage", label)
+    summary.write_number(16, 1, matched_ratio, percent)
+
+    category_start = 19
+    summary.write(category_start, 0, "Spend by category", section)
+    category_rows = [[item["category"], item["total_cents"] / 100,
+                      item["total_cents"] / max(1, data["totals"]["receipt_spend_cents"])]
+                     for item in data["categories"]]
+    if category_rows:
+        summary.add_table(category_start + 1, 0, category_start + 1 + len(category_rows), 2, {
+            "name": "MonthlyCategorySpend", "style": "Table Style Medium 2",
+            "columns": [{"header": "Category"}, {"header": "Amount"}, {"header": "Share"}],
+            "data": category_rows,
+        })
+        summary.set_column("B:B", 18, money); summary.set_column("C:C", 12, percent)
+
+    vendor_start = category_start + max(6, len(category_rows) + 4)
+    summary.write(vendor_start, 0, "Spend by company", section)
+    vendor_rows = [[item["vendor"], item["total_cents"] / 100,
+                    item["total_cents"] / max(1, data["totals"]["receipt_spend_cents"])]
+                   for item in data["vendors"]]
+    if vendor_rows:
+        summary.add_table(vendor_start + 1, 0, vendor_start + 1 + len(vendor_rows), 2, {
+            "name": "MonthlyVendorSpend", "style": "Table Style Medium 4",
+            "columns": [{"header": "Company"}, {"header": "Amount"}, {"header": "Share"}],
+            "data": vendor_rows,
+        })
+        summary.set_column("B:B", 18, money); summary.set_column("C:C", 12, percent)
+    summary.freeze_panes(9, 0)
+
     tx_sheet = workbook.add_worksheet("Bank transactions")
+    tx_sheet.hide_gridlines(2); tx_sheet.set_tab_color("#2A6F75")
+    tx_sheet.set_landscape(); tx_sheet.fit_to_pages(1, 0); tx_sheet.set_margins(0.35, 0.35, 0.5, 0.5)
+    tx_sheet.write("A2", "Imported bank debits", title)
+    tx_sheet.write("A3", f"{month} · {currency}. Review every exception against the retained source statement.", subtitle)
     tx_headers = ["Date", "Description", "Amount", "Reference", "Status", "Matched receipt"]
-    tx_sheet.write_row(0, 0, tx_headers, header)
-    for row_index, item in enumerate(data["transactions"], start=1):
-        row_format = ok if item["status"] == "MATCHED" else issue
-        values = [item["posted_date"], item["description"], item["amount_cents"] / 100,
-                  item["reference"], item["status"], item["receipt_id"]]
-        for col, value in enumerate(values):
-            tx_sheet.write(row_index, col, value, money if col == 2 else row_format)
-    tx_sheet.set_column("A:A", 13); tx_sheet.set_column("B:B", 38); tx_sheet.set_column("C:F", 20)
+    tx_rows = [[item["posted_date"], item["description"], item["amount_cents"] / 100,
+                item["reference"], item["status"], item["receipt_id"]]
+               for item in data["transactions"]]
+    add_table(tx_sheet, "MonthlyBankTransactions", 4, tx_headers, tx_rows)
+    tx_sheet.set_column("A:A", 13); tx_sheet.set_column("B:B", 42); tx_sheet.set_column("C:C", 18, money); tx_sheet.set_column("D:F", 22)
+    tx_sheet.freeze_panes(5, 0)
+    tx_sheet.repeat_rows(4)
+    if tx_rows:
+        tx_sheet.conditional_format(5, 4, 4 + len(tx_rows), 4, {"type": "text", "criteria": "containing", "value": "MATCHED", "format": ok})
+        for value in ("MISSING", "DUPLICATE"):
+            tx_sheet.conditional_format(5, 4, 4 + len(tx_rows), 4, {"type": "text", "criteria": "containing", "value": value, "format": issue})
+        total_row = 6 + len(tx_rows)
+        tx_sheet.write(total_row, 1, "Total bank debits", total_label)
+        tx_sheet.write_number(total_row, 2, data["totals"]["bank_debits_cents"] / 100, total_money)
+
     receipt_sheet = workbook.add_worksheet("Receipts")
+    receipt_sheet.hide_gridlines(2); receipt_sheet.set_tab_color("#2A6F75")
+    receipt_sheet.set_landscape(); receipt_sheet.fit_to_pages(1, 0); receipt_sheet.set_margins(0.35, 0.35, 0.5, 0.5)
+    receipt_sheet.write("A2", "Accepted receipts", title)
+    receipt_sheet.write("A3", f"Receipts dated in {month}; payment states reflect the latest reconciliation audit event.", subtitle)
     receipt_headers = ["Date", "Vendor", "Category", "Amount", "Payment state", "Duplicate flag", "Receipt ID"]
-    receipt_sheet.write_row(0, 0, receipt_headers, header)
-    for row_index, item in enumerate(data["receipts"], start=1):
-        row_format = ok if item["status"] == "PAID" and not item["duplicate_receipt"] else issue
-        values = [item["receipt_date"], item["vendor"], item["category"], item["amount_cents"] / 100,
-                  item["status"], "Yes" if item["duplicate_receipt"] else "No", item["receipt_id"]]
-        for col, value in enumerate(values):
-            receipt_sheet.write(row_index, col, value, money if col == 3 else row_format)
-    receipt_sheet.set_column("A:A", 13); receipt_sheet.set_column("B:C", 28); receipt_sheet.set_column("D:G", 20)
+    receipt_rows = [[item["receipt_date"], item["vendor"], item["category"], item["amount_cents"] / 100,
+                     item["status"], "Yes" if item["duplicate_receipt"] else "No", item["receipt_id"]]
+                    for item in data["receipts"]]
+    add_table(receipt_sheet, "MonthlyAcceptedReceipts", 4, receipt_headers, receipt_rows)
+    receipt_sheet.set_column("A:A", 13); receipt_sheet.set_column("B:C", 30); receipt_sheet.set_column("D:D", 18, money); receipt_sheet.set_column("E:G", 20)
+    receipt_sheet.freeze_panes(5, 0)
+    receipt_sheet.repeat_rows(4)
+    if receipt_rows:
+        receipt_sheet.conditional_format(5, 4, 4 + len(receipt_rows), 4, {"type": "text", "criteria": "containing", "value": "PAID", "format": ok})
+        for value in ("NO_BANK_MATCH", "PAYMENT_ISSUE", "TRADE_PAYABLE"):
+            receipt_sheet.conditional_format(5, 4, 4 + len(receipt_rows), 4, {"type": "text", "criteria": "containing", "value": value, "format": issue})
+        receipt_sheet.conditional_format(5, 5, 4 + len(receipt_rows), 5, {"type": "text", "criteria": "containing", "value": "Yes", "format": issue})
+        total_row = 6 + len(receipt_rows)
+        receipt_sheet.write(total_row, 2, "Total accepted receipts", total_label)
+        receipt_sheet.write_number(total_row, 3, data["totals"]["receipt_spend_cents"] / 100, total_money)
+
+    source_sheet = workbook.add_worksheet("Statement sources")
+    source_sheet.hide_gridlines(2); source_sheet.set_tab_color("#7BA7AE")
+    source_sheet.set_landscape(); source_sheet.fit_to_pages(1, 0); source_sheet.set_margins(0.35, 0.35, 0.5, 0.5)
+    source_sheet.write("A2", "Retained statement sources", title)
+    source_sheet.write("A3", "Original files remain available in Ledgerly for evidence review.", subtitle)
+    source_headers = ["Account", "Filename", "Imported by", "Uploaded at", "Debit rows", "Skipped rows", "Media type", "Extraction"]
+    source_rows = [[item["account_label"], item["original_filename"], item.get("imported_by"), item["uploaded_at"],
+                    item["row_count"], item["skipped_rows"], item.get("source_media_type"), item.get("extraction_method")]
+                   for item in data["statements"]]
+    add_table(source_sheet, "MonthlyStatementSources", 4, source_headers, source_rows, "Table Style Medium 4")
+    source_sheet.set_column("A:C", 25); source_sheet.set_column("D:D", 24); source_sheet.set_column("E:H", 16)
+    source_sheet.freeze_panes(5, 0)
+    source_sheet.repeat_rows(4)
+
     workbook.set_properties({"title": f"Ledgerly reconciliation {month}", "author": "Ledgerly"})
     workbook.close()
     return output.getvalue()
