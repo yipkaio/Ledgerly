@@ -208,8 +208,13 @@ function Workspace({
     const params = new URLSearchParams({ limit: "20", offset: String(offset) });
     if (view === "deleted") params.set("state", "DELETED");
     if (view === "history") {
-      for (const [key, value] of Object.entries(filterParams(filters)))
-        params.set(key, value);
+      for (const [key, value] of Object.entries(filterParams(filters))) {
+        if (Array.isArray(value)) {
+          for (const item of value) params.append(key, item);
+        } else {
+          params.set(key, value);
+        }
+      }
     }
     request<Page>(
       `${view === "reviews" ? "/reviews" : "/receipts"}?${params}`,
