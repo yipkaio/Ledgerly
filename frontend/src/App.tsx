@@ -62,24 +62,41 @@ const MonthlyClose = lazy(() =>
 
 type HistoryFilterValues = {
   query: string;
-  category: string;
-  currency: string;
-  state: string;
+  category: string[];
+  currency: string[];
+  state: string[];
   date_from: string;
   date_to: string;
 };
 const emptyFilters: HistoryFilterValues = {
   query: "",
-  category: "",
-  currency: "",
-  state: "",
+  category: [],
+  currency: [],
+  state: [],
   date_from: "",
   date_to: "",
 };
+const historyStatuses = [
+  "AUTO_FILED",
+  "APPROVED",
+  "AMENDED",
+  "VOIDED",
+  "REJECTED",
+  "REVIEW_QUEUE",
+  "PROCESSING",
+  "FAILED",
+];
+const historyCurrencies = ["SGD", "MYR", "USD", "EUR", "GBP", "AUD"];
+
 function filterParams(filters: HistoryFilterValues) {
-  return Object.fromEntries(
-    Object.entries(filters).filter(([, value]) => value.trim()),
-  );
+  return {
+    ...(filters.query.trim() ? { query: filters.query.trim() } : {}),
+    ...(filters.category.length ? { category: filters.category } : {}),
+    ...(filters.currency.length ? { currency: filters.currency } : {}),
+    ...(filters.state.length ? { state: filters.state } : {}),
+    ...(filters.date_from ? { date_from: filters.date_from } : {}),
+    ...(filters.date_to ? { date_to: filters.date_to } : {}),
+  };
 }
 
 export default function App() {
