@@ -6,6 +6,41 @@ Receipt details now support **Undo deletion**, audited **Reprocess receipt** ext
 
 Monthly close now accepts bank-issued **PDF statements** through a signed preview-and-confirm flow, including request-only passwords for encrypted PDFs, private deterministic parsing, explicit opt-in AI fallback, balance checks, and retained source provenance. Normalized CSV remains available as a fallback.
 
+## Three-agent AI architecture
+
+The working application now organises AI responsibilities into three bounded
+logical agents:
+
+1. **Document Intelligence** extracts structured receipt data and, only with
+   explicit consent, can fall back to AI for bank-statement layouts that the
+   private deterministic parser cannot read.
+2. **Classification and Compliance** performs expense categorisation, exact
+   vendor normalisation, deterministic evidence/control checks and optional
+   guidance for the human Review Queue.
+3. **Finance Copilot** explains deterministic reconciliation exceptions,
+   prepares monthly-close briefs and answers read-only questions scoped to one
+   month and currency.
+
+These are service boundaries, not autonomous accounting users. Arithmetic,
+duplicates, vendor lookup, confidence gating, reconciliation matching, payment
+state and approvals remain deterministic or human-controlled. The agents cannot
+approve/reject expenses, change payment status, post entries, initiate payments,
+override matches or declare fraud.
+
+New authenticated, on-demand endpoints are available under `/ai`:
+
+- `GET /ai/agents`
+- `POST /ai/receipts/{receipt_id}/review-assistance`
+- `POST /ai/reconciliation/explain`
+- `POST /ai/monthly-close/brief`
+- `POST /ai/copilot/ask`
+
+Advisory calls use task-specific Pydantic schemas, bounded/minimised inputs,
+prompt-injection instructions, safe failures, 15-minute in-process caching and
+audit metadata with a prompt version and SHA-256 input fingerprint. See
+[AI agent architecture](docs/ai-agents.md) for endpoint examples, authority
+boundaries, privacy controls and the human workflow.
+
 ## Docker backend
 
 Docker packaging is available for the existing backend, including both OCR
@@ -28,6 +63,7 @@ The application now provides a secure FastAPI receipt-processing pipeline:
 - Strict receipt and line-item schemas, optional explicit discounts, and deterministic amount reconciliation checks.
 - Exact vendor-to-category lookup before AI classification.
 - A fixed-category expense classifier for unmatched vendors, with optional business purpose and a configurable confidence gate.
+- Three bounded AI-agent service layers for document intelligence, classification/control review, and read-only finance assistance.
 - Automated tests that mock both OCR providers and both gateway agents, so tests do not download models, require OCR installation, make network calls, or consume API credits.
 
 SQLite persistence, authenticated receipt history, human approval/rejection, and append-only amendments are implemented. The React + TypeScript workspace supports uploads, paginated history, pending reviews, protected originals, verified corrections, confirmation dialogs, explicit amendment mode, structured receipt summaries, and field-level audit viewing. Follow the [frontend setup and review guide](docs/frontend.md). See [Human review API](docs/reviews.md) for manual payloads, validation, and migration precautions. Firebase Authentication and Telegram/OpenClaw integration remain TODOs.
