@@ -33,10 +33,21 @@ def dashboard_summary(store, fx_snapshot: dict | None = None) -> dict:
             currencies[row['currency']].update(total_cents=row['cents'], receipt_count=row['count'])
         for row in db.execute(EFFECTIVE + "SELECT currency, COALESCE(category, 'Uncategorized') AS category, " + cents + ' AS cents FROM effective' + accepted + ' GROUP BY currency, category ORDER BY currency, cents DESC, category'):
             currencies[row['currency']]['categories'].append({'category': row['category'], 'total_cents': row['cents']})
-        for row in db.execute(EFFECTIVE + 'SELECT currency, substr(date,1,7) AS month, ' + cents + ' AS cents FROM effective' + accepted + " AND date IS NOT NULL GROUP BY currency, month ORDER BY currency, month DESC"):
+        for row in db.execute(
+            EFFECTIVE
+            + 'SELECT currency, substr(date,1,7) AS month, count(*) AS count, '
+            + cents
+            + ' AS cents FROM effective'
+            + accepted
+            + " AND date IS NOT NULL GROUP BY currency, month ORDER BY currency, month DESC"
+        ):
             months = currencies[row['currency']]['months']
             if len(months) < 12:
-                months.append({'month': row['month'], 'total_cents': row['cents']})
+                months.append({
+                    'month': row['month'],
+                    'total_cents': row['cents'],
+                    'receipt_count': row['count'],
+                })
     for value in currencies.values():
         value['months'].reverse()
     default_currency = workspace_currency(store)
