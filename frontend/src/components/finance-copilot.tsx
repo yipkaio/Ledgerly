@@ -80,7 +80,7 @@ export function FinanceCopilot({
       });
       if (kind === "explain")
         setResult({
-          kind,
+          kind: "explanation",
           data: response.explanation as Explanation,
           audit: response.audit as Audit,
         });
@@ -92,7 +92,7 @@ export function FinanceCopilot({
         });
       else
         setResult({
-          kind,
+          kind: "answer",
           data: response.answer as Answer,
           audit: response.audit as Audit,
         });
