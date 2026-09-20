@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from app.images import receipt_image, receipt_preview
+from app.agents.router import build_agent_router
 from app.lifecycle import LifecycleRequest, apply_lifecycle, purge_expired
 from app.reprocessing import ReprocessRequest, reprocess
 from app.statements import (
@@ -264,6 +265,8 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
     )
+
+    api.include_router(build_agent_router(get_settings, require_api_key))
 
     @api.exception_handler(DatabaseError)
     async def database_error_handler(request, exc):
