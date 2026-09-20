@@ -79,10 +79,12 @@ SQLite persistence, authenticated receipt history, human approval/rejection, and
 ## SQLite persistence and receipt history
 
 The workspace starts with **Main dashboard**, followed by **Monthly close**, **Upload receipt**,
-**Pending reviews**, **Receipt history**, and **Deleted receipts**. The dashboard provides saved counts,
-accepted expense totals, an accessible monthly trend, category ranking, workflow
-distribution, and attention counts without combining currencies. History
-has animated, authenticated previews beside each receipt. See the
+**Pending reviews**, **Receipt history**, and **Deleted receipts**. The dashboard opens on the latest
+month with accepted expenses, keeps currencies separate, and lets users switch months with
+accessible selectors. Its amount-labelled bar chart shows both monthly spend and receipt
+volume. **View accepted receipts** opens history already filtered to approved and auto-filed
+records. History supports checkbox-based multi-selection for categories, statuses, and
+currencies, with animated authenticated previews beside each receipt. See the
 [workflow roadmap](docs/workflow-roadmap.md) for duplicate/amendment behavior,
 filtered Excel export, PDF ingestion, and remaining usability priorities.
 
@@ -120,7 +122,8 @@ All history endpoints require the same `X-API-Key` as upload:
   and pagination. Maximum page size is 100; OCR text is excluded from list results.
 - `GET /receipts?decision=REVIEW_QUEUE` filters saved review decisions.
 - `GET /receipts?query=...&category=...&currency=...&state=...&date_from=...&date_to=...`
-  filters the latest effective values while preserving pagination.
+  filters the latest effective values while preserving pagination. Repeat `category`,
+  `currency`, or `state` to match any selected value in that filter group.
 - `POST /receipts/export` downloads selected IDs or all filtered results as a
   bounded three-sheet `.xlsx` workbook.
 - `GET /reviews` returns the outstanding human-review queue, excluding finalized reviews.
@@ -138,10 +141,12 @@ accounting system. `REVIEW_QUEUE` does not mean a human has approved the expense
 These original processing fields remain historical after review. Receipt detail
 includes review, amendment, effective-value and version fields; use `/reviews` for pending work.
 
-In the UI, apply history filters before selecting rows. Selection is retained while
-you paginate and is cleared when filters change. **Export selected** sends only the
-explicit IDs; **Export filtered** exports the server-side result, up to 1,000
-receipts. See [History filters and Excel export](docs/export.md).
+In the UI, apply history filters before selecting rows. Category, status, and currency
+filters accept multiple checkbox selections. Selection is retained while you paginate
+and is cleared when filters change. **Export selected** sends only the explicit IDs;
+**Export filtered** exports the server-side result, up to 1,000 receipts. Uploads use
+guided business-purpose choices; selecting **Other** reveals a required custom-purpose
+field. See [History filters and Excel export](docs/export.md).
 
 PDF ingestion prefers embedded text and OCRs only pages that need it. Parsing and
 rendering run within explicit page, time, dimension and pixel limits; a protected
@@ -276,6 +281,6 @@ The workspace now includes **Deleted receipts** (restore within 30 days) and aud
 
 # Monthly reconciliation
 
-The **Monthly close** workspace imports bank-issued PDFs through a signed preview-and-confirm flow, with normalized CSV as a fallback. It matches debits to accepted receipts, flags duplicates and missing evidence, records audited trade-payable/payment-issue follow-up, shows category and vendor concentration, and keeps the retained PDF/CSV in a side evidence panel while every imported debit and accepted receipt remains reviewable. Receipt-history and monthly-close Excel exports include polished summary sheets, currency-safe totals, status breakdowns, detailed tables, and print-friendly layouts. PDF passwords are request-only; deterministic parsing is private-first, and the separate AI fallback requires explicit consent. Schema v8 preserves existing receipt and statement data while adding source and validation provenance. See [monthly reconciliation](docs/monthly-reconciliation.md) for the PDF/CSV contract, matching rules, and Singapore record-control boundaries.
+The **Monthly close** workspace imports bank-issued PDFs through a signed preview-and-confirm flow, with normalized CSV as a fallback. It matches debits to accepted receipts, flags duplicates and missing evidence, records audited trade-payable/payment-issue follow-up, shows category and vendor concentration, and keeps retained source evidence available while every imported debit and accepted receipt remains reviewable. **View source** shows a server-rendered, bounded first-page image for PDFs and text for CSVs; **Download** retrieves the retained original. Receipt-history and monthly-close Excel exports include polished summary sheets, currency-safe totals, status breakdowns, detailed tables, and print-friendly layouts. PDF passwords are request-only; deterministic parsing is private-first, and the separate AI fallback requires explicit consent. Schema v8 preserves existing receipt and statement data while adding source and validation provenance. See [monthly reconciliation](docs/monthly-reconciliation.md) for the PDF/CSV contract, matching rules, and Singapore record-control boundaries.
 
-The dashboard can also save a default reporting currency and consolidate accepted spend using a dated, cached ECB reference-rate snapshot. Native amounts remain the source of truth; the converted view is labelled as an indicative management estimate. Schema v7 preserves existing data and adds workspace settings and rate snapshots.
+The exchange-rate snapshot and workspace-setting tables remain available for compatibility, but the dashboard presents native-currency totals only and does not display an indicative consolidated-spend tab. Schema v7 preserves existing data and adds workspace settings and rate snapshots.
