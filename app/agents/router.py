@@ -19,6 +19,7 @@ from app.agents.compliance import (
 from app.agents.copilot import (
     CopilotScopeError,
     FinanceCopilotAgent,
+    deterministic_copilot_answer,
     deterministic_monthly_brief_fallback,
     deterministic_reconciliation_fallback,
     validate_copilot_question,
@@ -43,15 +44,21 @@ class CopilotQuestion(ReconciliationScope):
     question: str = Field(min_length=5, max_length=500)
 
 
-def _fallback_audit(task: str, context: dict) -> AgentAudit:
+def _fallback_audit(
+    task: str,
+    context: dict,
+    *,
+    model: str = "deterministic-fallback",
+    prompt_version: str = "fallback-v1",
+) -> AgentAudit:
     canonical = json.dumps(
         context, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
     )
     return AgentAudit(
         request_id=str(uuid4()),
         task=task,
-        model="deterministic-fallback",
-        prompt_version="fallback-v1",
+        model=model,
+        prompt_version=prompt_version,
         input_sha256=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
         cached=False,
         created_at=datetime.now(timezone.utc).isoformat(),
@@ -115,8 +122,8 @@ def build_agent_router(
         return HTTPException(
             status_code=502,
             detail=(
-                "Finance Copilot could not format a safe answer. Try a shorter question "
-                "about this month's reconciliation."
+                "Finance Copilot could not produce a safe answer this time. "
+                "Your question is valid; please try again."
             ),
         )
 
@@ -257,6 +264,23 @@ def build_agent_router(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         context = await reconciliation_context(body, settings)
+        direct_answer = deterministic_copilot_answer(safe_question, context)
+        if direct_answer is not None:
+            direct_input = {"question": safe_question, "context": context}
+            audit = _fallback_audit(
+                "finance_question",
+                direct_input,
+                model="deterministic-answer",
+                prompt_version="deterministic-v1",
+            )
+            return {
+                "scope": {"month": body.month, "currency": body.currency},
+                "answer": direct_answer.model_dump(mode="json"),
+                "audit": audit.as_dict(),
+                "fallback": False,
+                "source": "deterministic",
+            }
+
         _, copilot = agent_suite(settings)
         try:
             answer, audit = await copilot.answer(safe_question, context)
@@ -269,6 +293,7 @@ def build_agent_router(
             "answer": answer.model_dump(mode="json"),
             "audit": audit.as_dict(),
             "fallback": False,
+            "source": "ai",
         }
 
     return router
