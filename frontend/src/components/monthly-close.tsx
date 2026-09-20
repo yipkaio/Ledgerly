@@ -125,18 +125,12 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-2xl">
-          <p className="muted">Match bank debits to accepted receipts, record payment follow-up, and close each month with clear evidence.</p>
-          <p className="mt-2 text-xs text-muted-foreground">Matches are suggestions based on amount, date, and vendor text. Review exceptions before relying on the totals.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <StatementUpload token={token} completed={(nextMonth, nextCurrency) => { setSourceStatement(null); setMonth(nextMonth); setCurrency(nextCurrency); setRefresh((value) => value + 1); }} />
-          <Button variant="outline" disabled={!data || exportBusy} onClick={() => void exportMonth()}>
-            {exportBusy ? <LoaderCircle className="animate-spin" /> : <Download />} Export month
-          </Button>
-          <Button variant="ghost" onClick={() => setRefresh((value) => value + 1)}><RefreshCw /> Refresh</Button>
-        </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        <StatementUpload token={token} completed={(nextMonth, nextCurrency) => { setSourceStatement(null); setMonth(nextMonth); setCurrency(nextCurrency); setRefresh((value) => value + 1); }} />
+        <Button variant="outline" disabled={!data || exportBusy} onClick={() => void exportMonth()}>
+          {exportBusy ? <LoaderCircle className="animate-spin" /> : <Download />} Export month
+        </Button>
+        <Button variant="ghost" onClick={() => setRefresh((value) => value + 1)}><RefreshCw /> Refresh</Button>
       </div>
 
       <section className="panel flex flex-wrap items-end gap-4 p-4" aria-label="Reconciliation period">
@@ -333,36 +327,119 @@ function TransactionTable({ transactions, statements, currency, openReceipt, vie
 }
 
 function StatementSourcePanel({ token, statement, onClose, download }: { token: string; statement: StatementRecord; onClose: () => void; download: () => void }) {
-  const [sourceUrl, setSourceUrl] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
   const [csvText, setCsvText] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
+  const isPdf =
+    statement.source_media_type === "application/pdf" ||
+    statement.original_filename.toLowerCase().endsWith(".pdf");
+
   useEffect(() => {
     const controller = new AbortController();
     let objectUrl = "";
-    fetch(`/bank-statements/${statement.statement_id}/source`, {
-      headers: { "X-API-Key": token }, cache: "no-store", signal: controller.signal,
-    }).then(async (response) => {
-      if (!response.ok) throw new Error("The retained source statement could not be opened.");
-      const blob = await response.blob();
-      const mediaType = blob.type || statement.source_media_type || "";
-      if (mediaType.includes("pdf") || statement.original_filename.toLowerCase().endsWith(".pdf")) {
-        // Preserve the PDF MIME type even for older imported rows whose stored media type is blank.
-        // The browser's PDF viewer needs same-origin access to its blob, but scripts and navigation
-        // remain disabled by the iframe sandbox below.
-        const pdf = blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" });
-        objectUrl = URL.createObjectURL(pdf); setSourceUrl(objectUrl);
-      } else {
-        setCsvText(await blob.text());
-      }
-    }).catch((reason) => { if (!controller.signal.aborted) setError(message(reason)); })
-      .finally(() => { if (!controller.signal.aborted) setBusy(false); });
-    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [statement, token]);
-  return <aside role="dialog" aria-modal="false" aria-labelledby="statement-source-title" className="fixed inset-y-3 right-3 z-50 flex w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl lg:w-[min(48rem,48vw)]">
-    <header className="flex items-start justify-between gap-4 border-b p-4"><div className="min-w-0"><p className="field-label">Statement source</p><h2 id="statement-source-title" className="truncate text-lg font-semibold">{statement.account_label}</h2><p className="muted truncate">{statement.original_filename} · read-only evidence</p></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={download}><Download /> Download</Button><Button size="icon-sm" variant="ghost" aria-label="Close statement source" onClick={onClose}><X /></Button></div></header>
-    <div className="min-h-0 flex-1 bg-muted/30 p-3">{busy ? <div role="status" className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="animate-spin" /> Loading retained source…</div> : error ? <Notice variant="destructive">{error}</Notice> : sourceUrl ? <iframe src={sourceUrl} title={`Original statement ${statement.original_filename}`} sandbox="allow-same-origin" referrerPolicy="no-referrer" className="h-full min-h-[70vh] w-full rounded-lg border bg-white" /> : <pre className="h-full min-h-[70vh] overflow-auto rounded-lg border bg-white p-4 text-xs leading-6 whitespace-pre" tabIndex={0}>{csvText}</pre>}</div>
-    <footer className="border-t px-4 py-3 text-xs text-muted-foreground">Compare the source with the imported debit table. Opening a source does not change reconciliation data.</footer>
-  </aside>;
+    const endpoint = isPdf
+      ? `/bank-statements/${statement.statement_id}/source-preview`
+      : `/bank-statements/${statement.statement_id}/source`;
+    fetch(endpoint, {
+      headers: { "X-API-Key": token },
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(
+            isPdf
+              ? "The statement preview could not be rendered. Download the original source instead."
+              : "The retained source statement could not be opened.",
+          );
+        }
+        const blob = await response.blob();
+        if (isPdf) {
+          objectUrl = URL.createObjectURL(blob);
+          setPreviewUrl(objectUrl);
+        } else {
+          setCsvText(await blob.text());
+        }
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted) setError(message(reason));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setBusy(false);
+      });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [isPdf, statement, token]);
+
+  return (
+    <aside
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="statement-source-title"
+      className="fixed inset-y-3 right-3 z-50 flex w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl lg:w-[min(48rem,48vw)]"
+    >
+      <header className="flex items-start justify-between gap-4 border-b p-4">
+        <div className="min-w-0">
+          <p className="field-label">Statement source</p>
+          <h2 id="statement-source-title" className="truncate text-lg font-semibold">
+            {statement.account_label}
+          </h2>
+          <p className="muted truncate">
+            {statement.original_filename} · read-only evidence
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={download}>
+            <Download /> Download
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Close statement source"
+            onClick={onClose}
+          >
+            <X />
+          </Button>
+        </div>
+      </header>
+      <div className="min-h-0 flex-1 overflow-auto bg-muted/30 p-3">
+        {busy ? (
+          <div role="status" className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircle className="animate-spin" /> Loading retained source…
+          </div>
+        ) : error ? (
+          <div className="space-y-3">
+            <Notice variant="destructive">{error}</Notice>
+            <Button variant="outline" onClick={download}>
+              <Download /> Download original
+            </Button>
+          </div>
+        ) : previewUrl ? (
+          <div className="rounded-lg border bg-white p-2">
+            <img
+              src={previewUrl}
+              alt={`First page of ${statement.original_filename}`}
+              className="mx-auto h-auto max-w-full"
+            />
+          </div>
+        ) : (
+          <pre
+            className="min-h-[70vh] overflow-auto rounded-lg border bg-white p-4 text-xs leading-6 whitespace-pre"
+            tabIndex={0}
+          >
+            {csvText}
+          </pre>
+        )}
+      </div>
+      <footer className="border-t px-4 py-3 text-xs text-muted-foreground">
+        {isPdf
+          ? "Safe first-page image preview. Download the retained original to review every page."
+          : "Compare the retained CSV with the imported debit table."}
+      </footer>
+    </aside>
+  );
 }
 function MonthlySkeleton() { return <div role="status" aria-label="Loading monthly close" className="space-y-5 animate-pulse"><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0,1,2,3].map((item) => <div key={item} className="h-32 rounded-xl bg-muted" />)}</div><div className="h-48 rounded-xl bg-muted" /><span className="sr-only">Loading monthly close…</span></div>; }
