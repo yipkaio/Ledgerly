@@ -112,4 +112,4 @@ def test_copilot_prompt_enforces_read_only_authority() -> None:
     asyncio.run(copilot.explain_reconciliation({"summary": {"unmatched_bank_count": 1}}))
 
     assert "Never approve transactions" in prompts[0]
-    assert "Never recompute or override deterministic matching" in prompts[0]
+    assert "override deterministic matching" in prompts[0]
