@@ -77,7 +77,7 @@ def build_agent_router(
 
     @router.get("/agents", summary="List bounded AI-agent capabilities")
     async def list_agents(
-        settings: Annotated[object, Depends(require_api_key)],
+        settings=Depends(require_api_key),
     ) -> dict:
         return {
             "agents": [
@@ -121,7 +121,7 @@ def build_agent_router(
     )
     async def receipt_review_assistance(
         receipt_id: str,
-        settings: Annotated[object, Depends(require_api_key)],
+        settings=Depends(require_api_key),
     ) -> dict:
         record = await run_in_threadpool(
             ReceiptStore(settings.database_path).get, receipt_id
@@ -155,7 +155,7 @@ def build_agent_router(
     )
     async def explain_reconciliation(
         body: ReconciliationScope,
-        settings: Annotated[object, Depends(require_api_key)],
+        settings=Depends(require_api_key),
     ) -> dict:
         context = await reconciliation_context(body, settings)
         _, copilot = agent_suite(settings)
@@ -175,7 +175,7 @@ def build_agent_router(
     )
     async def monthly_close_brief(
         body: ReconciliationScope,
-        settings: Annotated[object, Depends(require_api_key)],
+        settings=Depends(require_api_key),
     ) -> dict:
         context = await reconciliation_context(body, settings)
         _, copilot = agent_suite(settings)
@@ -195,7 +195,7 @@ def build_agent_router(
     )
     async def ask_copilot(
         body: CopilotQuestion,
-        settings: Annotated[object, Depends(require_api_key)],
+        settings=Depends(require_api_key),
     ) -> dict:
         context = await reconciliation_context(body, settings)
         _, copilot = agent_suite(settings)
