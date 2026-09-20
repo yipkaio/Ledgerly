@@ -427,156 +427,113 @@ function Workspace({
               </p>
               {view === "history" && (
                 <form
-                  className="panel mb-5 grid gap-4 p-4 md:grid-cols-3 xl:grid-cols-6"
+                  className="panel mb-5 p-4 sm:p-5"
                   aria-label="Receipt history filters"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    setFilters({ ...filterDraft });
+                    setFilters({
+                      ...filterDraft,
+                      category: [...filterDraft.category],
+                      currency: [...filterDraft.currency],
+                      state: [...filterDraft.state],
+                    });
                     setOffset(0);
                     setChecked(new Set());
                   }}
                 >
-                  <div className="md:col-span-2">
-                    <label htmlFor="history-search" className="field-label">
-                      Vendor, receipt number or ID
-                    </label>
-                    <Input
-                      id="history-search"
-                      maxLength={100}
-                      value={filterDraft.query}
-                      onChange={(event) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          query: event.target.value,
-                        }))
+                  <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(18rem,1.4fr)_repeat(3,minmax(10rem,0.7fr))]">
+                    <div>
+                      <label htmlFor="history-search" className="field-label">
+                        Vendor, receipt number or ID
+                      </label>
+                      <Input
+                        id="history-search"
+                        maxLength={100}
+                        value={filterDraft.query}
+                        onChange={(event) =>
+                          setFilterDraft((old) => ({
+                            ...old,
+                            query: event.target.value,
+                          }))
+                        }
+                        placeholder="Search receipt history"
+                      />
+                    </div>
+                    <MultiCheckboxFilter
+                      label="Categories"
+                      options={categories}
+                      selected={filterDraft.category}
+                      onChange={(category) =>
+                        setFilterDraft((old) => ({ ...old, category }))
+                      }
+                    />
+                    <MultiCheckboxFilter
+                      label="Statuses"
+                      options={historyStatuses}
+                      selected={filterDraft.state}
+                      format={(value) => value.replaceAll("_", " ")}
+                      onChange={(state) =>
+                        setFilterDraft((old) => ({ ...old, state }))
+                      }
+                    />
+                    <MultiCheckboxFilter
+                      label="Currencies"
+                      options={historyCurrencies}
+                      selected={filterDraft.currency}
+                      onChange={(currency) =>
+                        setFilterDraft((old) => ({ ...old, currency }))
                       }
                     />
                   </div>
-                  <div>
-                    <label className="field-label" htmlFor="history-category">
-                      Category
-                    </label>
-                    <Select
-                      value={filterDraft.category || "all"}
-                      onValueChange={(value) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          category: value === "all" ? "" : value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger id="history-category">
-                        <SelectValue placeholder="All categories" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All categories</SelectItem>
-                        {categories.map((value) => (
-                          <SelectItem value={value} key={value}>
-                            {value}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="field-label" htmlFor="history-state">
-                      Status
-                    </label>
-                    <Select
-                      value={filterDraft.state || "all"}
-                      onValueChange={(value) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          state: value === "all" ? "" : value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger id="history-state">
-                        <SelectValue placeholder="All statuses" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All statuses</SelectItem>
-                        {[
-                          "AUTO_FILED",
-                          "APPROVED",
-                          "AMENDED",
-                          "VOIDED",
-                          "REJECTED",
-                          "REVIEW_QUEUE",
-                          "PROCESSING",
-                          "FAILED",
-                        ].map((value) => (
-                          <SelectItem value={value} key={value}>
-                            {value.replaceAll("_", " ")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="field-label" htmlFor="history-currency">
-                      Currency
-                    </label>
-                    <Input
-                      id="history-currency"
-                      maxLength={3}
-                      placeholder="MYR"
-                      value={filterDraft.currency}
-                      onChange={(event) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          currency: event.target.value.toUpperCase(),
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="flex items-end gap-2">
-                    <Button type="submit">Apply filters</Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      aria-label="Clear history filters"
-                      onClick={() => {
-                        setFilterDraft(emptyFilters);
-                        setFilters(emptyFilters);
-                        setOffset(0);
-                        setChecked(new Set());
-                      }}
-                    >
-                      <X />
-                    </Button>
-                  </div>
-                  <div>
-                    <label className="field-label" htmlFor="history-date-from">
-                      Receipt date from
-                    </label>
-                    <Input
-                      id="history-date-from"
-                      type="date"
-                      value={filterDraft.date_from}
-                      onChange={(event) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          date_from: event.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="field-label" htmlFor="history-date-to">
-                      Receipt date to
-                    </label>
-                    <Input
-                      id="history-date-to"
-                      type="date"
-                      value={filterDraft.date_to}
-                      onChange={(event) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          date_to: event.target.value,
-                        }))
-                      }
-                    />
+
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+                    <div>
+                      <label className="field-label" htmlFor="history-date-from">
+                        Receipt date from
+                      </label>
+                      <Input
+                        id="history-date-from"
+                        type="date"
+                        value={filterDraft.date_from}
+                        onChange={(event) =>
+                          setFilterDraft((old) => ({
+                            ...old,
+                            date_from: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="field-label" htmlFor="history-date-to">
+                        Receipt date to
+                      </label>
+                      <Input
+                        id="history-date-to"
+                        type="date"
+                        value={filterDraft.date_to}
+                        onChange={(event) =>
+                          setFilterDraft((old) => ({
+                            ...old,
+                            date_to: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <Button type="submit">Apply filters</Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          setFilterDraft(emptyFilters);
+                          setFilters(emptyFilters);
+                          setOffset(0);
+                          setChecked(new Set());
+                        }}
+                      >
+                        <X /> Clear
+                      </Button>
+                    </div>
                   </div>
                 </form>
               )}
