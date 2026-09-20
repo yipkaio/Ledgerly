@@ -253,6 +253,7 @@ def test_statement_upload_reconciliation_payment_audit_and_export(monkeypatch, t
     }
     assert next(item for item in data["receipts"] if item["receipt_id"] == matched_id)["status"] == "PAID"
     assert {item["status"] for item in data["transactions"]} == {"MATCHED", "DUPLICATE_TRANSACTION"}
+    assert {item["statement_id"] for item in data["transactions"]} == {response.json()["statement_id"]}
 
     update = client.post(
         f"/receipts/{unmatched_id}/payment-state", headers=HEADERS,

@@ -139,6 +139,7 @@ test("monthly close shows evidence gaps, spend concentration, and grounded promp
   await expect(page.getByText("Review Repairs and Maintenance", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Imported bank transactions" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Accepted receipts" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Statement", exact: true })).toHaveCount(2);
   await page.getByRole("button", { name: "View source", exact: true }).click();
   const source = page.getByRole("dialog", { name: "Operating" });
   await expect(source.getByText("2026-09-04,Unknown,50.00")).toBeVisible();

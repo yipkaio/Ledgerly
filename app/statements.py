@@ -479,7 +479,8 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
                 matched_receipts[matched["receipt_id"]] = tx["transaction_id"]
         key = (tx["posted_date"], tx["amount_cents"], _normal(tx["description"]))
         transaction_rows.append({
-            "transaction_id": tx["transaction_id"], "posted_date": tx["posted_date"],
+            "transaction_id": tx["transaction_id"], "statement_id": tx["statement_id"],
+            "posted_date": tx["posted_date"],
             "description": tx["description"], "amount_cents": tx["amount_cents"],
             "reference": tx["reference"], "receipt_id": matched["receipt_id"] if matched else None,
             "receipt_vendor": matched["vendor"] if matched else None,

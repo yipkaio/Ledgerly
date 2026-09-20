@@ -334,9 +334,13 @@ function StatementSourcePanel({ token, statement, onClose, download }: { token: 
     }).then(async (response) => {
       if (!response.ok) throw new Error("The retained source statement could not be opened.");
       const blob = await response.blob();
-      const mediaType = statement.source_media_type || blob.type;
+      const mediaType = blob.type || statement.source_media_type || "";
       if (mediaType.includes("pdf") || statement.original_filename.toLowerCase().endsWith(".pdf")) {
-        objectUrl = URL.createObjectURL(blob); setSourceUrl(objectUrl);
+        // Preserve the PDF MIME type even for older imported rows whose stored media type is blank.
+        // The browser's PDF viewer needs same-origin access to its blob, but scripts and navigation
+        // remain disabled by the iframe sandbox below.
+        const pdf = blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" });
+        objectUrl = URL.createObjectURL(pdf); setSourceUrl(objectUrl);
       } else {
         setCsvText(await blob.text());
       }
@@ -346,7 +350,7 @@ function StatementSourcePanel({ token, statement, onClose, download }: { token: 
   }, [statement, token]);
   return <aside role="dialog" aria-modal="false" aria-labelledby="statement-source-title" className="fixed inset-y-3 right-3 z-50 flex w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl lg:w-[min(48rem,48vw)]">
     <header className="flex items-start justify-between gap-4 border-b p-4"><div className="min-w-0"><p className="field-label">Statement source</p><h2 id="statement-source-title" className="truncate text-lg font-semibold">{statement.account_label}</h2><p className="muted truncate">{statement.original_filename} · read-only evidence</p></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={download}><Download /> Download</Button><Button size="icon-sm" variant="ghost" aria-label="Close statement source" onClick={onClose}><X /></Button></div></header>
-    <div className="min-h-0 flex-1 bg-muted/30 p-3">{busy ? <div role="status" className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="animate-spin" /> Loading retained source…</div> : error ? <Notice variant="destructive">{error}</Notice> : sourceUrl ? <iframe src={sourceUrl} title={`Original statement ${statement.original_filename}`} sandbox="" referrerPolicy="no-referrer" className="h-full min-h-[70vh] w-full rounded-lg border bg-white" /> : <pre className="h-full min-h-[70vh] overflow-auto rounded-lg border bg-white p-4 text-xs leading-6 whitespace-pre" tabIndex={0}>{csvText}</pre>}</div>
+    <div className="min-h-0 flex-1 bg-muted/30 p-3">{busy ? <div role="status" className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="animate-spin" /> Loading retained source…</div> : error ? <Notice variant="destructive">{error}</Notice> : sourceUrl ? <iframe src={sourceUrl} title={`Original statement ${statement.original_filename}`} sandbox="allow-same-origin" referrerPolicy="no-referrer" className="h-full min-h-[70vh] w-full rounded-lg border bg-white" /> : <pre className="h-full min-h-[70vh] overflow-auto rounded-lg border bg-white p-4 text-xs leading-6 whitespace-pre" tabIndex={0}>{csvText}</pre>}</div>
     <footer className="border-t px-4 py-3 text-xs text-muted-foreground">Compare the source with the imported debit table. Opening a source does not change reconciliation data.</footer>
   </aside>;
 }
