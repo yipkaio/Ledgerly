@@ -759,6 +759,73 @@ function Workspace({
     </>
   );
 }
+function MultiCheckboxFilter({
+  label,
+  options,
+  selected,
+  onChange,
+  format = (value) => value,
+}: {
+  label: string;
+  options: readonly string[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+  format?: (value: string) => string;
+}) {
+  return (
+    <div>
+      <span className="field-label">{label}</span>
+      <details className="group relative">
+        <summary className="flex h-9 list-none items-center justify-between rounded-md border bg-white px-3 text-sm shadow-xs marker:hidden">
+          <span className={selected.length ? "font-medium" : "text-muted-foreground"}>
+            {selected.length
+              ? `${selected.length} selected`
+              : `All ${label.toLowerCase()}`}
+          </span>
+          <span aria-hidden="true" className="text-xs text-muted-foreground transition group-open:rotate-180">
+            ▾
+          </span>
+        </summary>
+        <div className="absolute z-30 mt-2 max-h-72 w-full min-w-56 overflow-y-auto rounded-xl border bg-white p-2 shadow-xl">
+          <div className="flex items-center justify-between px-2 py-1.5">
+            <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Select {label.toLowerCase()}
+            </span>
+            {!!selected.length && (
+              <button
+                type="button"
+                className="text-xs font-medium text-primary hover:underline"
+                onClick={() => onChange([])}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {options.map((value) => (
+            <label
+              key={value}
+              className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(value)}
+                onChange={(event) =>
+                  onChange(
+                    event.target.checked
+                      ? [...selected, value]
+                      : selected.filter((item) => item !== value),
+                  )
+                }
+              />
+              <span>{format(value)}</span>
+            </label>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function UploadForm({
   token,
   open,
