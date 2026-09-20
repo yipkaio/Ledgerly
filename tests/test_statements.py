@@ -154,6 +154,18 @@ def test_pdf_statement_preview_confirm_retains_exact_source(monkeypatch, tmp_pat
     assert source.headers["content-type"] == "application/pdf"
     assert source.content == content
 
+    preview_png = b"\\x89PNG\\r\\n\\x1a\\nrendered"
+    monkeypatch.setattr(
+        "app.main.render_pdf_first_page",
+        lambda *args, **kwargs: preview_png,
+    )
+    source_preview = client.get(
+        f"/bank-statements/{statement_id}/source-preview", headers=HEADERS
+    )
+    assert source_preview.status_code == 200
+    assert source_preview.headers["content-type"] == "image/png"
+    assert source_preview.content == preview_png
+
     replay = client.post(
         "/bank-statements/confirm", headers=HEADERS,
         files={"statement": ("ocbc-september.pdf", content, "application/pdf")},
