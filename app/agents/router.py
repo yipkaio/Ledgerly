@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Callable
+import hashlib
+import json
+from datetime import datetime, timezone
+from typing import Callable
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
@@ -12,8 +16,15 @@ from app.agents.compliance import (
     ClassificationComplianceAgent,
     assess_receipt_controls,
 )
-from app.agents.copilot import FinanceCopilotAgent
+from app.agents.copilot import (
+    CopilotScopeError,
+    FinanceCopilotAgent,
+    deterministic_monthly_brief_fallback,
+    deterministic_reconciliation_fallback,
+    validate_copilot_question,
+)
 from app.agents.gateway import (
+    AgentAudit,
     AgentGatewayResponseError,
     AgentGatewayTimeout,
     AgentGatewayUnavailable,
@@ -30,6 +41,21 @@ class ReconciliationScope(BaseModel):
 
 class CopilotQuestion(ReconciliationScope):
     question: str = Field(min_length=5, max_length=500)
+
+
+def _fallback_audit(task: str, context: dict) -> AgentAudit:
+    canonical = json.dumps(
+        context, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
+    )
+    return AgentAudit(
+        request_id=str(uuid4()),
+        task=task,
+        model="deterministic-fallback",
+        prompt_version="fallback-v1",
+        input_sha256=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        cached=False,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
 
 
 def build_agent_router(
@@ -53,16 +79,23 @@ def build_agent_router(
         )
         suite = suites.get(key)
         if suite is None:
-            gateway = StructuredGatewayClient(
-                base_url=settings.llm_gateway_url,
-                api_key=settings.llm_gateway_api_key,
-                model=settings.llm_model,
-                timeout_seconds=settings.llm_timeout_seconds,
+            common = {
+                "base_url": settings.llm_gateway_url,
+                "api_key": settings.llm_gateway_api_key,
+                "model": settings.llm_model,
+                "timeout_seconds": settings.llm_timeout_seconds,
+            }
+            compliance_gateway = StructuredGatewayClient(
+                **common,
                 max_output_tokens=settings.llm_max_output_tokens,
             )
+            copilot_gateway = StructuredGatewayClient(
+                **common,
+                max_output_tokens=min(settings.llm_max_output_tokens, 500),
+            )
             suite = (
-                ClassificationComplianceAgent(gateway),
-                FinanceCopilotAgent(gateway),
+                ClassificationComplianceAgent(compliance_gateway),
+                FinanceCopilotAgent(copilot_gateway),
             )
             suites.clear()
             suites[key] = suite
@@ -70,10 +103,22 @@ def build_agent_router(
 
     def safe_agent_error(exc: Exception) -> HTTPException:
         if isinstance(exc, AgentGatewayTimeout):
-            return HTTPException(status_code=504, detail="AI advisory request timed out")
+            return HTTPException(
+                status_code=504,
+                detail="Finance Copilot took too long. Please try again.",
+            )
         if isinstance(exc, AgentGatewayUnavailable):
-            return HTTPException(status_code=503, detail="AI advisory service is unavailable")
-        return HTTPException(status_code=502, detail="AI advisory service returned an invalid result")
+            return HTTPException(
+                status_code=503,
+                detail="Finance Copilot is temporarily unavailable. Please try again.",
+            )
+        return HTTPException(
+            status_code=502,
+            detail=(
+                "Finance Copilot could not format a safe answer. Try a shorter question "
+                "about this month's reconciliation."
+            ),
+        )
 
     @router.get("/agents", summary="List bounded AI-agent capabilities")
     async def list_agents(
@@ -111,6 +156,7 @@ def build_agent_router(
                 "AI cannot change payment status",
                 "AI cannot post journal entries or initiate payments",
                 "AI cannot override deterministic matching or duplicate checks",
+                "Finance Copilot refuses unrelated and secret-seeking questions",
                 "Human confirmation remains required for uncertain evidence",
             ],
         }
@@ -159,14 +205,18 @@ def build_agent_router(
     ) -> dict:
         context = await reconciliation_context(body, settings)
         _, copilot = agent_suite(settings)
+        fallback = False
         try:
             explanation, audit = await copilot.explain_reconciliation(context)
-        except (AgentGatewayTimeout, AgentGatewayUnavailable, AgentGatewayResponseError) as exc:
-            raise safe_agent_error(exc) from exc
+        except (AgentGatewayTimeout, AgentGatewayUnavailable, AgentGatewayResponseError):
+            explanation = deterministic_reconciliation_fallback(context)
+            audit = _fallback_audit("reconciliation_explanation", context)
+            fallback = True
         return {
             "scope": body.model_dump(),
             "explanation": explanation.model_dump(mode="json"),
             "audit": audit.as_dict(),
+            "fallback": fallback,
         }
 
     @router.post(
@@ -179,14 +229,18 @@ def build_agent_router(
     ) -> dict:
         context = await reconciliation_context(body, settings)
         _, copilot = agent_suite(settings)
+        fallback = False
         try:
             brief, audit = await copilot.monthly_brief(context)
-        except (AgentGatewayTimeout, AgentGatewayUnavailable, AgentGatewayResponseError) as exc:
-            raise safe_agent_error(exc) from exc
+        except (AgentGatewayTimeout, AgentGatewayUnavailable, AgentGatewayResponseError):
+            brief = deterministic_monthly_brief_fallback(context)
+            audit = _fallback_audit("monthly_close_brief", context)
+            fallback = True
         return {
             "scope": body.model_dump(),
             "brief": brief.model_dump(mode="json"),
             "audit": audit.as_dict(),
+            "fallback": fallback,
         }
 
     @router.post(
@@ -197,16 +251,24 @@ def build_agent_router(
         body: CopilotQuestion,
         settings=Depends(require_api_key),
     ) -> dict:
+        try:
+            safe_question = validate_copilot_question(body.question)
+        except CopilotScopeError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
         context = await reconciliation_context(body, settings)
         _, copilot = agent_suite(settings)
         try:
-            answer, audit = await copilot.answer(body.question, context)
+            answer, audit = await copilot.answer(safe_question, context)
+        except CopilotScopeError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except (AgentGatewayTimeout, AgentGatewayUnavailable, AgentGatewayResponseError) as exc:
             raise safe_agent_error(exc) from exc
         return {
             "scope": {"month": body.month, "currency": body.currency},
             "answer": answer.model_dump(mode="json"),
             "audit": audit.as_dict(),
+            "fallback": False,
         }
 
     return router
