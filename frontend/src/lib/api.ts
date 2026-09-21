@@ -189,13 +189,18 @@ export class ApiError extends Error {
     this.receiptId = receiptId;
   }
 }
+function applyAuthentication(headers: Headers, token: string) {
+  if (token.startsWith("Bearer ")) headers.set("Authorization", token);
+  else headers.set("X-API-Key", token);
+}
+
 export async function request<T>(
   path: string,
   token: string,
   options: RequestInit & { timeoutMs?: number } = {},
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  headers.set("X-API-Key", token);
+  applyAuthentication(headers, token);
   const { timeoutMs = 30000, ...init } = options;
   const timeout = AbortSignal.timeout(timeoutMs);
   const response = await fetch(path, {
@@ -226,12 +231,11 @@ export async function requestDownload(
   token: string,
   body: unknown,
 ): Promise<{ blob: Blob; filename: string }> {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  applyAuthentication(headers, token);
   const response = await fetch(path, {
     method: "POST",
-    headers: {
-      "X-API-Key": token,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify(body),
     cache: "no-store",
     signal: AbortSignal.timeout(60000),
@@ -258,7 +262,7 @@ export function message(error: unknown): string {
   if (error instanceof TypeError)
     return "Connection lost. Check the saved record before retrying.";
   if (error instanceof ApiError && error.status === 401)
-    return "Your app API key was not accepted. Disconnect and enter the key used by this server.";
+    return "Your session is not authorised. Sign in again.";
   return error instanceof Error
     ? error.message
     : "Request failed. Please try again.";

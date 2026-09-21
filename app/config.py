@@ -12,6 +12,9 @@ TESSERACT_LANGUAGE_PATTERN = re.compile(r"[A-Za-z]{3}(?:\+[A-Za-z]{3})*")
 PADDLE_LANGUAGE_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,31}")
 PADDLE_DEVICE_PATTERN = re.compile(r"(?:cpu|gpu(?::\d+)?)")
 OCR_ENGINES = {"paddle", "tesseract"}
+AUTH_MODES = {"api_key", "firebase", "hybrid"}
+FIREBASE_PROJECT_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{3,61}[a-z0-9]")
+FIREBASE_UID_PATTERN = re.compile(r"[A-Za-z0-9:_-]{1,128}")
 
 
 class ConfigurationError(RuntimeError):
@@ -28,6 +31,11 @@ def api_docs_enabled() -> bool:
 @dataclass(frozen=True)
 class Settings:
     app_api_key: str
+    auth_mode: str
+    firebase_web_api_key: str | None
+    firebase_project_id: str | None
+    firebase_allowed_uid: str | None
+    firebase_allowed_email: str | None
     upload_dir: Path
     max_upload_bytes: int
     ocr_engine: str
@@ -59,6 +67,46 @@ class Settings:
         api_key = os.getenv("APP_API_KEY", "")
         if len(api_key) < 32:
             raise ConfigurationError("APP_API_KEY must contain at least 32 characters")
+
+        auth_mode = os.getenv("AUTH_MODE", "api_key").strip().lower()
+        if auth_mode not in AUTH_MODES:
+            raise ConfigurationError(
+                "AUTH_MODE must be api_key, firebase, or hybrid"
+            )
+
+        firebase_web_api_key = os.getenv("FIREBASE_WEB_API_KEY", "").strip() or None
+        firebase_project_id = os.getenv("FIREBASE_PROJECT_ID", "").strip() or None
+        firebase_allowed_uid = os.getenv("FIREBASE_ALLOWED_UID", "").strip() or None
+        firebase_allowed_email = (
+            os.getenv("FIREBASE_ALLOWED_EMAIL", "").strip().casefold() or None
+        )
+        if auth_mode in {"firebase", "hybrid"}:
+            if firebase_web_api_key is None or len(firebase_web_api_key) < 20:
+                raise ConfigurationError(
+                    "FIREBASE_WEB_API_KEY is required for Firebase authentication"
+                )
+            if (
+                firebase_project_id is None
+                or FIREBASE_PROJECT_ID_PATTERN.fullmatch(firebase_project_id) is None
+            ):
+                raise ConfigurationError(
+                    "FIREBASE_PROJECT_ID has an invalid format"
+                )
+            if (
+                firebase_allowed_uid is None
+                or FIREBASE_UID_PATTERN.fullmatch(firebase_allowed_uid) is None
+            ):
+                raise ConfigurationError(
+                    "FIREBASE_ALLOWED_UID is required for Firebase authentication"
+                )
+            if firebase_allowed_email is not None and (
+                len(firebase_allowed_email) > 254
+                or "@" not in firebase_allowed_email
+                or any(character.isspace() for character in firebase_allowed_email)
+            ):
+                raise ConfigurationError(
+                    "FIREBASE_ALLOWED_EMAIL has an invalid format"
+                )
 
         raw_limit = os.getenv("MAX_UPLOAD_BYTES", "5242880")
         try:
@@ -161,6 +209,11 @@ class Settings:
         upload_dir = Path(os.getenv("UPLOAD_DIR", "data/uploads"))
         return cls(
             app_api_key=api_key,
+            auth_mode=auth_mode,
+            firebase_web_api_key=firebase_web_api_key,
+            firebase_project_id=firebase_project_id,
+            firebase_allowed_uid=firebase_allowed_uid,
+            firebase_allowed_email=firebase_allowed_email,
             upload_dir=upload_dir,
             database_path=Path(database_path),
             max_upload_bytes=max_upload_bytes,

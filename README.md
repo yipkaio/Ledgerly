@@ -57,6 +57,20 @@ localhost access. See [Docker setup and testing](docs/docker.md) for Windows,
 container smoke tests, backups and a private Lightsail trial. The Docker image
 includes the built review UI at `/ui/`. No AWS resources are provisioned by these files.
 
+## Authentication and production deployment
+
+Local development continues to use the shared app key. Production can use Firebase
+email/password for one pre-created bookkeeper UID; there is no self-service
+registration or multi-role permission system. `hybrid` mode retains the app key
+only for controlled integrations such as the planned Telegram/OpenClaw bridge.
+The browser refreshes Firebase ID tokens in memory, and the backend verifies the
+account with Firebase before accepting protected requests.
+
+A production Compose overlay adds Caddy HTTPS, disables API documentation and keeps
+the FastAPI service private behind the reverse proxy. See
+[authentication and production deployment](docs/authentication.md) and the
+[demo-readiness checklist](docs/demo-readiness.md).
+
 ## Current status
 
 The application now provides a secure FastAPI receipt-processing pipeline:
@@ -74,7 +88,9 @@ The application now provides a secure FastAPI receipt-processing pipeline:
 - Three bounded AI-agent service layers for document intelligence, classification/control review, and read-only finance assistance.
 - Automated tests that mock both OCR providers and both gateway agents, so tests do not download models, require OCR installation, make network calls, or consume API credits.
 
-SQLite persistence, authenticated receipt history, human approval/rejection, and append-only amendments are implemented. The React + TypeScript workspace supports uploads, paginated history, pending reviews, protected originals, verified corrections, confirmation dialogs, explicit amendment mode, structured receipt summaries, and field-level audit viewing. Follow the [frontend setup and review guide](docs/frontend.md). See [Human review API](docs/reviews.md) for manual payloads, validation, and migration precautions. Firebase Authentication and Telegram/OpenClaw integration remain TODOs.
+SQLite persistence, authenticated receipt history, human approval/rejection, and append-only amendments are implemented. The React + TypeScript workspace supports uploads, paginated history, pending reviews, protected originals, verified corrections, confirmation dialogs, explicit amendment mode, structured receipt summaries, and field-level audit viewing. Follow the [frontend setup and review guide](docs/frontend.md). See [Human review API](docs/reviews.md) for manual payloads, validation, and migration precautions. Firebase email/password authentication is available for a single pre-approved
+bookkeeper account, with a hybrid mode that preserves the app key for trusted
+service integrations. Telegram/OpenClaw integration remains a separate next phase.
 
 ## SQLite persistence and receipt history
 
@@ -173,9 +189,9 @@ Automated tests use isolated temporary databases and mock all OCR/gateway calls.
 
 ### Security and backup limits
 
-This is a single trusted workspace: anyone with the shared app key can see all
-receipts. Keep Uvicorn local until individual authentication/authorization is
-implemented. No public file-download, deletion, or mapping-write API is added.
+This remains a single trusted workspace. In production, only the configured
+Firebase UID should use the web UI; the shared app key is reserved for trusted
+integrations in hybrid mode. Keep Uvicorn private behind the HTTPS reverse proxy. No public file-download, deletion, or mapping-write API is added.
 Internal filesystem paths and raw exception messages are excluded from history.
 The database and uploaded images contain sensitive data: restrict filesystem
 access and never commit them. SQLite files and sidecars are ignored by Git.

@@ -16,6 +16,7 @@ services:
       TESSERACT_CMD: /usr/bin/tesseract
       PADDLE_DEVICE: cpu
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-true}
+      AUTH_MODE: ${AUTH_MODE:-api_key}
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
