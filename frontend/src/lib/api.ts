@@ -194,6 +194,12 @@ function applyAuthentication(headers: Headers, token: string) {
   else headers.set("X-API-Key", token);
 }
 
+export function authenticationHeaders(token: string): Headers {
+  const headers = new Headers();
+  applyAuthentication(headers, token);
+  return headers;
+}
+
 export async function request<T>(
   path: string,
   token: string,
