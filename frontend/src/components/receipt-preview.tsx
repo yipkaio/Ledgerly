@@ -3,7 +3,7 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { Popover } from "radix-ui";
 import { Eye, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { amount } from "@/lib/api";
+import { amount, authenticationHeaders } from "@/lib/api";
 import type { Row } from "@/lib/api";
 
 const PreviewContext = createContext<{
@@ -257,7 +257,7 @@ function PreviewImage({ id, token }: { id: string; token: string }) {
     const controller = new AbortController();
     let url = "";
     fetch(`/receipts/${id}/preview`, {
-      headers: { "X-API-Key": token },
+      headers: authenticationHeaders(token),
       cache: "no-store",
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),
     })
