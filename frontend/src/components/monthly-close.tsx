@@ -30,7 +30,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { amount, message, request, requestDownload } from "@/lib/api";
+import { amount, authenticationHeaders, message, request, requestDownload } from "@/lib/api";
 
 type Period = { month: string; currency: string; statement_count: number; transaction_count: number };
 type Transaction = {
@@ -119,7 +119,7 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
     setError("");
     try {
       const response = await fetch(`/bank-statements/${statementId}/source`, {
-        headers: { "X-API-Key": token }, cache: "no-store", signal: AbortSignal.timeout(30000),
+        headers: authenticationHeaders(token), cache: "no-store", signal: AbortSignal.timeout(30000),
       });
       if (!response.ok) throw new Error("The source statement could not be downloaded.");
       const url = URL.createObjectURL(await response.blob());
@@ -376,7 +376,7 @@ function StatementSourcePanel({ token, statement, onClose, download }: { token: 
       ? `/bank-statements/${statement.statement_id}/source-preview`
       : `/bank-statements/${statement.statement_id}/source`;
     fetch(endpoint, {
-      headers: { "X-API-Key": token },
+      headers: authenticationHeaders(token),
       cache: "no-store",
       signal: controller.signal,
     })
