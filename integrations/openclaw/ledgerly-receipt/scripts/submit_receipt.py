@@ -99,17 +99,29 @@ def _resolve_media(reference: str) -> Path:
         candidates = [root / relative for root in _allowed_roots()]
     else:
         path = Path(reference).expanduser()
-        if not path.is_absolute():
+        if not path.is_absolute() or ".." in path.parts:
             raise BridgeError("Receipt attachment must be OpenClaw-managed media")
         candidates = [path]
 
     roots = _allowed_roots()
     for candidate in candidates:
         resolved = candidate.resolve()
-        if not any(resolved.is_relative_to(root) for root in roots):
-            continue
-        if resolved.is_file() and not candidate.is_symlink():
-            return resolved
+        for root in roots:
+            if not resolved.is_relative_to(root):
+                continue
+            try:
+                unresolved_relative = candidate.absolute().relative_to(root)
+            except ValueError:
+                continue
+            current = root
+            contains_symlink = False
+            for part in unresolved_relative.parts:
+                current = current / part
+                if current.is_symlink():
+                    contains_symlink = True
+                    break
+            if resolved.is_file() and not contains_symlink:
+                return resolved
     raise BridgeError("Receipt attachment is unavailable or outside OpenClaw media storage")
 
 
@@ -221,6 +233,14 @@ def submit(reference: str, purpose: str | None) -> dict:
     if not isinstance(extracted, dict) or not isinstance(classification, dict):
         raise BridgeError("Ledgerly returned an incomplete response")
     confidence = classification.get("confidence")
+    raw_review_reasons = classification.get("review_reasons")
+    review_reasons = (
+        [reason for reason in raw_review_reasons if isinstance(reason, str)][:5]
+        if isinstance(raw_review_reasons, list)
+        else []
+    )
+    raw_duplicates = payload.get("duplicate_candidates")
+    duplicate_count = len(raw_duplicates) if isinstance(raw_duplicates, list) else 0
     return {
         "ok": True,
         "receipt_id": payload.get("receipt_id"),
@@ -232,8 +252,8 @@ def submit(reference: str, purpose: str | None) -> dict:
         "confidence": confidence if isinstance(confidence, (int, float)) else None,
         "status": classification.get("workflow_decision"),
         "needs_review": bool(classification.get("needs_review")),
-        "review_reasons": classification.get("review_reasons", [])[:5],
-        "duplicate_count": len(payload.get("duplicate_candidates", [])),
+        "review_reasons": review_reasons,
+        "duplicate_count": duplicate_count,
     }
 
 

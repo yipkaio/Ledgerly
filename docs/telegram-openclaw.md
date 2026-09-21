@@ -100,10 +100,22 @@ If the organiser installation uses a user service, run the equivalent `systemctl
 
 ## 6. Lock Telegram to your account
 
-First use pairing only to learn and approve your own account:
+First use pairing only to learn and approve your own account. Add the following temporary Telegram block to `~/.openclaw/openclaw.json` while preserving the provider/model configuration created during onboarding:
+
+```json5
+channels: {
+  telegram: {
+    enabled: true,
+    tokenFile: "/home/ubuntu/.openclaw/secrets/telegram-bot-token",
+    dmPolicy: "pairing",
+    groupPolicy: "disabled",
+  },
+},
+```
+
+Then verify the channel:
 
 ```bash
-openclaw channels add --channel telegram --token-file ~/.openclaw/secrets/telegram-bot-token
 openclaw channels status --probe
 ```
 
@@ -172,4 +184,3 @@ Disable the Telegram channel or the skill, then restart the Gateway. Ledgerly's 
 openclaw config set channels.telegram.enabled false --strict-json
 sudo systemctl restart openclaw-gateway
 ```
-

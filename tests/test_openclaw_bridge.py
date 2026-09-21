@@ -76,7 +76,12 @@ def test_resolve_media_and_submit_returns_bounded_summary(monkeypatch):
 
 @pytest.mark.parametrize(
     "reference",
-    ["https://example.com/receipt.jpg", "../receipt.jpg", "media://inbound/../receipt.jpg"],
+    [
+        "https://example.com/receipt.jpg",
+        "../receipt.jpg",
+        "/tmp/../tmp/receipt.jpg",
+        "media://inbound/../receipt.jpg",
+    ],
 )
 def test_rejects_unmanaged_media_paths(monkeypatch, reference):
     with tempfile.TemporaryDirectory() as directory:
@@ -112,4 +117,3 @@ def test_api_url_is_loopback_only(monkeypatch):
     monkeypatch.setenv("LEDGERLY_API_URL", "https://ledgerly.example.com")
     with pytest.raises(bridge.BridgeError, match="loopback"):
         bridge._api_url()
-
