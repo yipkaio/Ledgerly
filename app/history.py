@@ -1,9 +1,9 @@
 """Validated history filters and effective-value SQL shared by lists and exports."""
 
 from datetime import date
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.classification import ExpenseCategory
 
@@ -19,6 +19,7 @@ HistoryState = Literal[
     "PROCESSING",
     "FAILED",
 ]
+CurrencyCode = Annotated[str, Field(pattern=r"^[A-Z]{3}$")]
 
 
 class HistoryFilters(BaseModel):
@@ -26,11 +27,18 @@ class HistoryFilters(BaseModel):
 
     query: str | None = Field(default=None, max_length=100)
     vendor: str | None = Field(default=None, max_length=100)
-    category: ExpenseCategory | None = None
-    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
-    state: HistoryState | None = None
+    category: list[ExpenseCategory] = Field(default_factory=list, max_length=10)
+    currency: list[CurrencyCode] = Field(default_factory=list, max_length=12)
+    state: list[HistoryState] = Field(default_factory=list, max_length=9)
     date_from: date | None = None
     date_to: date | None = None
+
+    @field_validator("category", "currency", "state", mode="before")
+    @classmethod
+    def normalize_multi_value(cls, value: Any) -> list[Any]:
+        if value is None or value == "":
+            return []
+        return value if isinstance(value, list) else [value]
 
     @model_validator(mode="after")
     def valid_range(self):
@@ -38,6 +46,9 @@ class HistoryFilters(BaseModel):
             raise ValueError("date_from must be on or before date_to")
         self.query = self.query or None
         self.vendor = self.vendor or None
+        self.category = list(dict.fromkeys(self.category))
+        self.currency = list(dict.fromkeys(self.currency))
+        self.state = list(dict.fromkeys(self.state))
         return self
 
 
@@ -90,8 +101,12 @@ def _contains(value: str) -> str:
     return f"%{escaped}%"
 
 
+def _in_clause(column: str, values: list[object]) -> str:
+    return f"{column} IN ({','.join('?' for _ in values)})"
+
+
 def filter_clause(filters: HistoryFilters) -> tuple[str, tuple]:
-    clauses: list[str] = [] if filters.state == 'DELETED' else ["lifecycle_state<>'DELETED'"]
+    clauses: list[str] = [] if "DELETED" in filters.state else ["lifecycle_state<>'DELETED'"]
     values: list[object] = []
     if filters.query:
         pattern = _contains(filters.query)
@@ -105,14 +120,15 @@ def filter_clause(filters: HistoryFilters) -> tuple[str, tuple]:
         clauses.append("lower(COALESCE(vendor,'')) LIKE ? ESCAPE '\\'")
         values.append(_contains(filters.vendor))
     if filters.category:
-        clauses.append("category=?")
-        values.append(filters.category.value)
+        categories = [item.value for item in filters.category]
+        clauses.append(_in_clause("category", categories))
+        values.extend(categories)
     if filters.currency:
-        clauses.append("currency=?")
-        values.append(filters.currency)
+        clauses.append(_in_clause("currency", filters.currency))
+        values.extend(filters.currency)
     if filters.state:
-        clauses.append("workflow_state=?")
-        values.append(filters.state)
+        clauses.append(_in_clause("workflow_state", filters.state))
+        values.extend(filters.state)
     if filters.date_from:
         clauses.append("receipt_date>=?")
         values.append(filters.date_from.isoformat())

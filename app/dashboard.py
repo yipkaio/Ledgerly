@@ -33,10 +33,20 @@ def dashboard_summary(store, fx_snapshot: dict | None = None) -> dict:
             currencies[row['currency']].update(total_cents=row['cents'], receipt_count=row['count'])
         for row in db.execute(EFFECTIVE + "SELECT currency, COALESCE(category, 'Uncategorized') AS category, " + cents + ' AS cents FROM effective' + accepted + ' GROUP BY currency, category ORDER BY currency, cents DESC, category'):
             currencies[row['currency']]['categories'].append({'category': row['category'], 'total_cents': row['cents']})
-        for row in db.execute(EFFECTIVE + 'SELECT currency, substr(date,1,7) AS month, ' + cents + ' AS cents FROM effective' + accepted + " AND date IS NOT NULL GROUP BY currency, month ORDER BY currency, month DESC"):
+        for row in db.execute(
+            EFFECTIVE
+            + 'SELECT currency, substr(date,1,7) AS month, count(*) AS count, '
+            + cents
+            + ' AS cents FROM effective'
+            + accepted
+            + " AND date IS NOT NULL GROUP BY currency, month ORDER BY currency, month DESC"
+        ):
             months = currencies[row['currency']]['months']
-            if len(months) < 12:
-                months.append({'month': row['month'], 'total_cents': row['cents']})
+            months.append({
+                'month': row['month'],
+                'total_cents': row['cents'],
+                'receipt_count': row['count'],
+            })
     for value in currencies.values():
         value['months'].reverse()
     default_currency = workspace_currency(store)
@@ -48,6 +58,7 @@ def dashboard_summary(store, fx_snapshot: dict | None = None) -> dict:
         if fx_snapshot:
             category_totals = defaultdict(int)
             month_totals = defaultdict(int)
+            month_counts = defaultdict(int)
             total = 0
             try:
                 for code, value in currencies.items():
@@ -63,6 +74,7 @@ def dashboard_summary(store, fx_snapshot: dict | None = None) -> dict:
                         category_totals[item['category']] += convert_cents(
                             item['total_cents'], code, default_currency, fx_snapshot['rates'])
                     for item in value['months']:
+                        month_counts[item['month']] += item['receipt_count']
                         month_totals[item['month']] += convert_cents(
                             item['total_cents'], code, default_currency, fx_snapshot['rates'])
                 reporting.update(
@@ -70,8 +82,9 @@ def dashboard_summary(store, fx_snapshot: dict | None = None) -> dict:
                     source=fx_snapshot['source'], stale=fx_snapshot.get('stale', False),
                     categories=[{'category': key, 'total_cents': value} for key, value in
                                 sorted(category_totals.items(), key=lambda pair: (-pair[1], pair[0]))],
-                    months=[{'month': key, 'total_cents': value} for key, value in
-                            sorted(month_totals.items())[-12:]],
+                    months=[{'month': key, 'total_cents': value,
+                             'receipt_count': month_counts[key]} for key, value in
+                            sorted(month_totals.items())],
                 )
             except FXUnavailable:
                 pass

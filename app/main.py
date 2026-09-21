@@ -24,10 +24,13 @@ from pydantic import BaseModel, Field, ValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from app.images import receipt_image, receipt_preview
+from app.agents.router import build_agent_router
 from app.lifecycle import LifecycleRequest, apply_lifecycle, purge_expired
 from app.reprocessing import ReprocessRequest, reprocess
 from app.statements import (
     MonthlyExportRequest,
+    StatementLifecycleRequest,
+    change_statement_state,
     PaymentUpdate,
     StatementDuplicate,
     StatementInvalid,
@@ -106,6 +109,7 @@ from app.pdf import (
     PDFTimeoutError,
     extract_pdf,
     extract_pdf_text,
+    render_pdf_first_page,
 )
 
 CHUNK_SIZE = 64 * 1024
@@ -264,6 +268,8 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
     )
+
+    api.include_router(build_agent_router(get_settings, require_api_key))
 
     @api.exception_handler(DatabaseError)
     async def database_error_handler(request, exc):
@@ -456,6 +462,20 @@ def create_app() -> FastAPI:
             preview,
         )
 
+    @api.post("/bank-statements/{statement_id}/lifecycle", tags=["reconciliation"])
+    async def statement_lifecycle(
+        statement_id: UUID,
+        body: StatementLifecycleRequest,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ):
+        try:
+            return await run_in_threadpool(
+                change_statement_state, ReceiptStore(settings.database_path), str(statement_id), body
+            )
+        except StatementInvalid as exc:
+            raise HTTPException(status_code=404 if "not found" in str(exc) else 409,
+                                detail=str(exc)) from exc
+
     @api.get("/bank-statements/periods", tags=["reconciliation"],
              summary="List imported statement months")
     async def bank_statement_periods(
@@ -476,6 +496,41 @@ def create_app() -> FastAPI:
         response_type = "text/csv; charset=utf-8" if media_type == "text/csv" else media_type
         return Response(content=content, media_type=response_type,
                         headers={"Content-Disposition": f'attachment; filename="{safe_name}"'})
+
+    @api.get(
+        "/bank-statements/{statement_id}/source-preview",
+        tags=["reconciliation"],
+        summary="Render a safe first-page PNG preview of a retained bank statement PDF",
+    )
+    async def preview_bank_statement_source(
+        statement_id: UUID,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> Response:
+        _, media_type, content = await run_in_threadpool(
+            statement_source, ReceiptStore(settings.database_path), str(statement_id),
+        )
+        if media_type != "application/pdf" and not content.startswith(b"%PDF-"):
+            raise HTTPException(status_code=404, detail="Statement preview is available for PDF sources only")
+        try:
+            preview = await run_in_threadpool(
+                render_pdf_first_page,
+                content,
+                max_pages=settings.statement_pdf_max_pages,
+                max_render_pixels=settings.statement_pdf_max_render_pixels,
+                timeout_seconds=settings.statement_pdf_timeout_seconds,
+            )
+        except PDFTimeoutError as exc:
+            raise HTTPException(status_code=504, detail="Statement preview timed out") from exc
+        except PDFError as exc:
+            raise HTTPException(status_code=422, detail="Statement preview could not be rendered") from exc
+        return Response(
+            content=preview,
+            media_type="image/png",
+            headers={
+                "Content-Disposition": f'inline; filename="{statement_id}-preview.png"',
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+            },
+        )
 
     @api.get("/reconciliation", tags=["reconciliation"],
              summary="Compare accepted receipts with imported bank debits")
@@ -651,9 +706,9 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
         processing_status: Literal["PROCESSING", "COMPLETED", "REVIEW_QUEUE", "FAILED"] | None = None,
         query: Annotated[str | None, Query(max_length=100)] = None,
         vendor: Annotated[str | None, Query(max_length=100)] = None,
-        category: str | None = None,
-        currency: Annotated[str | None, Query(pattern=r"^[A-Z]{3}$")] = None,
-        state: str | None = None,
+        category: Annotated[list[str] | None, Query()] = None,
+        currency: Annotated[list[str] | None, Query()] = None,
+        state: Annotated[list[str] | None, Query()] = None,
         date_from: date | None = None,
         date_to: date | None = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 20,

@@ -55,7 +55,7 @@ def test_cross_rate_conversion_and_consolidated_dashboard(tmp_path: Path):
     assert result["default_currency"] == "SGD"
     assert result["reporting"]["available"] is True
     assert result["reporting"]["total_cents"] == 30_000
-    assert result["reporting"]["months"] == [{"month": "2026-08", "total_cents": 30_000}]
+    assert result["reporting"]["months"] == [{"month": "2026-08", "total_cents": 30_000, "receipt_count": 2}]
 
 
 def test_workspace_setting_latest_snapshot_cache_and_dashboard_api(monkeypatch, tmp_path: Path):
@@ -77,3 +77,4 @@ def test_workspace_setting_latest_snapshot_cache_and_dashboard_api(monkeypatch, 
     assert first["reporting"]["as_of"] == "2026-09-18"
     assert second["reporting"] == first["reporting"]
     assert provider.calls == 1
+

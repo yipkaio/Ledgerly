@@ -165,6 +165,34 @@ def _inspect(
     return result
 
 
+def render_pdf_first_page(
+    content: bytes,
+    *,
+    max_pages: int,
+    max_render_pixels: int,
+    timeout_seconds: int,
+) -> bytes:
+    """Render an untrusted retained PDF to a bounded PNG in the isolated parser."""
+
+    if not content.startswith(b"%PDF-"):
+        raise PDFError("PDF is malformed")
+    with TemporaryDirectory(prefix="statement-preview-") as directory:
+        root = Path(directory)
+        source = root / "statement.pdf"
+        source.write_bytes(content)
+        result = _inspect(
+            source,
+            root,
+            max_pages,
+            max_render_pixels,
+            timeout_seconds,
+        )
+        preview = result["rendered"][0]
+        if preview is None:
+            raise PDFError("PDF preview rendering is unavailable")
+        return Path(preview).read_bytes()
+
+
 def extract_pdf(
     source: Path,
     ocr_service: OCRService,

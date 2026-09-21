@@ -55,6 +55,13 @@ def test_history_filters_use_latest_effective_values(monkeypatch, tmp_path):
         "/receipts?date_from=2025-01-01&date_to=2024-01-01", headers=HEADERS
     ).status_code == 422
 
+    multi = client.get(
+        "/receipts?currency=SGD&currency=MYR&state=AMENDED&state=AUTO_FILED",
+        headers=HEADERS,
+    )
+    assert multi.status_code == 200, multi.text
+    assert multi.json()["total"] == 2
+
 
 def test_selected_export_has_polished_safe_effective_sheets(monkeypatch, tmp_path):
     client, _, extractor, _ = configured_client(monkeypatch, tmp_path)
@@ -119,6 +126,14 @@ def test_filtered_export_and_selection_validation(monkeypatch, tmp_path):
     )
     assert response.status_code == 200
     assert response.headers["x-receipt-count"] == "2"
+
+    multi = client.post(
+        "/receipts/export",
+        headers=HEADERS,
+        json={"filters": {"currency": ["SGD", "MYR"], "state": ["AUTO_FILED"]}},
+    )
+    assert multi.status_code == 200
+    assert multi.headers["x-receipt-count"] == "2"
     assert client.post("/receipts/export", json={"filters": {}}).status_code == 401
     assert client.post(
         "/receipts/export", headers=HEADERS, json={"receipt_ids": []}

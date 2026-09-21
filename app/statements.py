@@ -51,7 +51,7 @@ class StatementDuplicate(ValueError):
     """The exact statement file has already been imported."""
 
     def __init__(self, statement_id: str):
-        super().__init__("This exact bank statement was already uploaded")
+        super().__init__("This exact bank statement was already uploaded. If removed, restore it from Removed statements in its original month.")
         self.statement_id = statement_id
 
 
@@ -66,6 +66,39 @@ class PaymentUpdate(BaseModel):
         if value not in {"TRADE_PAYABLE", "PAYMENT_ISSUE", "CLEAR"}:
             raise ValueError("Unsupported payment state")
         return value
+
+
+class StatementLifecycleRequest(BaseModel):
+    action: str = Field(pattern="^(REMOVE|RESTORE)$")
+    actor: str = Field(min_length=2, max_length=100)
+    reason: str = Field(min_length=5, max_length=500)
+
+    @field_validator("actor", "reason", mode="before")
+    @classmethod
+    def strip_text(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+def change_statement_state(store, statement_id: str, body: StatementLifecycleRequest) -> dict:
+    """Reversible exclusion, preserving source, debits and an append-only event list."""
+    with store.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT metadata_json FROM bank_statements WHERE statement_id=?",
+                         (statement_id,)).fetchone()
+        if row is None:
+            raise StatementInvalid("Bank statement was not found")
+        metadata = json.loads(row[0])
+        removed = metadata.get("removed", False)
+        wanted = body.action == "REMOVE"
+        if removed == wanted:
+            raise StatementInvalid("Statement is already removed" if wanted else "Statement is already active")
+        event = {"action": body.action, "actor": body.actor, "reason": body.reason,
+                 "occurred_at": datetime.now(timezone.utc).isoformat()}
+        metadata.setdefault("lifecycle_events", []).append(event)
+        metadata["removed"] = wanted
+        db.execute("UPDATE bank_statements SET metadata_json=? WHERE statement_id=?",
+                   (json.dumps(metadata, allow_nan=False), statement_id))
+    return {"statement_id": statement_id, "removed": wanted, "event": event}
 
 
 class MonthlyExportRequest(BaseModel):
@@ -438,9 +471,16 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
             "FROM bank_statements WHERE statement_month=? AND currency=? ORDER BY uploaded_at",
             (month, currency),
         )]
+        removed_statements = [
+            row for row in statements if json.loads(row["metadata_json"]).get("removed", False)
+        ]
+        statements = [
+            row for row in statements if not json.loads(row["metadata_json"]).get("removed", False)
+        ]
         txs = [dict(row) for row in db.execute(
             "SELECT t.* FROM bank_transactions t JOIN bank_statements s USING(statement_id) "
-            "WHERE s.statement_month=? AND s.currency=? ORDER BY posted_date,source_row",
+            "WHERE s.statement_month=? AND s.currency=? "
+            "AND COALESCE(json_extract(s.metadata_json,'$.removed'),0)=0 ORDER BY posted_date,source_row",
             (month, currency),
         )]
         receipts = _receipt_rows(db, month, currency)
@@ -532,6 +572,7 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
                             "detail": f"There are {exception_count} reconciliation exceptions. Clear duplicates and missing evidence before relying on savings estimates."})
     return {
         "month": month, "currency": currency, "statements": statements,
+        "removed_statements": removed_statements,
         "transactions": transaction_rows, "receipts": receipt_rows,
         "totals": {"bank_debits_cents": bank_total, "receipt_spend_cents": receipt_total,
                    "matched_cents": matched_total, "difference_cents": bank_total - receipt_total,
@@ -544,7 +585,9 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
 def list_periods(store) -> list[dict]:
     with store.connect() as db:
         return [dict(row) for row in db.execute(
-            "SELECT statement_month AS month,currency,count(*) AS statement_count,sum(row_count) AS transaction_count "
+            "SELECT statement_month AS month,currency,"
+            "sum(CASE WHEN COALESCE(json_extract(metadata_json,'$.removed'),0)=0 THEN 1 ELSE 0 END) AS statement_count,"
+            "sum(CASE WHEN COALESCE(json_extract(metadata_json,'$.removed'),0)=0 THEN row_count ELSE 0 END) AS transaction_count "
             "FROM bank_statements GROUP BY statement_month,currency ORDER BY statement_month DESC,currency"
         )]
 

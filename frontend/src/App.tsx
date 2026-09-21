@@ -19,13 +19,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -62,24 +55,41 @@ const MonthlyClose = lazy(() =>
 
 type HistoryFilterValues = {
   query: string;
-  category: string;
-  currency: string;
-  state: string;
+  category: string[];
+  currency: string[];
+  state: string[];
   date_from: string;
   date_to: string;
 };
 const emptyFilters: HistoryFilterValues = {
   query: "",
-  category: "",
-  currency: "",
-  state: "",
+  category: [],
+  currency: [],
+  state: [],
   date_from: "",
   date_to: "",
 };
+const historyStatuses = [
+  "AUTO_FILED",
+  "APPROVED",
+  "AMENDED",
+  "VOIDED",
+  "REJECTED",
+  "REVIEW_QUEUE",
+  "PROCESSING",
+  "FAILED",
+];
+const historyCurrencies = ["SGD", "MYR", "USD", "EUR", "GBP", "AUD"];
+
 function filterParams(filters: HistoryFilterValues) {
-  return Object.fromEntries(
-    Object.entries(filters).filter(([, value]) => value.trim()),
-  );
+  return {
+    ...(filters.query.trim() ? { query: filters.query.trim() } : {}),
+    ...(filters.category.length ? { category: filters.category } : {}),
+    ...(filters.currency.length ? { currency: filters.currency } : {}),
+    ...(filters.state.length ? { state: filters.state } : {}),
+    ...(filters.date_from ? { date_from: filters.date_from } : {}),
+    ...(filters.date_to ? { date_to: filters.date_to } : {}),
+  };
 }
 
 export default function App() {
@@ -191,8 +201,13 @@ function Workspace({
     const params = new URLSearchParams({ limit: "20", offset: String(offset) });
     if (view === "deleted") params.set("state", "DELETED");
     if (view === "history") {
-      for (const [key, value] of Object.entries(filterParams(filters)))
-        params.set(key, value);
+      for (const [key, value] of Object.entries(filterParams(filters))) {
+        if (Array.isArray(value)) {
+          for (const item of value) params.append(key, item);
+        } else {
+          params.set(key, value);
+        }
+      }
     }
     request<Page>(
       `${view === "reviews" ? "/reviews" : "/receipts"}?${params}`,
@@ -367,7 +382,19 @@ function Workspace({
             </Suspense>
           ) : view === "dashboard" ? (
             <Suspense fallback={<p role="status">Loading dashboard…</p>}>
-              <Dashboard token={token} navigate={navigate} />
+              <Dashboard
+                token={token}
+                navigate={navigate}
+                showAcceptedReceipts={() => {
+                  const accepted = {
+                    ...emptyFilters,
+                    state: ["AUTO_FILED", "APPROVED", "AMENDED"],
+                  };
+                  setFilterDraft(accepted);
+                  setFilters(accepted);
+                  navigate("history");
+                }}
+              />
             </Suspense>
           ) : view === "monthly" ? (
             <Suspense fallback={<p role="status">Loading monthly close…</p>}>
@@ -393,156 +420,113 @@ function Workspace({
               </p>
               {view === "history" && (
                 <form
-                  className="panel mb-5 grid gap-4 p-4 md:grid-cols-3 xl:grid-cols-6"
+                  className="panel mb-5 p-4 sm:p-5"
                   aria-label="Receipt history filters"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    setFilters({ ...filterDraft });
+                    setFilters({
+                      ...filterDraft,
+                      category: [...filterDraft.category],
+                      currency: [...filterDraft.currency],
+                      state: [...filterDraft.state],
+                    });
                     setOffset(0);
                     setChecked(new Set());
                   }}
                 >
-                  <div className="md:col-span-2">
-                    <label htmlFor="history-search" className="field-label">
-                      Vendor, receipt number or ID
-                    </label>
-                    <Input
-                      id="history-search"
-                      maxLength={100}
-                      value={filterDraft.query}
-                      onChange={(event) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          query: event.target.value,
-                        }))
+                  <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(18rem,1.4fr)_repeat(3,minmax(10rem,0.7fr))]">
+                    <div>
+                      <label htmlFor="history-search" className="field-label">
+                        Vendor, receipt number or ID
+                      </label>
+                      <Input
+                        id="history-search"
+                        maxLength={100}
+                        value={filterDraft.query}
+                        onChange={(event) =>
+                          setFilterDraft((old) => ({
+                            ...old,
+                            query: event.target.value,
+                          }))
+                        }
+                        placeholder="Search receipt history"
+                      />
+                    </div>
+                    <MultiCheckboxFilter
+                      label="Categories"
+                      options={categories}
+                      selected={filterDraft.category}
+                      onChange={(category) =>
+                        setFilterDraft((old) => ({ ...old, category }))
+                      }
+                    />
+                    <MultiCheckboxFilter
+                      label="Statuses"
+                      options={historyStatuses}
+                      selected={filterDraft.state}
+                      format={(value) => value.replaceAll("_", " ")}
+                      onChange={(state) =>
+                        setFilterDraft((old) => ({ ...old, state }))
+                      }
+                    />
+                    <MultiCheckboxFilter
+                      label="Currencies"
+                      options={historyCurrencies}
+                      selected={filterDraft.currency}
+                      onChange={(currency) =>
+                        setFilterDraft((old) => ({ ...old, currency }))
                       }
                     />
                   </div>
-                  <div>
-                    <label className="field-label" htmlFor="history-category">
-                      Category
-                    </label>
-                    <Select
-                      value={filterDraft.category || "all"}
-                      onValueChange={(value) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          category: value === "all" ? "" : value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger id="history-category">
-                        <SelectValue placeholder="All categories" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All categories</SelectItem>
-                        {categories.map((value) => (
-                          <SelectItem value={value} key={value}>
-                            {value}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="field-label" htmlFor="history-state">
-                      Status
-                    </label>
-                    <Select
-                      value={filterDraft.state || "all"}
-                      onValueChange={(value) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          state: value === "all" ? "" : value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger id="history-state">
-                        <SelectValue placeholder="All statuses" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All statuses</SelectItem>
-                        {[
-                          "AUTO_FILED",
-                          "APPROVED",
-                          "AMENDED",
-                          "VOIDED",
-                          "REJECTED",
-                          "REVIEW_QUEUE",
-                          "PROCESSING",
-                          "FAILED",
-                        ].map((value) => (
-                          <SelectItem value={value} key={value}>
-                            {value.replaceAll("_", " ")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="field-label" htmlFor="history-currency">
-                      Currency
-                    </label>
-                    <Input
-                      id="history-currency"
-                      maxLength={3}
-                      placeholder="MYR"
-                      value={filterDraft.currency}
-                      onChange={(event) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          currency: event.target.value.toUpperCase(),
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="flex items-end gap-2">
-                    <Button type="submit">Apply filters</Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      aria-label="Clear history filters"
-                      onClick={() => {
-                        setFilterDraft(emptyFilters);
-                        setFilters(emptyFilters);
-                        setOffset(0);
-                        setChecked(new Set());
-                      }}
-                    >
-                      <X />
-                    </Button>
-                  </div>
-                  <div>
-                    <label className="field-label" htmlFor="history-date-from">
-                      Receipt date from
-                    </label>
-                    <Input
-                      id="history-date-from"
-                      type="date"
-                      value={filterDraft.date_from}
-                      onChange={(event) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          date_from: event.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="field-label" htmlFor="history-date-to">
-                      Receipt date to
-                    </label>
-                    <Input
-                      id="history-date-to"
-                      type="date"
-                      value={filterDraft.date_to}
-                      onChange={(event) =>
-                        setFilterDraft((old) => ({
-                          ...old,
-                          date_to: event.target.value,
-                        }))
-                      }
-                    />
+
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+                    <div>
+                      <label className="field-label" htmlFor="history-date-from">
+                        Receipt date from
+                      </label>
+                      <Input
+                        id="history-date-from"
+                        type="date"
+                        value={filterDraft.date_from}
+                        onChange={(event) =>
+                          setFilterDraft((old) => ({
+                            ...old,
+                            date_from: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="field-label" htmlFor="history-date-to">
+                        Receipt date to
+                      </label>
+                      <Input
+                        id="history-date-to"
+                        type="date"
+                        value={filterDraft.date_to}
+                        onChange={(event) =>
+                          setFilterDraft((old) => ({
+                            ...old,
+                            date_to: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <Button type="submit">Apply filters</Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          setFilterDraft(emptyFilters);
+                          setFilters(emptyFilters);
+                          setOffset(0);
+                          setChecked(new Set());
+                        }}
+                      >
+                        <X /> Clear
+                      </Button>
+                    </div>
                   </div>
                 </form>
               )}
@@ -768,6 +752,86 @@ function Workspace({
     </>
   );
 }
+function MultiCheckboxFilter({
+  label,
+  options,
+  selected,
+  onChange,
+  format = (value) => value,
+}: {
+  label: string;
+  options: readonly string[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+  format?: (value: string) => string;
+}) {
+  return (
+    <div>
+      <span className="field-label">{label}</span>
+      <details className="group relative">
+        <summary className="flex h-9 list-none items-center justify-between rounded-md border bg-white px-3 text-sm shadow-xs marker:hidden">
+          <span className={selected.length ? "font-medium" : "text-muted-foreground"}>
+            {selected.length
+              ? `${selected.length} selected`
+              : `All ${label.toLowerCase()}`}
+          </span>
+          <span aria-hidden="true" className="text-xs text-muted-foreground transition group-open:rotate-180">
+            ▾
+          </span>
+        </summary>
+        <div className="absolute z-30 mt-2 max-h-72 w-full min-w-56 overflow-y-auto rounded-xl border bg-white p-2 shadow-xl">
+          <div className="flex items-center justify-between px-2 py-1.5">
+            <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Select {label.toLowerCase()}
+            </span>
+            {!!selected.length && (
+              <button
+                type="button"
+                className="text-xs font-medium text-primary hover:underline"
+                onClick={() => onChange([])}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {options.map((value) => (
+            <label
+              key={value}
+              className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(value)}
+                onChange={(event) =>
+                  onChange(
+                    event.target.checked
+                      ? [...selected, value]
+                      : selected.filter((item) => item !== value),
+                  )
+                }
+              />
+              <span>{format(value)}</span>
+            </label>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+const businessPurposes = [
+  "Client meeting or business meal",
+  "Office supplies for business operations",
+  "Business travel or transport",
+  "Software or subscription for work",
+  "Professional or consulting services",
+  "Utilities or telecommunications",
+  "Repairs or maintenance",
+  "Inventory or materials for resale",
+  "Staff welfare or team activity",
+  "Other",
+];
+
 function UploadForm({
   token,
   open,
@@ -776,7 +840,8 @@ function UploadForm({
   open: (id: string) => void;
 }) {
   const [file, setFile] = useState<File | null>(null),
-    [purpose, setPurpose] = useState(""),
+    [selectedPurpose, setSelectedPurpose] = useState(""),
+    [otherPurpose, setOtherPurpose] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [failedId, setFailedId] = useState<string | null>(null);
@@ -801,11 +866,17 @@ function UploadForm({
       setError("Choose a JPEG, PNG, or PDF receipt up to 5 MB.");
       return;
     }
+    const purpose =
+      selectedPurpose === "Other" ? otherPurpose.trim() : selectedPurpose;
+    if (!purpose) {
+      setError("Choose the business purpose for this receipt.");
+      return;
+    }
     submitting.current = true;
     setBusy(true);
     const body = new FormData();
     body.set("receipt", file);
-    if (purpose.trim()) body.set("business_purpose", purpose.trim());
+    body.set("business_purpose", purpose);
     try {
       const result = await request<{ receipt_id: string }>(
         "/receipts/upload",
@@ -845,23 +916,58 @@ function UploadForm({
           upload
         </p>
       </div>
-      <div>
-        <label htmlFor="purpose" className="field-label">
-          Business purpose (optional)
-        </label>
-        <Textarea
-          id="purpose"
-          maxLength={500}
-          value={purpose}
-          disabled={busy}
-          onChange={(e) => setPurpose(e.target.value)}
-          placeholder="For example: cleaning supplies for the office"
-        />
-        <p className="muted mt-2">
-          Explain how the purchase is used. Missing purpose may require human
-          review.
+      <fieldset>
+        <legend className="field-label">Business purpose</legend>
+        <p className="muted mb-3">
+          Choose the closest business use. This gives the classifier useful context.
         </p>
-      </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {businessPurposes.map((value) => {
+            const selected = selectedPurpose === value;
+            return (
+              <label
+                key={value}
+                className={`cursor-pointer rounded-xl border p-3 text-sm transition ${
+                  selected
+                    ? "border-emerald-500 bg-emerald-50 font-medium text-emerald-950 shadow-sm"
+                    : "bg-white hover:border-emerald-300 hover:bg-emerald-50/40"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="business-purpose"
+                  className="sr-only"
+                  required
+                  disabled={busy}
+                  checked={selected}
+                  onChange={() => {
+                    setSelectedPurpose(value);
+                    if (value !== "Other") setOtherPurpose("");
+                  }}
+                />
+                {value}
+              </label>
+            );
+          })}
+        </div>
+        {selectedPurpose === "Other" && (
+          <div className="mt-3">
+            <label htmlFor="purpose-other" className="field-label">
+              Describe the business purpose
+            </label>
+            <Textarea
+              id="purpose-other"
+              required
+              minLength={3}
+              maxLength={500}
+              value={otherPurpose}
+              disabled={busy}
+              onChange={(event) => setOtherPurpose(event.target.value)}
+              placeholder="For example: cleaning supplies for the office pantry"
+            />
+          </div>
+        )}
+      </fieldset>
       {error && (
         <Notice variant="destructive">
           {error}
@@ -872,7 +978,14 @@ function UploadForm({
           )}
         </Notice>
       )}
-      <Button disabled={busy || !file}>
+      <Button
+        disabled={
+          busy ||
+          !file ||
+          !selectedPurpose ||
+          (selectedPurpose === "Other" && otherPurpose.trim().length < 3)
+        }
+      >
         {busy ? <LoaderCircle className="animate-spin" /> : <Upload />}
         {busy ? "Processing receipt…" : "Upload and process"}
       </Button>

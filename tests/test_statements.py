@@ -154,6 +154,18 @@ def test_pdf_statement_preview_confirm_retains_exact_source(monkeypatch, tmp_pat
     assert source.headers["content-type"] == "application/pdf"
     assert source.content == content
 
+    preview_png = b"\\x89PNG\\r\\n\\x1a\\nrendered"
+    monkeypatch.setattr(
+        "app.main.render_pdf_first_page",
+        lambda *args, **kwargs: preview_png,
+    )
+    source_preview = client.get(
+        f"/bank-statements/{statement_id}/source-preview", headers=HEADERS
+    )
+    assert source_preview.status_code == 200
+    assert source_preview.headers["content-type"] == "image/png"
+    assert source_preview.content == preview_png
+
     replay = client.post(
         "/bank-statements/confirm", headers=HEADERS,
         files={"statement": ("ocbc-september.pdf", content, "application/pdf")},
@@ -304,3 +316,39 @@ def test_monthly_export_keeps_untrusted_bank_text_inert(tmp_path: Path):
         strings = archive.read("xl/sharedStrings.xml")
     assert b"<f>" not in sheet_xml
     assert b"=2+2" in strings
+
+
+def test_statement_removal_restore_preserves_evidence_and_receipts(monkeypatch, tmp_path):
+    import json
+    client, *_ = configured_client(monkeypatch, tmp_path)
+    store = ReceiptStore(get_settings().database_path)
+    receipt_id = accepted(store, "Acme", 12.00, "2026-09-01")
+    content = b"Date,Description,Debit\n2026-09-01,Acme,12.00\n"
+    result = import_statement(store, content, "wrong.csv", "2026-09", "SGD", "Operating")
+    statement_id = result["statement_id"]
+    endpoint = f"/bank-statements/{statement_id}/lifecycle"
+    body = {"action": "REMOVE", "actor": "Finance reviewer", "reason": "Wrong source uploaded"}
+    assert client.post(endpoint, json=body).status_code == 401
+    assert client.post(endpoint, headers=HEADERS, json={**body, "reason": "     "}).status_code == 422
+    assert monthly_reconciliation(store, "2026-09", "SGD")["totals"]["matched_cents"] == 1200
+    assert client.post(endpoint, headers=HEADERS, json=body).status_code == 200
+    assert client.post(endpoint, headers=HEADERS, json=body).status_code == 409
+    removed = monthly_reconciliation(store, "2026-09", "SGD")
+    assert removed["statements"] == []
+    assert removed["transactions"] == []
+    assert removed["totals"]["bank_debits_cents"] == 0
+    assert removed["totals"]["matched_cents"] == 0
+    assert removed["totals"]["receipt_spend_cents"] == 1200
+    assert removed["receipts"][0]["receipt_id"] == receipt_id
+    assert removed["receipts"][0]["status"] == "NO_BANK_MATCH"
+    assert removed["removed_statements"][0]["statement_id"] == statement_id
+    periods = client.get("/bank-statements/periods", headers=HEADERS).json()["items"]
+    assert periods[0]["transaction_count"] == 0
+    assert client.get(f"/bank-statements/{statement_id}/source", headers=HEADERS).content == content
+    assert client.post(endpoint, headers=HEADERS, json={**body, "action": "RESTORE"}).status_code == 200
+    restored = monthly_reconciliation(store, "2026-09", "SGD")
+    assert restored["totals"]["matched_cents"] == 1200
+    assert restored["removed_statements"] == []
+    events = json.loads(restored["statements"][0]["metadata_json"])["lifecycle_events"]
+    assert [event["action"] for event in events] == ["REMOVE", "RESTORE"]
+    assert client.post(f"/bank-statements/{uuid4()}/lifecycle", headers=HEADERS, json=body).status_code == 404
