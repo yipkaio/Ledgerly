@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "playwright test",
-    "test:unit": "node --experimental-strip-types --test tests/reconciliation.test.ts"
+    "test:unit": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -34,3 +34,4 @@
     "vite": "^8.3.0"
   }
 }
+

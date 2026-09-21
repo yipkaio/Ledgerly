@@ -388,7 +388,7 @@ function Workspace({
                 showAcceptedReceipts={() => {
                   const accepted = {
                     ...emptyFilters,
-                    state: ["AUTO_FILED", "APPROVED"],
+                    state: ["AUTO_FILED", "APPROVED", "AMENDED"],
                   };
                   setFilterDraft(accepted);
                   setFilters(accepted);

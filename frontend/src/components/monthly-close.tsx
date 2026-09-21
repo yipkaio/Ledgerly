@@ -50,6 +50,7 @@ type StatementRecord = {
 type Reconciliation = {
   month: string; currency: string;
   statements: StatementRecord[];
+  removed_statements: StatementRecord[];
   transactions: Transaction[]; receipts: ReceiptRow[];
   totals: { bank_debits_cents: number; receipt_spend_cents: number; matched_cents: number; difference_cents: number; exception_count: number };
   categories: { category: string; total_cents: number }[];
@@ -70,6 +71,10 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
   const [refresh, setRefresh] = useState(0);
   const [exportBusy, setExportBusy] = useState(false);
   const [sourceStatement, setSourceStatement] = useState<StatementRecord | null>(null);
+  const [lifecycleTarget, setLifecycleTarget] = useState<{ statement: StatementRecord; restore: boolean } | null>(null);
+  const [success, setSuccess] = useState("");
+  const [exceptionsOnly, setExceptionsOnly] = useState(false);
+  const [statementFilter, setStatementFilter] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -89,7 +94,7 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
   useEffect(() => {
     const controller = new AbortController();
     // oxlint-disable-next-line react/set-state-in-effect -- Reset status for this cancellable API read.
-    setBusy(true); setError("");
+    setBusy(true); setData(null); setError("");
     request<Reconciliation>(`/reconciliation?month=${month}&currency=${currency}`, token, { signal: controller.signal })
       .then((result) => !controller.signal.aborted && setData(result))
       .catch((e) => !controller.signal.aborted && setError(message(e)))
@@ -127,7 +132,7 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
     <div className="space-y-6">
       <div className="flex flex-wrap justify-end gap-2">
         <StatementUpload token={token} completed={(nextMonth, nextCurrency) => { setSourceStatement(null); setMonth(nextMonth); setCurrency(nextCurrency); setRefresh((value) => value + 1); }} />
-        <Button variant="outline" disabled={!data || exportBusy} onClick={() => void exportMonth()}>
+        <Button variant="outline" disabled={!data || busy || exportBusy} onClick={() => void exportMonth()}>
           {exportBusy ? <LoaderCircle className="animate-spin" /> : <Download />} Export month
         </Button>
         <Button variant="ghost" onClick={() => setRefresh((value) => value + 1)}><RefreshCw /> Refresh</Button>
@@ -148,17 +153,30 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
         </div>
         <div>
           <label htmlFor="manual-currency" className="field-label">Currency</label>
-          <Input id="manual-currency" maxLength={3} className="w-28" value={currency} onChange={(event) => { setSourceStatement(null); setCurrency(event.target.value.toUpperCase()); }} />
+          <select id="manual-currency" className="h-10 rounded-lg border bg-white px-3" value={currency} onChange={(event) => { setSourceStatement(null); setCurrency(event.target.value); }}>
+            {["SGD", "MYR", "USD", "EUR", "GBP", "AUD"].map((code) => <option key={code}>{code}</option>)}
+          </select>
         </div>
       </section>
 
+      {success && <Notice>{success}</Notice>}
       {error && <Notice variant="destructive">{error}</Notice>}
       {busy ? <MonthlySkeleton /> : data && <>
         {!data.statements.length && <Notice variant="warning">No {currency} statement is loaded for {month}. Accepted receipts are still shown so you can see what needs a bank match.</Notice>}
         {!!data.statements.length && <section className="panel p-4 sm:px-5" aria-label="Retained source statements">
           <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="font-medium">{data.statements.length} source statement{data.statements.length === 1 ? "" : "s"} retained</p><p className="muted">Keep the original PDF or CSV open beside the imported values while you review them.</p></div></div>
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">{data.statements.map((item) => <article key={item.statement_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3"><div className="min-w-0"><p className="truncate font-medium">{item.account_label}</p><p className="muted truncate">{item.original_filename} · {item.row_count} debits{item.imported_by ? ` · ${item.imported_by}` : ""}</p></div><div className="flex gap-2"><Button size="sm" variant={sourceStatement?.statement_id === item.statement_id ? "secondary" : "outline"} onClick={() => setSourceStatement(item)}><Eye /> View source</Button><Button size="sm" variant="ghost" aria-label={`Download ${item.original_filename}`} onClick={() => void downloadSource(item.statement_id, item.original_filename)}><Download /></Button></div></article>)}</div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">{data.statements.map((item) => <article key={item.statement_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3"><div className="min-w-0"><p className="truncate font-medium">{item.account_label}</p><p className="muted truncate">{item.original_filename} · {item.row_count} debits{item.imported_by ? ` · ${item.imported_by}` : ""}</p></div><div className="flex gap-2"><Button size="sm" variant={sourceStatement?.statement_id === item.statement_id ? "secondary" : "outline"} onClick={() => setSourceStatement(item)}><Eye /> View source</Button><Button size="sm" variant="ghost" aria-label={`Download ${item.original_filename}`} onClick={() => void downloadSource(item.statement_id, item.original_filename)}><Download /></Button>
+            <Button size="sm" variant="ghost" className="text-red-700" onClick={() => setLifecycleTarget({ statement: item, restore: false })}>Remove</Button></div></article>)}</div>
         </section>}
+        {!!data.removed_statements?.length && <details className="panel p-4">
+          <summary className="cursor-pointer text-sm font-medium">Removed statements ({data.removed_statements.length})</summary>
+          <p className="muted mt-2">Excluded from reconciliation. Sources and audit history are retained; restore an accidental removal here.</p>
+          {data.removed_statements.map((item) => <div key={item.statement_id} className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+            <div><p className="font-medium">{item.account_label}</p><p className="muted">{item.original_filename} · {item.row_count} debits</p></div>
+            <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setSourceStatement(item)}>View source</Button>
+              <Button size="sm" onClick={() => setLifecycleTarget({ statement: item, restore: true })}>Restore</Button></div>
+          </div>)}
+        </details>}
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Monthly reconciliation totals">
           <TotalCard icon={<Landmark />} label="Bank debits" value={amount(data.totals.bank_debits_cents / 100, currency)} help={`${data.transactions.length} imported debit transactions`} />
           <TotalCard icon={<FileSpreadsheet />} label="Accepted receipts" value={amount(data.totals.receipt_spend_cents / 100, currency)} help={`${data.receipts.length} receipts dated this month`} />
@@ -167,7 +185,7 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
         </section>
 
         <FinanceCopilot
-          key={`${month}-${currency}`}
+          key={`${month}-${currency}-${refresh}`}
           token={token}
           month={month}
           currency={currency}
@@ -195,16 +213,32 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
           <p className="mt-4 text-xs text-muted-foreground">Supplier comparisons need current quotes and human review. Ledgerly does not claim a cheaper vendor without verified market evidence.</p>
         </section>
 
-        <TransactionTable transactions={data.transactions} statements={data.statements} currency={currency} openReceipt={openReceipt} viewSource={setSourceStatement} />
+        <section className="panel flex flex-wrap items-center justify-between gap-3 p-4" aria-label="Reconciliation filters">
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={exceptionsOnly} onChange={(event) => setExceptionsOnly(event.target.checked)} />Show items needing attention only</label>
+          <label className="text-sm">Bank source <select aria-label="Filter bank transactions by source" className="ml-2 rounded-lg border bg-white p-2"
+            value={data.statements.some((item) => item.statement_id === statementFilter) ? statementFilter : ""}
+            onChange={(event) => setStatementFilter(event.target.value)}>
+            <option value="">All active statements</option>{data.statements.map((item) => <option key={item.statement_id} value={item.statement_id}>{item.account_label} · {item.original_filename}</option>)}
+          </select></label>
+          <p className="w-full text-xs text-muted-foreground">Filters affect the lists below. Summary totals and Excel exports always cover the entire month.</p>
+        </section>
+        <TransactionTable transactions={data.transactions.filter((item) => (!exceptionsOnly || item.status !== "MATCHED") && (!data.statements.some((source) => source.statement_id === statementFilter) || item.statement_id === statementFilter))} statements={data.statements} currency={currency} openReceipt={openReceipt} viewSource={setSourceStatement} />
         <section className="panel overflow-hidden" aria-labelledby="accepted-receipts-title">
+          {exceptionsOnly && data.receipts.length > 0 && !data.receipts.some((item) => item.status !== "PAID" || item.duplicate_receipt) && <p className="muted p-4">No accepted receipts need attention in this period.</p>}
           <div className="border-b p-5 sm:p-6"><h2 id="accepted-receipts-title" className="text-lg font-semibold">Accepted receipts</h2><p className="muted mt-1">Open any accepted receipt in Ledgerly to compare its retained evidence and values. Record a payable or payment issue only after checking the bank and internal payment records.</p></div>
-          {!data.receipts.length ? <p className="muted p-8 text-center">No accepted receipts are dated in this period.</p> : <div className="divide-y">{data.receipts.map((item) => <div key={item.receipt_id} className="flex flex-wrap items-center justify-between gap-4 p-4 sm:px-6"><div className="min-w-0"><button className="text-left font-medium hover:underline" onClick={() => openReceipt(item.receipt_id)}>{item.vendor}</button><p className="muted">{item.receipt_date} · {item.category}{item.duplicate_receipt ? " · possible duplicate receipt" : ""}</p></div><div className="flex flex-wrap items-center gap-3"><span className="font-semibold tabular-nums">{amount(item.amount_cents / 100, currency)}</span><Status value={item.duplicate_receipt ? "DUPLICATE_RECEIPT" : item.status} />{item.status !== "PAID" && <PaymentDialog token={token} receipt={item} saved={() => setRefresh((value) => value + 1)} />}<Button variant="ghost" onClick={() => openReceipt(item.receipt_id)}>Open receipt <ArrowRight /></Button></div></div>)}</div>}
+          {!data.receipts.length ? <p className="muted p-8 text-center">No accepted receipts are dated in this period.</p> : <div className="divide-y">{data.receipts.filter((item) => !exceptionsOnly || item.status !== "PAID" || item.duplicate_receipt).map((item) => <div key={item.receipt_id} className="flex flex-wrap items-center justify-between gap-4 p-4 sm:px-6"><div className="min-w-0"><button className="text-left font-medium hover:underline" onClick={() => openReceipt(item.receipt_id)}>{item.vendor}</button><p className="muted">{item.receipt_date} · {item.category}{item.duplicate_receipt ? " · possible duplicate receipt" : ""}</p></div><div className="flex flex-wrap items-center gap-3"><span className="font-semibold tabular-nums">{amount(item.amount_cents / 100, currency)}</span><Status value={item.duplicate_receipt ? "DUPLICATE_RECEIPT" : item.status} />{item.status !== "PAID" && <PaymentDialog token={token} receipt={item} saved={() => setRefresh((value) => value + 1)} />}<Button variant="ghost" onClick={() => openReceipt(item.receipt_id)}>Open receipt <ArrowRight /></Button></div></div>)}</div>}
         </section>
 
         <section className="rounded-xl border border-sky-200 bg-sky-50 p-5 text-sky-950" aria-labelledby="compliance-title">
           <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0" /><div><h2 id="compliance-title" className="font-semibold">Singapore record controls</h2><p className="mt-1 text-sm">Ledgerly keeps original receipt evidence, human decision history, payment follow-up events, and exportable monthly records. These controls support record keeping and PDPA accountability; they do not certify IRAS, GST, CPF, or PDPA compliance. Tax treatment and employee reimbursements still need your finance or HR reviewer.</p></div></div>
         </section>
       </>}
+      {lifecycleTarget && <StatementLifecycleDialog key={lifecycleTarget.statement.statement_id} token={token} target={lifecycleTarget}
+        close={() => setLifecycleTarget(null)} saved={() => {
+          setSuccess(lifecycleTarget.restore ? "Statement restored. Reconciliation has been recalculated." : "Statement removed from reconciliation. Receipts are unchanged. You can restore it below.");
+          setLifecycleTarget(null); setSourceStatement(null); setStatementFilter(""); setData(null);
+          setRefresh((value) => value + 1);
+        }} />}
       {sourceStatement && <StatementSourcePanel key={sourceStatement.statement_id} token={token} statement={sourceStatement} onClose={() => setSourceStatement(null)} download={() => void downloadSource(sourceStatement.statement_id, sourceStatement.original_filename)} />}
     </div>
   );
@@ -443,3 +477,40 @@ function StatementSourcePanel({ token, statement, onClose, download }: { token: 
   );
 }
 function MonthlySkeleton() { return <div role="status" aria-label="Loading monthly close" className="space-y-5 animate-pulse"><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0,1,2,3].map((item) => <div key={item} className="h-32 rounded-xl bg-muted" />)}</div><div className="h-48 rounded-xl bg-muted" /><span className="sr-only">Loading monthly close…</span></div>; }
+
+
+function StatementLifecycleDialog({ token, target, close, saved }: {
+  token: string; target: { statement: StatementRecord; restore: boolean }; close: () => void; saved: () => void;
+}) {
+  const [actor, setActor] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true); setError("");
+    try {
+      await request(`/bank-statements/${target.statement.statement_id}/lifecycle`, token, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: target.restore ? "RESTORE" : "REMOVE", actor: actor.trim(), reason: reason.trim() }),
+      });
+      saved();
+    } catch (caught) { setError(message(caught)); }
+    finally { setBusy(false); }
+  }
+  return <Dialog open onOpenChange={(open) => { if (!open && !busy) close(); }}>
+    <DialogContent><DialogHeader><DialogTitle>{target.restore ? "Restore" : "Remove"} statement?</DialogTitle>
+      <DialogDescription>{target.statement.account_label} · {target.statement.original_filename}</DialogDescription></DialogHeader>
+      <p className="text-sm">{target.restore ? "This restores the statement and recalculates its bank matches." :
+        `This excludes ${target.statement.row_count} imported debits and recalculates matches. Receipts and payment notes are not deleted. The original source is retained so removal can be reversed.`}</p>
+      <form onSubmit={submit} className="space-y-4">
+        <label className="block text-sm">Your name<Input required minLength={2} maxLength={100} value={actor} disabled={busy} onChange={(event) => setActor(event.target.value)} /></label>
+        <label className="block text-sm">Reason<Textarea required minLength={5} maxLength={500} value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} placeholder={target.restore ? "Why should this statement be restored?" : "For example: wrong account or incorrect source uploaded"} /></label>
+        {error && <Notice variant="destructive">{error}</Notice>}
+        <DialogFooter><Button type="button" variant="outline" disabled={busy} onClick={close}>Cancel</Button>
+          <Button type="submit" disabled={busy || actor.trim().length < 2 || reason.trim().length < 5}>{busy ? "Saving…" : target.restore ? "Restore statement" : "Remove statement"}</Button></DialogFooter>
+      </form>
+    </DialogContent>
+  </Dialog>;
+}

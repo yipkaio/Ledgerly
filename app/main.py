@@ -29,6 +29,8 @@ from app.lifecycle import LifecycleRequest, apply_lifecycle, purge_expired
 from app.reprocessing import ReprocessRequest, reprocess
 from app.statements import (
     MonthlyExportRequest,
+    StatementLifecycleRequest,
+    change_statement_state,
     PaymentUpdate,
     StatementDuplicate,
     StatementInvalid,
@@ -459,6 +461,20 @@ def create_app() -> FastAPI:
             "application/pdf",
             preview,
         )
+
+    @api.post("/bank-statements/{statement_id}/lifecycle", tags=["reconciliation"])
+    async def statement_lifecycle(
+        statement_id: UUID,
+        body: StatementLifecycleRequest,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ):
+        try:
+            return await run_in_threadpool(
+                change_statement_state, ReceiptStore(settings.database_path), str(statement_id), body
+            )
+        except StatementInvalid as exc:
+            raise HTTPException(status_code=404 if "not found" in str(exc) else 409,
+                                detail=str(exc)) from exc
 
     @api.get("/bank-statements/periods", tags=["reconciliation"],
              summary="List imported statement months")

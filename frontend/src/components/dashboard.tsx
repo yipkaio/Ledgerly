@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { TrendChart } from "@/components/expense-trend";
+import { monthNames, periodLabel, periodTotals, type PeriodMode, type MonthTotal } from "@/lib/dashboard-periods";
 import {
   ArrowRight,
   CircleAlert,
@@ -14,11 +16,6 @@ import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/feedback";
 import { amount, message, request } from "@/lib/api";
 
-type MonthTotal = {
-  month: string;
-  total_cents: number;
-  receipt_count: number;
-};
 type Currency = {
   currency: string;
   total_cents: number;
@@ -32,225 +29,123 @@ type Summary = {
   currencies: Currency[];
   accepted_missing_value: number;
   generated_at: string;
+  default_currency: string | null;
+  reporting: (Currency & { available: boolean; as_of: string | null; source: string | null; stale: boolean }) | null;
 };
 type View = "history" | "reviews" | "upload" | "monthly";
 
-export function Dashboard({
-  token,
-  navigate,
-  showAcceptedReceipts,
-}: {
-  token: string;
-  navigate: (view: View) => void;
-  showAcceptedReceipts: () => void;
+export function Dashboard({ token, navigate, showAcceptedReceipts }: {
+  token: string; navigate: (view: View) => void; showAcceptedReceipts: () => void;
 }) {
   const [data, setData] = useState<Summary | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
-  const [currency, setCurrency] = useState("");
-  const [month, setMonth] = useState("");
-
+  const [saving, setSaving] = useState(false);
+  const [currency, setCurrency] = useState("consolidated");
+  const [mode, setMode] = useState<PeriodMode>("month");
+  const [year, setYear] = useState("");
+  const [part, setPart] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    // oxlint-disable-next-line react/set-state-in-effect -- Clear the previous snapshot while loading a cancellable read.
+    // oxlint-disable-next-line react/set-state-in-effect -- Reset the cancellable dashboard snapshot.
     setData(null);
     setError("");
     request<Summary>("/dashboard", token, { signal: controller.signal })
-      .then((result) => {
-        if (!controller.signal.aborted) setData(result);
-      })
-      .catch((caught) => {
-        if (!controller.signal.aborted) setError(message(caught));
-      });
+      .then((result) => { if (!controller.signal.aborted) setData(result); })
+      .catch((caught) => { if (!controller.signal.aborted) setError(message(caught)); });
     return () => controller.abort();
   }, [token, refresh]);
 
-  const current =
-    data?.currencies.find((item) => item.currency === currency) || data?.currencies[0];
-  const activeMonth =
-    current?.months.find((item) => item.month === month) || current?.months.at(-1);
+  async function saveCurrency(value: string) {
+    setSaving(true); setError("");
+    try {
+      await request("/workspace/settings", token, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ default_currency: value }),
+      });
+      setCurrency("consolidated");
+      setRefresh((n) => n + 1);
+    } catch (caught) { setError(message(caught)); }
+    finally { setSaving(false); }
+  }
 
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-end">
-        <Button variant="outline" onClick={() => setRefresh((value) => value + 1)}>
-          <RefreshCw /> Refresh
-        </Button>
-      </div>
-
-      {error ? (
-        <Notice variant="destructive">{error}</Notice>
-      ) : !data ? (
-        <DashboardSkeleton />
-      ) : (
-        <>
-          <section
-            className="dashboard-hero overflow-hidden rounded-2xl border p-6 text-white shadow-sm sm:p-8"
-            aria-labelledby="accepted-expenses-title"
-          >
-            <div className="relative z-10 flex flex-wrap items-start justify-between gap-6">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-medium text-emerald-100">
-                  <TrendingUp className="size-4" />
-                  Accepted expenses · {activeMonth ? formatMonth(activeMonth.month) : "Latest month"}
-                </div>
-                <h2
-                  id="accepted-expenses-title"
-                  className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl"
-                >
-                  {current && activeMonth
-                    ? amount(activeMonth.total_cents / 100, current.currency)
-                    : "No accepted spend"}
-                </h2>
-                <p className="mt-3 text-sm text-emerald-50/90">
-                  {activeMonth
-                    ? `${activeMonth.receipt_count} approved or auto-filed receipt${activeMonth.receipt_count === 1 ? "" : "s"} in this month.`
-                    : "Upload and approve a dated receipt to begin tracking monthly expenses."}
-                </p>
-              </div>
-
-              {!!data.currencies.length && (
-                <div>
-                  <label
-                    htmlFor="dashboard-currency"
-                    className="mb-1.5 block text-xs font-semibold tracking-wide text-emerald-100 uppercase"
-                  >
-                    Currency
-                  </label>
-                  <select
-                    id="dashboard-currency"
-                    className="h-10 rounded-lg border border-white/30 bg-white/10 px-3 text-white backdrop-blur focus:bg-white focus:text-foreground"
-                    value={current?.currency || ""}
-                    onChange={(event) => {
-                      setCurrency(event.target.value);
-                      setMonth("");
-                    }}
-                  >
-                    {data.currencies.map((item) => (
-                      <option className="text-foreground" key={item.currency} value={item.currency}>
-                        {item.currency}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            {!!current?.months.length && (
-              <fieldset className="relative z-10 mt-7">
-                <legend className="mb-2 text-xs font-semibold tracking-wide text-emerald-100 uppercase">
-                  Choose month
-                </legend>
-                <div className="flex flex-wrap gap-2">
-                  {current.months.map((item) => {
-                    const selected = item.month === activeMonth?.month;
-                    return (
-                      <label
-                        key={item.month}
-                        className={`cursor-pointer rounded-lg border px-3 py-2 text-sm transition ${
-                          selected
-                            ? "border-white bg-white text-emerald-950 shadow-sm"
-                            : "border-white/20 bg-white/5 text-emerald-50 hover:bg-white/10"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="dashboard-month"
-                          className="sr-only"
-                          checked={selected}
-                          onChange={() => setMonth(item.month)}
-                        />
-                        {formatMonth(item.month, true)}
-                      </label>
-                    );
-                  })}
-                </div>
-              </fieldset>
-            )}
-
-            {!current && (
-              <Button
-                className="relative z-10 mt-6 bg-white text-primary hover:bg-emerald-50"
-                onClick={() => navigate("upload")}
-              >
-                Upload a receipt <ArrowRight />
-              </Button>
-            )}
-          </section>
-
-          <section
-            className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-            aria-label="Workspace summary"
-          >
-            <MetricCard
-              label="Monthly close"
-              value="Reconcile"
-              help="Match bank debits and receipt evidence"
-              icon={<Landmark />}
-              tone="violet"
-              action="Open monthly close"
-              onClick={() => navigate("monthly")}
-            />
-            <MetricCard
-              label="Pending reviews"
-              value={data.counts.REVIEW_QUEUE || 0}
-              help="Needs a human decision"
-              icon={<Clock3 />}
-              tone="amber"
-              action="Open review queue"
-              onClick={() => navigate("reviews")}
-            />
-            <MetricCard
-              label="Accepted receipts"
-              value={(data.counts.APPROVED || 0) + (data.counts.AUTO_FILED || 0)}
-              help={`${data.counts.APPROVED || 0} approved · ${data.counts.AUTO_FILED || 0} auto-filed`}
-              icon={<CircleCheckBig />}
-              tone="green"
-              action="View accepted receipts"
-              onClick={showAcceptedReceipts}
-            />
-            <MetricCard
-              label="All receipts"
-              value={data.total_receipts}
-              help="Every saved processing record"
-              icon={<ReceiptText />}
-              tone="blue"
-              action="Open receipt history"
-              onClick={() => navigate("history")}
-            />
-          </section>
-
-          {current && (
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(20rem,0.85fr)]">
-              <TrendChart currency={current.currency} items={current.months} />
-              <CategoryBreakdown currency={current.currency} items={current.categories} />
-            </div>
-          )}
-
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]">
-            <WorkflowStatus
-              counts={data.counts}
-              total={data.total_receipts}
-              navigate={navigate}
-            />
-            <AttentionPanel data={data} navigate={navigate} />
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            Updated {new Date(data.generated_at).toLocaleString()}
-          </p>
-        </>
-      )}
+  const reporting = data?.reporting;
+  const current = currency === "consolidated" && data?.default_currency
+    ? (reporting?.available ? reporting : undefined)
+    : data?.currencies.find((item) => item.currency === currency) || data?.currencies[0];
+  const latest = current?.months.at(-1)?.month || new Date().toISOString().slice(0, 7);
+  const years = Array.from(new Set((current?.months || []).map((item) => item.month.slice(0, 4)))).sort().reverse();
+  const activeYear = year || latest.slice(0, 4);
+  const activePart = part || (mode === "quarter" ? Math.ceil(Number(latest.slice(5)) / 3) : Number(latest.slice(5)));
+  const total = periodTotals(current?.months || [], mode, activeYear, activePart);
+  const label = periodLabel(mode, activeYear, activePart);
+  return <div className="space-y-6">
+    <div className="flex flex-wrap items-end justify-between gap-3">
+      <label className="text-sm font-medium">Default reporting currency
+        <select className="ml-3 h-10 rounded-lg border bg-white px-3" aria-label="Default reporting currency"
+          value={data?.default_currency || ""} disabled={saving || !data}
+          onChange={(event) => void saveCurrency(event.target.value)}>
+          <option value="" disabled>Choose currency</option>
+          {["SGD", "MYR", "USD", "EUR", "GBP", "AUD"].map((code) => <option key={code}>{code}</option>)}
+        </select>
+      </label>
+      <Button variant="outline" disabled={saving} onClick={() => setRefresh((n) => n + 1)}><RefreshCw /> Refresh</Button>
     </div>
-  );
-}
-
-function formatMonth(value: string, short = false) {
-  const [year, month] = value.split("-").map(Number);
-  return new Intl.DateTimeFormat(undefined, {
-    month: short ? "short" : "long",
-    year: "numeric",
-  }).format(new Date(Date.UTC(year, month - 1, 1)));
+    {error && <Notice variant="destructive">{error}</Notice>}
+    {!data ? <DashboardSkeleton /> : <>
+      <section className="dashboard-hero overflow-hidden rounded-2xl border p-6 text-white shadow-sm sm:p-8">
+        <div className="relative z-10 flex flex-wrap items-start justify-between gap-5">
+          <div>
+            <p className="flex items-center gap-2 text-sm text-emerald-100"><TrendingUp className="size-4" />Accepted expenses · {label}</p>
+            <h2 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">{current ? amount(total.total_cents / 100, current.currency) : data.default_currency ? "Conversion unavailable" : "No accepted spend"}</h2>
+            <p className="mt-3 text-sm text-emerald-50">{total.receipt_count} accepted receipts · Includes amendments</p>
+          </div>
+          <label className="text-sm">Display
+            <select aria-label="Spend display" className="ml-2 rounded-lg border bg-white p-2 text-foreground" value={currency}
+              onChange={(event) => setCurrency(event.target.value)}>
+              <option value="consolidated">{data.default_currency ? `All currencies → ${data.default_currency}` : "Native currency"}</option>
+              {data.currencies.map((item) => <option key={item.currency} value={item.currency}>{item.currency} only</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="relative z-10 mt-6 flex flex-wrap gap-3 text-foreground">
+          <label className="text-sm"><span className="mb-1 block text-emerald-100">Period</span>
+            <select aria-label="Expense period" className="h-10 rounded-lg bg-white px-3" value={mode} onChange={(event) => { setMode(event.target.value as PeriodMode); setPart(0); }}>
+              <option value="month">Month and year</option><option value="quarter">Quarter</option><option value="year">Full year</option>
+            </select>
+          </label>
+          <label className="text-sm"><span className="mb-1 block text-emerald-100">Year</span>
+            <select aria-label="Expense year" className="h-10 rounded-lg bg-white px-3" value={activeYear} onChange={(event) => setYear(event.target.value)}>
+              {Array.from(new Set([...years, activeYear])).sort().reverse().map((value) => <option key={value}>{value}</option>)}
+            </select>
+          </label>
+          {mode !== "year" && <label className="text-sm"><span className="mb-1 block text-emerald-100">{mode === "month" ? "Month" : "Quarter"}</span>
+            <select aria-label="Expense month or quarter" className="h-10 rounded-lg bg-white px-3" value={activePart} onChange={(event) => setPart(Number(event.target.value))}>
+              {(mode === "month" ? monthNames : ["Q1", "Q2", "Q3", "Q4"]).map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
+            </select>
+          </label>}
+        </div>
+        {currency === "consolidated" && data.default_currency && <p className="relative z-10 mt-4 text-xs text-emerald-100">
+          {reporting?.available ? `Converted using ${reporting.source} rates dated ${reporting.as_of}${reporting.stale ? " · Cached rates" : ""}. Management estimate; original amounts are unchanged.`
+            : "Exchange rates are unavailable. Refresh to retry or select a native currency; no partial converted total is shown."}
+        </p>}
+      </section>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Workspace summary">
+        <MetricCard label="Monthly close" value="Reconcile" help="Match bank debits and receipt evidence" icon={<Landmark />} tone="violet" action="Open monthly close" onClick={() => navigate("monthly")} />
+        <MetricCard label="Pending reviews" value={data.counts.REVIEW_QUEUE || 0} help="Needs a human decision" icon={<Clock3 />} tone="amber" action="Open review queue" onClick={() => navigate("reviews")} />
+        <MetricCard label="Accepted receipts" value={(data.counts.APPROVED || 0) + (data.counts.AUTO_FILED || 0)} help="Approved, auto-filed and amended" icon={<CircleCheckBig />} tone="green" action="View accepted receipts" onClick={showAcceptedReceipts} />
+        <MetricCard label="All receipts" value={data.total_receipts} help="Every saved processing record" icon={<ReceiptText />} tone="blue" action="Open receipt history" onClick={() => navigate("history")} />
+      </section>
+      {current && <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(20rem,0.85fr)]">
+        <TrendChart currency={current.currency} items={current.months} />
+        <CategoryBreakdown currency={current.currency} items={current.categories} />
+      </div>}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]">
+        <WorkflowStatus counts={data.counts} total={data.total_receipts} navigate={navigate} /><AttentionPanel data={data} navigate={navigate} />
+      </div>
+      <p className="text-xs text-muted-foreground">Updated {new Date(data.generated_at).toLocaleString()}</p>
+    </>}
+  </div>;
 }
 
 function MetricCard({
@@ -294,55 +189,6 @@ function MetricCard({
         <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
       </span>
     </button>
-  );
-}
-
-function TrendChart({ currency, items }: { currency: string; items: MonthTotal[] }) {
-  const max = Math.max(1, ...items.map((item) => item.total_cents));
-  return (
-    <section className="panel overflow-hidden p-5 sm:p-6" aria-labelledby="trend-title">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 id="trend-title" className="text-lg font-semibold">Expense trend</h2>
-          <p className="muted mt-1">Accepted monthly spend with visible totals</p>
-        </div>
-        <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-          {currency}
-        </span>
-      </div>
-      {!items.length ? (
-        <p className="muted py-12 text-center">No dated accepted receipts yet.</p>
-      ) : (
-        <div className="mt-6 overflow-x-auto pb-2">
-          <div
-            className="grid min-w-max items-end gap-3"
-            style={{ gridTemplateColumns: `repeat(${items.length}, minmax(82px, 1fr))` }}
-          >
-            {items.map((item) => {
-              const height = Math.max(10, Math.round((item.total_cents / max) * 150));
-              return (
-                <div key={item.month} className="flex flex-col items-center">
-                  <span className="mb-2 text-xs font-semibold tabular-nums text-foreground">
-                    {amount(item.total_cents / 100, currency)}
-                  </span>
-                  <div className="flex h-40 w-full items-end rounded-xl bg-muted/70 px-2 pt-2">
-                    <div
-                      className="w-full rounded-lg bg-gradient-to-t from-emerald-700 to-emerald-400 transition-[height]"
-                      style={{ height }}
-                      title={`${formatMonth(item.month)}: ${amount(item.total_cents / 100, currency)}`}
-                    />
-                  </div>
-                  <span className="mt-2 text-xs font-medium">{formatMonth(item.month, true)}</span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {item.receipt_count} receipt{item.receipt_count === 1 ? "" : "s"}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </section>
   );
 }
 

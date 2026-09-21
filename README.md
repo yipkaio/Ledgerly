@@ -80,9 +80,12 @@ SQLite persistence, authenticated receipt history, human approval/rejection, and
 
 The workspace starts with **Main dashboard**, followed by **Monthly close**, **Upload receipt**,
 **Pending reviews**, **Receipt history**, and **Deleted receipts**. The dashboard opens on the latest
-month with accepted expenses, keeps currencies separate, and lets users switch months with
-accessible selectors. Its amount-labelled bar chart shows both monthly spend and receipt
-volume. **View accepted receipts** opens history already filtered to approved and auto-filed
+month with accepted expenses. A saved **default reporting currency** converts all supported
+currencies into one view; native-currency views remain available. Select month and year,
+Q1–Q4, or a full year for the headline total. The interactive comparison chart supports
+multiple years and selected months or quarters, keyboard/touch inspection, and an exact-values
+table. Period totals use all available history, not only the latest 12 months.
+**View accepted receipts** opens history already filtered to approved, amended and auto-filed
 records. History supports checkbox-based multi-selection for categories, statuses, and
 currencies, with animated authenticated previews beside each receipt. See the
 [workflow roadmap](docs/workflow-roadmap.md) for duplicate/amendment behavior,
@@ -283,4 +286,18 @@ The workspace now includes **Deleted receipts** (restore within 30 days) and aud
 
 The **Monthly close** workspace imports bank-issued PDFs through a signed preview-and-confirm flow, with normalized CSV as a fallback. It matches debits to accepted receipts, flags duplicates and missing evidence, records audited trade-payable/payment-issue follow-up, shows category and vendor concentration, and keeps retained source evidence available while every imported debit and accepted receipt remains reviewable. **View source** shows a server-rendered, bounded first-page image for PDFs and text for CSVs; **Download** retrieves the retained original. Receipt-history and monthly-close Excel exports include polished summary sheets, currency-safe totals, status breakdowns, detailed tables, and print-friendly layouts. PDF passwords are request-only; deterministic parsing is private-first, and the separate AI fallback requires explicit consent. Schema v8 preserves existing receipt and statement data while adding source and validation provenance. See [monthly reconciliation](docs/monthly-reconciliation.md) for the PDF/CSV contract, matching rules, and Singapore record-control boundaries.
 
-The exchange-rate snapshot and workspace-setting tables remain available for compatibility, but the dashboard presents native-currency totals only and does not display an indicative consolidated-spend tab. Schema v7 preserves existing data and adds workspace settings and rate snapshots.
+The dashboard saves a default reporting currency and consolidates supported currencies using a
+dated, cached ECB reference-rate snapshot. The rate date and cached-rate status remain visible;
+converted totals are management estimates and never overwrite original receipt amounts. If
+conversion is unavailable, the UI offers native-currency views rather than a partial total.
+
+Monthly close lets users **Remove** a wrongly imported statement, with a name, reason and
+confirmation. This is reversible exclusion, not permanent erasure: the retained source and
+debits remain available under **Removed statements → Restore**. Matches and totals recalculate,
+while receipts and manual payment notes remain unchanged. Removal/restoration events are
+appended to the statement metadata in a transaction; no database migration is required.
+The authenticated endpoint is `POST /bank-statements/{statement_id}/lifecycle` with
+`action` (`REMOVE` or `RESTORE`), `actor`, and `reason`.
+Re-uploading an identical removed file remains blocked; restore the existing import instead.
+Bank-source and attention-only filters simplify review; summary totals and exports continue
+to cover the entire selected month. Removed statements are excluded from active Excel exports.

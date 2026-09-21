@@ -58,8 +58,8 @@ def test_dashboard_keeps_currencies_separate_uses_cents_and_bounds_trend(tmp_pat
     myr, sgd = summary['currencies']
     assert myr['total_cents'] == 130
     assert sgd['total_cents'] == 10
-    assert len(myr['months']) == 12
-    assert myr['months'][0]['month'] == '2021-01'
+    assert len(myr['months']) == 13
+    assert myr['months'][0]['month'] == '2020-01'
     assert summary['accepted_missing_value'] == 1
     assert summary['counts']['FAILED'] == 1
     assert summary['total_receipts'] == 16
