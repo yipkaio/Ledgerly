@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ApiError, categories, message, request } from "@/lib/api";
+import { ApiError, authenticationHeaders, categories, message, request } from "@/lib/api";
 import type {
   Extraction,
   Amendment,
@@ -194,7 +194,7 @@ export function ReceiptDetail({
           setError(`Amendment audit could not be loaded: ${message(e)}`);
       });
     fetch(`/receipts/${id}/image`, {
-      headers: { "X-API-Key": token },
+      headers: authenticationHeaders(token),
       cache: "no-store",
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),
     })
