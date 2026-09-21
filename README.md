@@ -90,7 +90,7 @@ The application now provides a secure FastAPI receipt-processing pipeline:
 
 SQLite persistence, authenticated receipt history, human approval/rejection, and append-only amendments are implemented. The React + TypeScript workspace supports uploads, paginated history, pending reviews, protected originals, verified corrections, confirmation dialogs, explicit amendment mode, structured receipt summaries, and field-level audit viewing. Follow the [frontend setup and review guide](docs/frontend.md). See [Human review API](docs/reviews.md) for manual payloads, validation, and migration precautions. Firebase email/password authentication is available for a single pre-approved
 bookkeeper account, with a hybrid mode that preserves the app key for trusted
-service integrations. Telegram/OpenClaw integration remains a separate next phase.
+service integrations. Telegram/OpenClaw receipt intake is implemented as a secure, owner-only relay; follow the [deployment and test guide](docs/telegram-openclaw.md).
 
 ## SQLite persistence and receipt history
 

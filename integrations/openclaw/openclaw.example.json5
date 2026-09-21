@@ -1,0 +1,26 @@
+// Merge these fields into ~/.openclaw/openclaw.json. Do not replace a working
+// model/provider configuration created by `openclaw onboard`.
+{
+  channels: {
+    telegram: {
+      enabled: true,
+      // Prefer a root-owned/read-protected regular file over a token in config.
+      tokenFile: "/home/ubuntu/.openclaw/secrets/telegram-bot-token",
+      dmPolicy: "allowlist",
+      allowFrom: ["REPLACE_WITH_YOUR_NUMERIC_TELEGRAM_USER_ID"],
+      groupPolicy: "disabled",
+      configWrites: false,
+      mediaMaxMb: 5,
+    },
+  },
+  skills: {
+    entries: {
+      "ledgerly-receipt": {
+        enabled: true,
+        // LEDGERLY_API_KEY is supplied by the Gateway service environment.
+        apiKey: { source: "env", provider: "default", id: "LEDGERLY_API_KEY" },
+      },
+    },
+  },
+}
+
