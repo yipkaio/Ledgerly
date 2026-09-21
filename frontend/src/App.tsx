@@ -36,6 +36,12 @@ import {
   rowStatus,
 } from "@/lib/api";
 import type { Page } from "@/lib/api";
+import {
+  loadAuthConfig,
+  refreshFirebaseSession,
+  signInWithFirebase,
+} from "@/lib/firebase-auth";
+import type { AuthConfig, FirebaseSession } from "@/lib/firebase-auth";
 import { Notice, Status } from "@/components/feedback";
 import {
   ReceiptPreview,
@@ -93,35 +99,89 @@ function filterParams(filters: HistoryFilterValues) {
 }
 
 export default function App() {
-  const [token, setToken] = useState(""),
-    [draft, setDraft] = useState(""),
+  const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null),
+    [firebaseSession, setFirebaseSession] = useState<FirebaseSession | null>(null),
+    [apiToken, setApiToken] = useState(""),
+    [draftKey, setDraftKey] = useState(""),
+    [email, setEmail] = useState(""),
+    [password, setPassword] = useState(""),
     [busy, setBusy] = useState(false),
+    [configBusy, setConfigBusy] = useState(true),
     [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadAuthConfig()
+      .then((config) => {
+        if (!controller.signal.aborted) setAuthConfig(config);
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted) setError(message(cause));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setConfigBusy(false);
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!firebaseSession || authConfig?.mode !== "firebase") return;
+    const delay = Math.max(30000, firebaseSession.expiresAt - Date.now() - 60000);
+    const timer = window.setTimeout(() => {
+      void refreshFirebaseSession(
+        authConfig.firebase_web_api_key,
+        firebaseSession.refreshToken,
+      )
+        .then(setFirebaseSession)
+        .catch((cause) => {
+          setFirebaseSession(null);
+          setError(message(cause));
+        });
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [authConfig, firebaseSession]);
+
+  const token = firebaseSession
+    ? `Bearer ${firebaseSession.idToken}`
+    : apiToken;
+
   async function connect(event: React.FormEvent) {
     event.preventDefault();
+    if (!authConfig) return;
     setBusy(true);
     setError("");
     try {
-      await request<Page>("/receipts?limit=1", draft.trim());
-      setToken(draft.trim());
-      setDraft("");
-    } catch (e) {
-      setError(message(e));
+      if (authConfig.mode === "firebase") {
+        const session = await signInWithFirebase(
+          authConfig.firebase_web_api_key,
+          email,
+          password,
+        );
+        await request<Page>("/receipts?limit=1", `Bearer ${session.idToken}`);
+        setFirebaseSession(session);
+        setPassword("");
+      } else {
+        await request<Page>("/receipts?limit=1", draftKey.trim());
+        setApiToken(draftKey.trim());
+        setDraftKey("");
+      }
+    } catch (cause) {
+      setError(message(cause));
     } finally {
       setBusy(false);
     }
   }
-  if (token)
-    return (
-      <Workspace
-        token={token}
-        disconnect={() => {
-          setToken("");
-          setDraft("");
-          setError("");
-        }}
-      />
-    );
+
+  function disconnect() {
+    setFirebaseSession(null);
+    setApiToken("");
+    setDraftKey("");
+    setPassword("");
+    setError("");
+  }
+
+  if (token) return <Workspace token={token} disconnect={disconnect} />;
+
   return (
     <main className="mx-auto flex min-h-screen max-w-md items-center px-5 py-12">
       <div className="w-full">
@@ -133,36 +193,87 @@ export default function App() {
           Your receipt workspace
         </h1>
         <p className="muted mt-3 mb-8">
-          Upload expenses, check the evidence, and keep a clear record of every
-          decision.
+          Sign in to review receipts, reconcile statements, and complete the
+          monthly close.
         </p>
         <form onSubmit={connect} className="panel space-y-5 p-6">
-          <div>
-            <label htmlFor="app-key" className="field-label">
-              App API key
-            </label>
-            <Input
-              id="app-key"
-              type="password"
-              autoComplete="off"
-              required
-              minLength={32}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-            />
-            <p className="muted mt-2">
-              Use this server’s APP_API_KEY. The key stays in memory until you
-              disconnect or reload. Use only on a trusted device.
+          {configBusy ? (
+            <p className="muted flex items-center gap-2">
+              <LoaderCircle className="size-4 animate-spin" />
+              Loading secure sign-in…
             </p>
-          </div>
+          ) : authConfig?.mode === "firebase" ? (
+            <>
+              <div>
+                <label htmlFor="bookkeeper-email" className="field-label">
+                  Email
+                </label>
+                <Input
+                  id="bookkeeper-email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="bookkeeper-password" className="field-label">
+                  Password
+                </label>
+                <Input
+                  id="bookkeeper-password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </div>
+              <p className="muted">
+                Access is restricted to the pre-approved bookkeeper account.
+                Self-service registration is disabled.
+              </p>
+            </>
+          ) : (
+            <div>
+              <label htmlFor="app-key" className="field-label">
+                App API key
+              </label>
+              <Input
+                id="app-key"
+                type="password"
+                autoComplete="off"
+                required
+                minLength={32}
+                value={draftKey}
+                onChange={(event) => setDraftKey(event.target.value)}
+              />
+              <p className="muted mt-2">
+                Local development mode. The key stays in memory until you
+                disconnect or reload.
+              </p>
+            </div>
+          )}
           {error && <Notice variant="destructive">{error}</Notice>}
-          <Button className="w-full" disabled={busy}>
-            {busy && <LoaderCircle className="animate-spin" />}Connect to
-            workspace
+          <Button
+            className="w-full"
+            disabled={
+              busy ||
+              configBusy ||
+              !authConfig ||
+              (authConfig.mode === "firebase"
+                ? !email.trim() || !password
+                : draftKey.trim().length < 32)
+            }
+          >
+            {busy && <LoaderCircle className="animate-spin" />}
+            Sign in securely
           </Button>
         </form>
         <p className="muted mt-5">
-          Shared workspace access · Reviewer names are self reported.
+          Single trusted workspace · Reviewer actions remain audited.
         </p>
       </div>
     </main>

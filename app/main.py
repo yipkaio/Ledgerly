@@ -23,6 +23,11 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from app.auth import (
+    FirebaseAuthError,
+    FirebaseAuthUnavailable,
+    verify_firebase_token,
+)
 from app.images import receipt_image, receipt_preview
 from app.agents.router import build_agent_router
 from app.lifecycle import LifecycleRequest, apply_lifecycle, purge_expired
@@ -144,18 +149,39 @@ def get_settings() -> Settings:
         ) from exc
 
 
-def require_api_key(
+async def require_api_key(
     settings: Annotated[Settings, Depends(get_settings)],
     supplied_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
 ) -> Settings:
-    if supplied_key is None or not secrets.compare_digest(
-        supplied_key, settings.app_api_key
+    """Authorize the UI with Firebase or trusted integrations with the app key."""
+
+    if (
+        settings.auth_mode in {"api_key", "hybrid"}
+        and supplied_key is not None
+        and secrets.compare_digest(supplied_key, settings.app_api_key)
     ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API key",
-        )
-    return settings
+        return settings
+
+    if settings.auth_mode in {"firebase", "hybrid"} and authorization is not None:
+        scheme, separator, token = authorization.partition(" ")
+        if separator and scheme.casefold() == "bearer":
+            try:
+                await verify_firebase_token(token.strip(), settings)
+                return settings
+            except FirebaseAuthUnavailable as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Authentication service is temporarily unavailable",
+                ) from exc
+            except FirebaseAuthError:
+                pass
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication is required",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 @lru_cache(maxsize=1)
@@ -270,6 +296,22 @@ def create_app() -> FastAPI:
     )
 
     api.include_router(build_agent_router(get_settings, require_api_key))
+
+    @api.get(
+        "/auth/config",
+        tags=["authentication"],
+        summary="Return the public web authentication mode",
+    )
+    async def authentication_config(
+        settings: Annotated[Settings, Depends(get_settings)],
+    ):
+        if settings.auth_mode == "api_key":
+            return {"mode": "api_key"}
+        return {
+            "mode": "firebase",
+            "firebase_web_api_key": settings.firebase_web_api_key,
+            "firebase_project_id": settings.firebase_project_id,
+        }
 
     @api.exception_handler(DatabaseError)
     async def database_error_handler(request, exc):
@@ -1066,7 +1108,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
     @api.middleware('http')
     async def privacy_headers(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(('/receipts', '/reviews', '/dashboard', '/workspace', '/bank-statements', '/reconciliation', '/ui')):
+        if request.url.path.startswith(('/receipts', '/reviews', '/dashboard', '/workspace', '/bank-statements', '/reconciliation', '/auth', '/ui')):
             response.headers['X-Content-Type-Options'] = 'nosniff'
             response.headers['Referrer-Policy'] = 'no-referrer'
             if not request.url.path.startswith('/ui/assets/'):
@@ -1074,7 +1116,7 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
         if request.url.path.startswith('/ui'):
             response.headers['Content-Security-Policy'] = (
                 "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' blob:; connect-src 'self'; base-uri 'none'; "
+                "img-src 'self' blob:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; base-uri 'none'; "
                 "frame-src blob:; frame-ancestors 'none'; object-src 'none'"
             )
         return response
