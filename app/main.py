@@ -34,6 +34,7 @@ from app.lifecycle import LifecycleRequest, apply_lifecycle, purge_expired
 from app.reprocessing import ReprocessRequest, reprocess
 from app.statements import (
     MonthlyExportRequest,
+    MonthReviewRequest,
     StatementLifecycleRequest,
     change_statement_state,
     PaymentUpdate,
@@ -44,6 +45,8 @@ from app.statements import (
     import_previewed_statement,
     list_periods,
     monthly_reconciliation,
+    reconciliation_detail,
+    record_month_review,
     create_preview_token,
     statement_preview,
     statement_source,
@@ -519,7 +522,7 @@ def create_app() -> FastAPI:
                                 detail=str(exc)) from exc
 
     @api.get("/bank-statements/periods", tags=["reconciliation"],
-             summary="List imported statement months")
+             summary="List months with accepted receipts or imported statements")
     async def bank_statement_periods(
         settings: Annotated[Settings, Depends(require_api_key)],
     ) -> dict:
@@ -582,8 +585,16 @@ def create_app() -> FastAPI:
         settings: Annotated[Settings, Depends(require_api_key)],
     ) -> dict:
         return await run_in_threadpool(
-            monthly_reconciliation, ReceiptStore(settings.database_path), month, currency,
+            reconciliation_detail, ReceiptStore(settings.database_path), month, currency,
         )
+
+    @api.post("/reconciliation/reviews", tags=["reconciliation"],
+              summary="Record an audited review of the current monthly evidence")
+    async def review_reconciliation(
+        body: MonthReviewRequest,
+        settings: Annotated[Settings, Depends(require_api_key)],
+    ) -> dict:
+        return await run_in_threadpool(record_month_review, ReceiptStore(settings.database_path), body)
 
     @api.post("/receipts/{receipt_id}/payment-state", tags=["reconciliation"],
               summary="Record an audited payable or payment-issue status")

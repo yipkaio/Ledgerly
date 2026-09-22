@@ -2,13 +2,21 @@
 
 Ledgerly can import a monthly bank statement PDF or normalized CSV and compare debit transactions with active, accepted receipts for the same month and currency. The original confirmed source is retained in the authenticated workspace alongside normalized transactions.
 
+## Find months that need review
+
+Monthly Close opens on an overview of periods with an accepted receipt or an imported statement, including receipt-only months that have no statement. Select a year or show all years, and filter to periods needing attention. The overview lists missing statements, unmatched bank debits, receipts without a bank match, possible duplicates and the recorded review state. It does not assume that a month with no receipts or statements had bank activity; such months remain unlisted. Period amounts and reconciliation stay in their original currency.
+
+Open a month to inspect the bank debits, accepted receipts, retained statement and original receipt evidence. Enter your name and a meaningful note when recording a monthly review. Reviews are append-only, require an active statement, and are marked outdated when the month’s evidence changes. A review can document exceptions without resolving them; exceptions remain visible in the overview. The reviewer name is an audit label in the shared workspace, not a separately verified personal login.
+
+Possible matches between a receipt and a debit in neighboring months are shown as **inspection hints** only when the amount, date and vendor words support an unambiguous candidate. They do not create a paid status or change the bank and receipt totals. Compare the original records before recording any payment follow-up.
+
 ## PDF input and confirmation
 
 PDF is the primary UI path. Statement PDFs are limited to 10 MB and 30 pages and are parsed in a bounded worker. Embedded text is preferred; only scanned pages use the configured OCR engine. Encrypted PDFs accept a request-only password that is never persisted, logged, or sent to the AI gateway.
 
 The default parser is deterministic and private to the application. An unfamiliar layout fails closed. The user may then either use the CSV fallback or explicitly enable the separate statement AI fallback. Before that optional gateway call, Ledgerly masks obvious account and card numbers; company names, counterparties and transaction descriptions can still be present, so the UI requires an informed opt-in and warns that credits may be consumed. Product owners can cap this separate response with `STATEMENT_LLM_MAX_OUTPUT_TOKENS` without changing receipt extraction limits.
 
-Every PDF produces a preview before import. The server binds the exact file hash and exact normalized preview to a 30-minute HMAC confirmation token. Browser-side changes, a different file, expiry, or replay after a successful import cannot silently create another statement. The user must inspect the debit rows and confirm the evidence. Opening balance plus credits less debits is compared with closing balance when both are available; a mismatch blocks import. Missing balances remain a visible warning rather than a fabricated validation result.
+Every PDF produces a preview before import. The server binds the exact file hash and exact normalized preview to a 30-minute HMAC confirmation token. Browser-side changes, a different file, expiry, or replay after a successful import cannot silently create another statement. The user must inspect the debit rows and confirm the evidence. Opening balance plus credits less debits is compared with closing balance when both are available; a mismatch blocks import. The preview shows opening balance, total credits, debits, calculated closing balance, statement closing balance and difference so the operator can identify a misread row. Missing balances remain a visible warning rather than a fabricated validation result. AI extraction does not override a failed balance check.
 
 Unconfirmed files are not retained. After confirmation, the original PDF, self-reported importer name, extraction method, masked metadata and validation result are stored with the normalized transactions. The PDF password is not stored. The importer name is an audit label under the shared application key, not verified identity.
 

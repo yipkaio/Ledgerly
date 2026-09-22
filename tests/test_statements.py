@@ -58,6 +58,55 @@ def test_csv_parser_handles_debit_and_signed_amount_safely():
     assert skipped == 1
 
 
+def test_period_overview_includes_receipts_without_statements_and_review_goes_stale(monkeypatch, tmp_path):
+    client, *_ = configured_client(monkeypatch, tmp_path)
+    store = ReceiptStore(get_settings().database_path)
+    accepted(store, "August supplier", 15.00, "2026-08-27")
+    accepted(store, "September supplier", 40.00, "2026-09-05")
+    periods = client.get("/bank-statements/periods", headers=HEADERS).json()["items"]
+    assert [(row["month"], row["statement_count"], row["receipt_count"])
+            for row in periods] == [("2026-09", 0, 1), ("2026-08", 0, 1)]
+    assert periods[0]["review"]["status"] == "not_reviewed"
+
+    source = b"Date,Description,Debit\n2026-09-05,September supplier,40.00\n"
+    uploaded = client.post("/bank-statements/upload", headers=HEADERS,
+                           files={"statement": ("sept.csv", source, "text/csv")},
+                           data={"statement_month": "2026-09", "currency": "SGD", "account_label": "Operating"})
+    assert uploaded.status_code == 200, uploaded.text
+    month = client.get("/reconciliation?month=2026-09&currency=SGD", headers=HEADERS).json()
+    assert month["review"]["status"] == "not_reviewed"
+    body = {"month": "2026-09", "currency": "SGD", "actor": "Finance reviewer",
+            "note": "Checked original bank source and September receipts",
+            "fingerprint": month["review"]["fingerprint"]}
+    assert client.post("/reconciliation/reviews", json=body).status_code == 401
+    reviewed = client.post("/reconciliation/reviews", headers=HEADERS, json=body)
+    assert reviewed.status_code == 200, reviewed.text
+    assert client.get("/reconciliation?month=2026-09&currency=SGD", headers=HEADERS).json()["review"]["status"] == "reviewed"
+    accepted(store, "Another September supplier", 5.00, "2026-09-20")
+    stale = client.get("/reconciliation?month=2026-09&currency=SGD", headers=HEADERS).json()
+    assert stale["review"]["status"] == "outdated"
+    assert client.post("/reconciliation/reviews", headers=HEADERS, json=body).status_code == 422
+    assert client.get("/bank-statements/periods", headers=HEADERS).json()["items"][0]["review"]["status"] == "outdated"
+
+
+def test_adjacent_month_candidate_does_not_change_paid_status(monkeypatch, tmp_path):
+    client, *_ = configured_client(monkeypatch, tmp_path)
+    store = ReceiptStore(get_settings().database_path)
+    receipt_id = accepted(store, "Boundary Supplier", 22.00, "2026-08-30")
+    source = b"Date,Description,Debit\n2026-09-02,BOUNDARY SUPPLIER,22.00\n"
+    assert client.post("/bank-statements/upload", headers=HEADERS,
+                       files={"statement": ("sept.csv", source, "text/csv")},
+                       data={"statement_month": "2026-09", "currency": "SGD", "account_label": "Operating"}).status_code == 200
+    august = client.get("/reconciliation?month=2026-08&currency=SGD", headers=HEADERS).json()
+    september = client.get("/reconciliation?month=2026-09&currency=SGD", headers=HEADERS).json()
+    assert august["receipts"][0]["receipt_id"] == receipt_id
+    assert august["receipts"][0]["status"] == "NO_BANK_MATCH"
+    assert august["receipts"][0]["adjacent_month_candidate"]["month"] == "2026-09"
+    assert september["transactions"][0]["status"] == "MISSING_RECEIPT"
+    assert september["transactions"][0]["adjacent_month_candidate"] == {"month": "2026-08", "receipt_id": receipt_id}
+    assert september["totals"]["matched_cents"] == 0
+
+
 def statement_text() -> str:
     def row(day: str, description: str, debit: str = "", credit: str = "", balance: str = "") -> str:
         return f"{day:<12}{description:<30}{debit:<15}{credit:<15}{balance}"
@@ -85,6 +134,9 @@ def test_statement_pdf_text_is_private_first_and_balance_checked():
     assert preview["transactions"][0]["description"] == "ACME MAINTENANCE"
     assert preview["transactions"][0]["amount_cents"] == 12000
     assert preview["validation"]["credits_skipped"] == 1
+    assert preview["validation"]["credit_total_cents"] == 5000
+    assert preview["validation"]["calculated_closing_balance_cents"] == 93000
+    assert preview["validation"]["balance_difference_cents"] == 0
     assert preview["validation"]["balance_reconciled"] is True
     assert preview["validation"]["confirmable"] is True
 
@@ -93,6 +145,7 @@ def test_statement_pdf_text_is_private_first_and_balance_checked():
         mismatch, "2026-09", "SGD", "Operating", "deterministic", "pdf:native"
     )
     assert blocked["validation"]["balance_reconciled"] is False
+    assert blocked["validation"]["balance_difference_cents"] == -7000
     assert blocked["validation"]["confirmable"] is False
 
 

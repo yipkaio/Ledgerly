@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Building2,
+  CalendarDays,
   CheckCircle2,
   Download,
   Eye,
@@ -32,15 +33,18 @@ import {
 } from "@/components/ui/dialog";
 import { amount, authenticationHeaders, message, request, requestDownload } from "@/lib/api";
 
-type Period = { month: string; currency: string; statement_count: number; transaction_count: number };
+type ReviewState = { status: "not_reviewed" | "reviewed" | "outdated"; fingerprint: string; actor: string | null; note: string | null; reviewed_at: string | null };
+type Period = { month: string; currency: string; statement_count: number; transaction_count: number; receipt_count: number; exception_count: number; bank_missing_count: number; receipt_unmatched_count: number; duplicate_count: number; review: ReviewState };
 type Transaction = {
   transaction_id: string; posted_date: string; description: string; amount_cents: number;
   reference: string | null; receipt_id: string | null; receipt_vendor: string | null; status: string;
   statement_id: string;
+  adjacent_month_candidate?: { month: string; receipt_id: string } | null;
 };
 type ReceiptRow = {
   receipt_id: string; receipt_date: string; vendor: string; category: string; amount_cents: number;
   status: string; transaction_id: string | null; duplicate_receipt: boolean;
+  adjacent_month_candidate?: { month: string; statement_id: string } | null;
 };
 type StatementRecord = {
   statement_id: string; account_label: string; original_filename: string; uploaded_at: string;
@@ -57,12 +61,17 @@ type Reconciliation = {
   vendors: { vendor: string; total_cents: number }[];
   suggestions: { title: string; detail: string }[];
   generated_at: string;
+  review: ReviewState;
 };
 
 const currentMonth = new Date().toISOString().slice(0, 7);
 
 export function MonthlyClose({ token, openReceipt }: { token: string; openReceipt: (id: string) => void }) {
   const [periods, setPeriods] = useState<Period[]>([]);
+  const [view, setView] = useState<"overview" | "detail">("overview");
+  const [periodsBusy, setPeriodsBusy] = useState(true);
+  const [year, setYear] = useState("all");
+  const [attentionOnly, setAttentionOnly] = useState(false);
   const [month, setMonth] = useState(currentMonth);
   const [currency, setCurrency] = useState("SGD");
   const [data, setData] = useState<Reconciliation | null>(null);
@@ -75,24 +84,25 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
   const [success, setSuccess] = useState("");
   const [exceptionsOnly, setExceptionsOnly] = useState(false);
   const [statementFilter, setStatementFilter] = useState("");
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
+    // oxlint-disable-next-line react/set-state-in-effect -- Asynchronous request state.
+    setPeriodsBusy(true);
     request<{ items: Period[] }>("/bank-statements/periods", token, { signal: controller.signal })
       .then((result) => {
         if (controller.signal.aborted) return;
         setPeriods(result.items);
-        if (result.items.length && refresh === 0) {
-          setMonth(result.items[0].month);
-          setCurrency(result.items[0].currency);
-        }
       })
-      .catch((e) => !controller.signal.aborted && setError(message(e)));
+      .catch((e) => !controller.signal.aborted && setError(message(e)))
+      .finally(() => !controller.signal.aborted && setPeriodsBusy(false));
     return () => controller.abort();
   }, [token, refresh]);
 
   useEffect(() => {
     const controller = new AbortController();
+    if (view !== "detail") return () => controller.abort();
     // oxlint-disable-next-line react/set-state-in-effect -- Reset status for this cancellable API read.
     setBusy(true); setData(null); setError("");
     request<Reconciliation>(`/reconciliation?month=${month}&currency=${currency}`, token, { signal: controller.signal })
@@ -100,11 +110,20 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
       .catch((e) => !controller.signal.aborted && setError(message(e)))
       .finally(() => !controller.signal.aborted && setBusy(false));
     return () => controller.abort();
-  }, [token, month, currency, refresh]);
+  }, [token, month, currency, refresh, view]);
 
   const periodValue = `${month}|${currency}`;
   const matchedPercent = data?.totals.receipt_spend_cents
     ? Math.min(100, Math.round((data.totals.matched_cents / data.totals.receipt_spend_cents) * 100)) : 0;
+  const years = [...new Set(periods.map((item) => item.month.slice(0, 4)))].sort().reverse();
+  const attentionCount = periods.filter((item) => item.statement_count === 0 || item.exception_count > 0 || item.review.status === "outdated").length;
+  const isAttention = (item: Period) => item.statement_count === 0 || item.exception_count > 0 || item.review.status === "outdated";
+  const visiblePeriods = periods.filter((item) => (year === "all" || item.month.startsWith(year)) &&
+    (!attentionOnly || isAttention(item))).sort((a, b) => Number(isAttention(b)) - Number(isAttention(a)) || b.month.localeCompare(a.month) || a.currency.localeCompare(b.currency));
+  function openPeriod(nextMonth: string, nextCurrency: string) {
+    setSourceStatement(null); setStatementFilter(""); setSuccess("");
+    setMonth(nextMonth); setCurrency(nextCurrency); setView("detail");
+  }
 
   async function exportMonth() {
     setExportBusy(true); setError("");
@@ -130,13 +149,42 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap justify-end gap-2">
-        <StatementUpload token={token} completed={(nextMonth, nextCurrency) => { setSourceStatement(null); setMonth(nextMonth); setCurrency(nextCurrency); setRefresh((value) => value + 1); }} />
-        <Button variant="outline" disabled={!data || busy || exportBusy} onClick={() => void exportMonth()}>
-          {exportBusy ? <LoaderCircle className="animate-spin" /> : <Download />} Export month
-        </Button>
-        <Button variant="ghost" onClick={() => setRefresh((value) => value + 1)}><RefreshCw /> Refresh</Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex rounded-lg border bg-white p-1" role="group" aria-label="Monthly close view">
+          <Button size="sm" variant={view === "overview" ? "default" : "ghost"} onClick={() => setView("overview")}>Overview</Button>
+          <Button size="sm" variant={view === "detail" ? "default" : "ghost"} onClick={() => setView("detail")}>Month detail</Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <StatementUpload token={token} completed={(nextMonth, nextCurrency) => { openPeriod(nextMonth, nextCurrency); setRefresh((value) => value + 1); }} />
+          {view === "detail" && <Button variant="outline" disabled={!data || busy || exportBusy} onClick={() => void exportMonth()}>
+            {exportBusy ? <LoaderCircle className="animate-spin" /> : <Download />} Export month
+          </Button>}
+          <Button variant="ghost" onClick={() => setRefresh((value) => value + 1)}><RefreshCw /> Refresh</Button>
+        </div>
       </div>
+
+      {view === "overview" && <>
+        <section className="rounded-2xl border border-emerald-900/15 bg-gradient-to-br from-emerald-950 to-emerald-800 p-5 text-white shadow-sm sm:p-7" aria-labelledby="overview-title">
+          <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-medium text-emerald-100">Reconciliation workspace</p><h2 id="overview-title" className="mt-1 text-2xl font-semibold">Every month in view</h2><p className="mt-2 max-w-2xl text-sm text-emerald-50">Find months with missing statements, unmatched evidence or a review that needs repeating. Open a month to inspect the original records.</p></div><CalendarDays className="size-9 text-emerald-200" aria-hidden="true" /></div>
+          <div className="mt-5 flex flex-wrap gap-3 text-sm"><span className="rounded-full bg-white/15 px-3 py-1.5">{periods.length} recorded periods</span><span className="rounded-full bg-white/15 px-3 py-1.5">{attentionCount} need attention</span><span className="rounded-full bg-white/15 px-3 py-1.5">{periods.filter((item) => item.review.status === "not_reviewed").length} not reviewed</span></div>
+        </section>
+        <section className="panel overflow-hidden" aria-label="Months to review">
+          <div className="flex flex-wrap items-end justify-between gap-4 border-b p-5">
+            <div><h2 className="text-lg font-semibold">Review periods</h2><p className="muted mt-1">Periods come from accepted receipts and imported statements. Amounts stay in their original currencies.</p></div>
+            <div className="flex flex-wrap items-center gap-3"><label className="text-sm">Year <select className="ml-2 rounded-lg border bg-white px-3 py-2" value={year} onChange={(e) => setYear(e.target.value)}><option value="all">All years</option>{years.map((value) => <option key={value}>{value}</option>)}</select></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={attentionOnly} onChange={(e) => setAttentionOnly(e.target.checked)} />Needs attention only</label></div>
+          </div>
+          {error && <div className="p-4"><Notice variant="destructive">{error}</Notice></div>}
+          {periodsBusy ? <p role="status" className="muted p-6">Loading periods…</p> : !periods.length ? <p className="muted p-6">No accepted receipts or statements yet. Upload a statement or add a receipt to begin.</p> : !visiblePeriods.length ? <p className="muted p-6">No periods match these filters. Try All years or show all periods.</p> : <div className="divide-y">{visiblePeriods.map((item) => {
+            const needsStatement = item.statement_count === 0;
+            const needsAttention = needsStatement || item.exception_count > 0 || item.review.status === "outdated";
+            return <article key={`${item.month}-${item.currency}`} className="flex flex-wrap items-center justify-between gap-4 p-5 transition-colors hover:bg-emerald-50/40"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{new Date(`${item.month}-01T12:00:00Z`).toLocaleDateString("en-SG", { month: "long", year: "numeric", timeZone: "UTC" })}</h3><span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium">{item.currency}</span><span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${needsAttention ? "bg-amber-100 text-amber-900" : item.review.status === "reviewed" ? "bg-emerald-100 text-emerald-900" : "bg-slate-100 text-slate-700"}`}>{needsStatement ? "No statement" : item.review.status === "outdated" ? "Review outdated" : item.exception_count ? `${item.exception_count} exceptions` : item.review.status === "reviewed" ? "Reviewed" : "Not reviewed"}</span></div><p className="muted mt-2">{item.statement_count} statements · {item.transaction_count} bank debits · {item.receipt_count} accepted receipts</p><p className="mt-1 text-xs text-muted-foreground">{item.bank_missing_count} debits missing receipts · {item.receipt_unmatched_count} receipts without bank match · {item.duplicate_count} possible duplicates{item.review.status === "reviewed" && item.exception_count ? " · reviewed with exceptions" : ""}</p></div><Button variant={needsAttention ? "default" : "outline"} onClick={() => openPeriod(item.month, item.currency)}>Open month <ArrowRight /></Button></article>;
+          })}</div>}
+        </section>
+        <p className="text-xs text-muted-foreground">Months without either a statement or an accepted receipt have no recorded activity and are not listed. A reviewed month can still contain documented exceptions.</p>
+      </>}
+
+      {view === "detail" && <>
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-medium text-emerald-800">Month detail</p><h2 className="text-xl font-semibold">{month} · {currency}</h2></div><Button variant="outline" size="sm" onClick={() => setView("overview")}>All months</Button></div>
 
       <section className="panel flex flex-wrap items-end gap-4 p-4" aria-label="Reconciliation period">
         <div className="min-w-56 flex-1">
@@ -144,7 +192,7 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
           <select id="close-period" className="h-10 w-full rounded-md border bg-white px-3" value={periodValue}
             onChange={(event) => { const [nextMonth, nextCurrency] = event.target.value.split("|"); setSourceStatement(null); setMonth(nextMonth); setCurrency(nextCurrency); }}>
             {!periods.some((item) => `${item.month}|${item.currency}` === periodValue) && <option value={periodValue}>{month} · {currency} · no statement</option>}
-            {periods.map((item) => <option key={`${item.month}-${item.currency}`} value={`${item.month}|${item.currency}`}>{item.month} · {item.currency} · {item.transaction_count} debits</option>)}
+            {periods.map((item) => <option key={`${item.month}-${item.currency}`} value={`${item.month}|${item.currency}`}>{item.month} · {item.currency} · {item.statement_count ? `${item.transaction_count} debits` : "no statement"}</option>)}
           </select>
         </div>
         <div>
@@ -163,9 +211,24 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
       {error && <Notice variant="destructive">{error}</Notice>}
       {busy ? <MonthlySkeleton /> : data && <>
         {!data.statements.length && <Notice variant="warning">No {currency} statement is loaded for {month}. Accepted receipts are still shown so you can see what needs a bank match.</Notice>}
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Monthly reconciliation totals">
+          <TotalCard icon={<Landmark />} label="Bank debits" value={amount(data.totals.bank_debits_cents / 100, currency)} help={`${data.transactions.length} imported debit transactions`} />
+          <TotalCard icon={<FileSpreadsheet />} label="Accepted receipts" value={amount(data.totals.receipt_spend_cents / 100, currency)} help={`${data.receipts.length} receipts dated this month`} />
+          <TotalCard icon={<CheckCircle2 />} label="Matched paid" value={amount(data.totals.matched_cents / 100, currency)} help={`${matchedPercent}% of accepted receipt spend`} tone="good" />
+          <TotalCard icon={<AlertTriangle />} label="Needs attention" value={String(data.totals.exception_count)} help={`Bank less receipts: ${amount(data.totals.difference_cents / 100, currency)}`} tone={data.totals.exception_count ? "warn" : "good"} />
+        </section>
+
+        <section className="panel flex flex-wrap items-center justify-between gap-4 p-5" aria-label="Month review status"><div><h2 className="font-semibold">Review status</h2><p className="muted mt-1">{!data.statements.length ? "Import and inspect a bank statement before recording a review." : data.review.status === "outdated" ? "The evidence changed after the last review. Check this month again." : data.review.status === "reviewed" ? `Reviewed by ${data.review.actor} · ${new Date(data.review.reviewed_at!).toLocaleString("en-SG")}${data.totals.exception_count ? " · exceptions remain documented" : ""}` : "No review recorded for this month."}</p>{data.review.note && <p className="mt-1 text-xs text-muted-foreground">Review note: {data.review.note}</p>}</div><Button variant="outline" disabled={!data.statements.length} onClick={() => setReviewOpen(true)}>{data.review.status === "not_reviewed" ? "Mark reviewed" : "Review again"}</Button></section>
+
+        <section className="grid gap-3 sm:grid-cols-3" aria-label="Items to check this month">
+          <div className="rounded-xl border bg-white p-4"><p className="text-sm font-medium">Bank debits missing receipts</p><p className="mt-1 text-2xl font-semibold tabular-nums">{data.transactions.filter((item) => item.status === "MISSING_RECEIPT").length}</p><p className="muted">Check the bank source and request evidence.</p></div>
+          <div className="rounded-xl border bg-white p-4"><p className="text-sm font-medium">Receipts without a bank match</p><p className="mt-1 text-2xl font-semibold tabular-nums">{data.receipts.filter((item) => item.status !== "PAID").length}</p><p className="muted">Inspect payment records before recording a payable.</p></div>
+          <div className="rounded-xl border bg-white p-4"><p className="text-sm font-medium">Possible duplicates</p><p className="mt-1 text-2xl font-semibold tabular-nums">{data.transactions.filter((item) => item.status === "DUPLICATE_TRANSACTION").length + data.receipts.filter((item) => item.duplicate_receipt).length}</p><p className="muted">Compare originals before deciding what to do.</p></div>
+        </section>
+
         {!!data.statements.length && <section className="panel p-4 sm:px-5" aria-label="Retained source statements">
           <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="font-medium">{data.statements.length} source statement{data.statements.length === 1 ? "" : "s"} retained</p><p className="muted">Keep the original PDF or CSV open beside the imported values while you review them.</p></div></div>
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">{data.statements.map((item) => <article key={item.statement_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3"><div className="min-w-0"><p className="truncate font-medium">{item.account_label}</p><p className="muted truncate">{item.original_filename} · {item.row_count} debits{item.imported_by ? ` · ${item.imported_by}` : ""}</p></div><div className="flex gap-2"><Button size="sm" variant={sourceStatement?.statement_id === item.statement_id ? "secondary" : "outline"} onClick={() => setSourceStatement(item)}><Eye /> View source</Button><Button size="sm" variant="ghost" aria-label={`Download ${item.original_filename}`} onClick={() => void downloadSource(item.statement_id, item.original_filename)}><Download /></Button>
+          <div className="mt-4 grid gap-3">{data.statements.map((item) => <article key={item.statement_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3"><div className="min-w-0"><p className="truncate font-medium">{item.account_label}</p><p className="muted truncate">{item.original_filename} · {item.row_count} debits{item.imported_by ? ` · ${item.imported_by}` : ""}</p></div><div className="flex gap-2"><Button size="sm" variant={sourceStatement?.statement_id === item.statement_id ? "secondary" : "outline"} onClick={() => setSourceStatement(item)}><Eye /> View source</Button><Button size="sm" variant="ghost" aria-label={`Download ${item.original_filename}`} onClick={() => void downloadSource(item.statement_id, item.original_filename)}><Download /></Button>
             <Button size="sm" variant="ghost" className="text-red-700" onClick={() => setLifecycleTarget({ statement: item, restore: false })}>Remove</Button></div></article>)}</div>
         </section>}
         {!!data.removed_statements?.length && <details className="panel p-4">
@@ -177,40 +240,12 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
               <Button size="sm" onClick={() => setLifecycleTarget({ statement: item, restore: true })}>Restore</Button></div>
           </div>)}
         </details>}
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Monthly reconciliation totals">
-          <TotalCard icon={<Landmark />} label="Bank debits" value={amount(data.totals.bank_debits_cents / 100, currency)} help={`${data.transactions.length} imported debit transactions`} />
-          <TotalCard icon={<FileSpreadsheet />} label="Accepted receipts" value={amount(data.totals.receipt_spend_cents / 100, currency)} help={`${data.receipts.length} receipts dated this month`} />
-          <TotalCard icon={<CheckCircle2 />} label="Matched paid" value={amount(data.totals.matched_cents / 100, currency)} help={`${matchedPercent}% of accepted receipt spend`} tone="good" />
-          <TotalCard icon={<AlertTriangle />} label="Needs attention" value={String(data.totals.exception_count)} help={`Bank less receipts: ${amount(data.totals.difference_cents / 100, currency)}`} tone={data.totals.exception_count ? "warn" : "good"} />
-        </section>
-
-        <FinanceCopilot
-          key={`${month}-${currency}-${refresh}`}
-          token={token}
-          month={month}
-          currency={currency}
-          exceptionCount={data.totals.exception_count}
-          matchedPercent={matchedPercent}
-          statementCount={data.statements.length}
-        />
-
         <section className="panel overflow-hidden" aria-labelledby="coverage-title">
           <div className="flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6">
             <div><h2 id="coverage-title" className="text-lg font-semibold">Reconciliation coverage</h2><p className="muted mt-1">Accepted receipt value linked to a likely bank debit</p></div>
             <span className="text-2xl font-semibold tabular-nums">{matchedPercent}%</span>
           </div>
           <div className="h-3 bg-muted"><div className="h-full bg-emerald-600 transition-[width] duration-500" style={{ width: `${matchedPercent}%` }} /></div>
-        </section>
-
-        <div className="grid gap-6 xl:grid-cols-2">
-          <Breakdown title="Highest expense categories" icon={<FileSpreadsheet />} items={data.categories.map((item) => ({ label: item.category, cents: item.total_cents }))} currency={currency} />
-          <Breakdown title="Highest spend by company" icon={<Building2 />} items={data.vendors.map((item) => ({ label: item.vendor, cents: item.total_cents }))} currency={currency} />
-        </div>
-
-        <section className="panel p-5 sm:p-6" aria-labelledby="insights-title">
-          <div className="flex items-center gap-3"><span className="rounded-xl bg-violet-50 p-2.5 text-violet-700"><Lightbulb className="size-5" /></span><div><h2 id="insights-title" className="font-semibold">Cost-saving prompts</h2><p className="muted">Grounded in this month’s accepted receipts</p></div></div>
-          {data.suggestions.length ? <div className="mt-5 grid gap-3 lg:grid-cols-3">{data.suggestions.map((item) => <article key={item.title} className="rounded-xl border bg-muted/40 p-4"><h3 className="font-medium">{item.title}</h3><p className="muted mt-2">{item.detail}</p></article>)}</div> : <p className="muted mt-5">Add accepted receipts to generate grounded prompts.</p>}
-          <p className="mt-4 text-xs text-muted-foreground">Supplier comparisons need current quotes and human review. Ledgerly does not claim a cheaper vendor without verified market evidence.</p>
         </section>
 
         <section className="panel flex flex-wrap items-center justify-between gap-3 p-4" aria-label="Reconciliation filters">
@@ -222,17 +257,41 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
           </select></label>
           <p className="w-full text-xs text-muted-foreground">Filters affect the lists below. Summary totals and Excel exports always cover the entire month.</p>
         </section>
-        <TransactionTable transactions={data.transactions.filter((item) => (!exceptionsOnly || item.status !== "MATCHED") && (!data.statements.some((source) => source.statement_id === statementFilter) || item.statement_id === statementFilter))} statements={data.statements} currency={currency} openReceipt={openReceipt} viewSource={setSourceStatement} />
+        <TransactionTable transactions={data.transactions.filter((item) => (!exceptionsOnly || item.status !== "MATCHED") && (!data.statements.some((source) => source.statement_id === statementFilter) || item.statement_id === statementFilter))} statements={data.statements} currency={currency} openReceipt={openReceipt} viewSource={setSourceStatement} inspectMonth={(nextMonth) => openPeriod(nextMonth, currency)} />
         <section className="panel overflow-hidden" aria-labelledby="accepted-receipts-title">
           {exceptionsOnly && data.receipts.length > 0 && !data.receipts.some((item) => item.status !== "PAID" || item.duplicate_receipt) && <p className="muted p-4">No accepted receipts need attention in this period.</p>}
           <div className="border-b p-5 sm:p-6"><h2 id="accepted-receipts-title" className="text-lg font-semibold">Accepted receipts</h2><p className="muted mt-1">Open any accepted receipt in Ledgerly to compare its retained evidence and values. Record a payable or payment issue only after checking the bank and internal payment records.</p></div>
-          {!data.receipts.length ? <p className="muted p-8 text-center">No accepted receipts are dated in this period.</p> : <div className="divide-y">{data.receipts.filter((item) => !exceptionsOnly || item.status !== "PAID" || item.duplicate_receipt).map((item) => <div key={item.receipt_id} className="flex flex-wrap items-center justify-between gap-4 p-4 sm:px-6"><div className="min-w-0"><button className="text-left font-medium hover:underline" onClick={() => openReceipt(item.receipt_id)}>{item.vendor}</button><p className="muted">{item.receipt_date} · {item.category}{item.duplicate_receipt ? " · possible duplicate receipt" : ""}</p></div><div className="flex flex-wrap items-center gap-3"><span className="font-semibold tabular-nums">{amount(item.amount_cents / 100, currency)}</span><Status value={item.duplicate_receipt ? "DUPLICATE_RECEIPT" : item.status} />{item.status !== "PAID" && <PaymentDialog token={token} receipt={item} saved={() => setRefresh((value) => value + 1)} />}<Button variant="ghost" onClick={() => openReceipt(item.receipt_id)}>Open receipt <ArrowRight /></Button></div></div>)}</div>}
+          {!data.receipts.length ? <p className="muted p-8 text-center">No accepted receipts are dated in this period.</p> : <div className="divide-y">{data.receipts.filter((item) => !exceptionsOnly || item.status !== "PAID" || item.duplicate_receipt).map((item) => <div key={item.receipt_id} className="flex flex-wrap items-center justify-between gap-4 p-4 sm:px-6"><div className="min-w-0"><button className="text-left font-medium hover:underline" onClick={() => openReceipt(item.receipt_id)}>{item.vendor}</button><p className="muted">{item.receipt_date} · {item.category}{item.duplicate_receipt ? " · possible duplicate receipt" : ""}</p>{item.adjacent_month_candidate && <button className="mt-1 text-sm font-medium text-amber-800 underline" onClick={() => openPeriod(item.adjacent_month_candidate!.month, currency)}>Possible debit in {item.adjacent_month_candidate.month} · inspect month</button>}</div><div className="flex flex-wrap items-center gap-3"><span className="font-semibold tabular-nums">{amount(item.amount_cents / 100, currency)}</span><Status value={item.duplicate_receipt ? "DUPLICATE_RECEIPT" : item.status} />{item.status !== "PAID" && <PaymentDialog token={token} receipt={item} saved={() => setRefresh((value) => value + 1)} />}<Button variant="ghost" onClick={() => openReceipt(item.receipt_id)}>Open receipt <ArrowRight /></Button></div></div>)}</div>}
         </section>
+
+        <details className="panel p-5"><summary className="cursor-pointer font-semibold">Spending breakdown and cost insights</summary><div className="mt-4 grid gap-6 xl:grid-cols-2">
+          <Breakdown title="Highest expense categories" icon={<FileSpreadsheet />} items={data.categories.map((item) => ({ label: item.category, cents: item.total_cents }))} currency={currency} />
+          <Breakdown title="Highest spend by company" icon={<Building2 />} items={data.vendors.map((item) => ({ label: item.vendor, cents: item.total_cents }))} currency={currency} />
+        </div>
+
+        <section className="panel p-5 sm:p-6" aria-labelledby="insights-title">
+          <div className="flex items-center gap-3"><span className="rounded-xl bg-violet-50 p-2.5 text-violet-700"><Lightbulb className="size-5" /></span><div><h2 id="insights-title" className="font-semibold">Cost-saving prompts</h2><p className="muted">Grounded in this month’s accepted receipts</p></div></div>
+          {data.suggestions.length ? <div className="mt-5 grid gap-3 lg:grid-cols-3">{data.suggestions.map((item) => <article key={item.title} className="rounded-xl border bg-muted/40 p-4"><h3 className="font-medium">{item.title}</h3><p className="muted mt-2">{item.detail}</p></article>)}</div> : <p className="muted mt-5">Add accepted receipts to generate grounded prompts.</p>}
+          <p className="mt-4 text-xs text-muted-foreground">Supplier comparisons need current quotes and human review. Ledgerly does not claim a cheaper vendor without verified market evidence.</p>
+        </section>
+        </details>
+
+        <details className="panel p-5"><summary className="cursor-pointer font-semibold">Finance Copilot · optional analysis</summary><div className="mt-4"><FinanceCopilot
+          key={`${month}-${currency}-${refresh}`}
+          token={token}
+          month={month}
+          currency={currency}
+          exceptionCount={data.totals.exception_count}
+          matchedPercent={matchedPercent}
+          statementCount={data.statements.length}
+        /></div></details>
 
         <section className="rounded-xl border border-sky-200 bg-sky-50 p-5 text-sky-950" aria-labelledby="compliance-title">
           <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0" /><div><h2 id="compliance-title" className="font-semibold">Singapore record controls</h2><p className="mt-1 text-sm">Ledgerly keeps original receipt evidence, human decision history, payment follow-up events, and exportable monthly records. These controls support record keeping and PDPA accountability; they do not certify IRAS, GST, CPF, or PDPA compliance. Tax treatment and employee reimbursements still need your finance or HR reviewer.</p></div></div>
         </section>
       </>}
+      </>}
+      {reviewOpen && data && <MonthReviewDialog token={token} data={data} close={() => setReviewOpen(false)} saved={() => { setReviewOpen(false); setSuccess("Monthly review recorded. It will be flagged if the evidence changes."); setRefresh((value) => value + 1); }} />}
       {lifecycleTarget && <StatementLifecycleDialog key={lifecycleTarget.statement.statement_id} token={token} target={lifecycleTarget}
         close={() => setLifecycleTarget(null)} saved={() => {
           setSuccess(lifecycleTarget.restore ? "Statement restored. Reconciliation has been recalculated." : "Statement removed from reconciliation. Receipts are unchanged. You can restore it below.");
@@ -244,11 +303,27 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
   );
 }
 
+function MonthReviewDialog({ token, data, close, saved }: { token: string; data: Reconciliation; close: () => void; saved: () => void }) {
+  const [actor, setActor] = useState("");
+  const [note, setNote] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      await request("/reconciliation/reviews", token, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: data.month, currency: data.currency, actor: actor.trim(), note: note.trim(), fingerprint: data.review.fingerprint }) });
+      saved();
+    } catch (e) { setError(message(e)); } finally { setBusy(false); }
+  }
+  return <Dialog open onOpenChange={(next) => { if (!next) close(); }}><DialogContent><DialogHeader><DialogTitle>Record monthly review</DialogTitle><DialogDescription>Confirm you checked the bank source and accepted receipts for {data.month} · {data.currency}. This records your review; it does not change any receipt or bank transaction.</DialogDescription></DialogHeader><form onSubmit={submit} className="space-y-4"><div><label className="field-label" htmlFor="month-reviewer">Reviewer name</label><Input id="month-reviewer" required minLength={2} maxLength={100} value={actor} onChange={(e) => setActor(e.target.value)} /></div><div><label className="field-label" htmlFor="month-review-note">Review notes or actions remaining</label><Textarea id="month-review-note" required minLength={5} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Record unresolved evidence and the next check" /></div>{data.totals.exception_count > 0 && <Notice variant="warning">{data.totals.exception_count} exceptions remain. Record how they will be followed up; the overview will continue to flag them.</Notice>}<label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />I checked the retained bank source and receipt evidence for this month.</label>{error && <Notice variant="destructive">{error}</Notice>}<DialogFooter><Button type="button" variant="outline" onClick={close}>Cancel</Button><Button type="submit" disabled={busy || !confirmed || actor.trim().length < 2 || note.trim().length < 5}>{busy && <LoaderCircle className="animate-spin" />}Record review</Button></DialogFooter></form></DialogContent></Dialog>;
+}
+
 type StatementPreview = {
   statement_month: string; currency: string; account_label: string; imported_by: string;
   extraction_method: "deterministic" | "ai"; text_engine: string;
   metadata: { bank_name: string | null; account_last_four: string | null; opening_balance_cents: number | null; closing_balance_cents: number | null };
-  validation: { balance_reconciled: boolean | null; confirmable: boolean; warnings: string[]; credits_skipped: number; outside_month: number };
+  validation: { balance_reconciled: boolean | null; confirmable: boolean; warnings: string[]; credits_skipped: number; credit_total_cents: number; calculated_closing_balance_cents: number | null; balance_difference_cents: number | null; outside_month: number };
   transactions: { posted_date: string; description: string; amount_cents: number; reference: string | null; source_row: number }[];
   transactions_imported: number; debit_total_cents: number;
 };
@@ -320,7 +395,7 @@ function StatementUpload({ token, completed }: { token: string; completed: (mont
                 <span><strong className="block">Allow AI fallback for an unfamiliar layout</strong><span className="text-muted-foreground">If deterministic parsing fails, obvious account numbers are masked before extracted statement text—including company and counterparty details—is sent to the configured AI gateway. This may consume credits.</span></span>
               </label>
             </>}
-            <Notice variant="info">PDFs are previewed before import. CSV files use the existing deterministic importer. Original files are retained only after import.</Notice>
+            <Notice variant="info">PDFs are previewed before import. The private parser expects readable transaction dates and debit, credit and balance columns; other layouts may require explicit AI consent or a normalized CSV. CSV files use the deterministic importer. Original files are retained only after import.</Notice>
             {error && <Notice variant="destructive">{error}</Notice>}
             <DialogFooter><Button type="submit" disabled={busy || !file || importer.trim().length < 2}>{busy ? <LoaderCircle className="animate-spin" /> : <Upload />}{busy ? "Reading statement…" : isPdf ? "Preview statement" : "Import CSV"}</Button></DialogFooter>
           </form>
@@ -333,6 +408,7 @@ function StatementUpload({ token, completed }: { token: string; completed: (mont
             </div>
             {preview.validation.balance_reconciled === true && <Notice variant="info">Opening balance plus credits less debits agrees with the closing balance.</Notice>}
             {preview.validation.balance_reconciled === false && <Notice variant="destructive">The balances do not reconcile. This preview is blocked from import; obtain a CSV export or check the statement layout.</Notice>}
+            {preview.metadata.opening_balance_cents !== null && preview.metadata.closing_balance_cents !== null && <div className={`rounded-xl border p-4 text-sm ${preview.validation.balance_reconciled === false ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50/60"}`} aria-label="Statement balance calculation"><p className="font-semibold">Balance cross-check</p><p className="mt-2 tabular-nums">Opening {amount(preview.metadata.opening_balance_cents / 100, preview.currency)} + credits {amount(preview.validation.credit_total_cents / 100, preview.currency)} − debits {amount(preview.debit_total_cents / 100, preview.currency)} = calculated closing {amount((preview.validation.calculated_closing_balance_cents ?? 0) / 100, preview.currency)}</p><p className="mt-1 tabular-nums">Statement closing: {amount(preview.metadata.closing_balance_cents / 100, preview.currency)}{preview.validation.balance_difference_cents !== null ? ` · Difference: ${amount(preview.validation.balance_difference_cents / 100, preview.currency)}` : ""}</p>{preview.validation.balance_reconciled === false && <p className="mt-2">Compare each extracted row and all credits against the PDF. If the layout was misread, use the bank's CSV export. Enabling AI does not override this balance check.</p>}</div>}
             {preview.validation.warnings.map((warning) => <Notice key={warning} variant="warning">{warning}</Notice>)}
             <div className="max-h-72 overflow-auto rounded-lg border">
               <table className="w-full text-left text-sm"><thead className="sticky top-0 bg-muted"><tr><th className="p-3">Date</th><th className="p-3">Description</th><th className="p-3 text-right">Debit</th></tr></thead><tbody>{preview.transactions.map((item, index) => <tr key={`${item.source_row}-${index}`} className="border-t"><td className="whitespace-nowrap p-3">{item.posted_date}</td><td className="p-3">{item.description}</td><td className="whitespace-nowrap p-3 text-right tabular-nums">{amount(item.amount_cents / 100, preview.currency)}</td></tr>)}</tbody></table>
@@ -356,8 +432,18 @@ function PaymentDialog({ token, receipt, saved }: { token: string; receipt: Rece
 function TotalCard({ icon, label, value, help, tone = "plain" }: { icon: React.ReactNode; label: string; value: string; help: string; tone?: "plain" | "good" | "warn" }) { const tones = { plain: "bg-slate-100 text-slate-700", good: "bg-emerald-50 text-emerald-700", warn: "bg-amber-50 text-amber-800" }; return <article className="panel p-5"><div className="flex items-start justify-between gap-3"><div><p className="field-label text-muted-foreground">{label}</p><p className="text-2xl font-semibold tabular-nums">{value}</p></div><span className={`rounded-xl p-2.5 [&>svg]:size-5 ${tones[tone]}`}>{icon}</span></div><p className="muted mt-2">{help}</p></article>; }
 function Breakdown({ title, icon, items, currency }: { title: string; icon: React.ReactNode; items: { label: string; cents: number }[]; currency: string }) { const max = Math.max(1, ...items.map((item) => item.cents)); return <section className="panel p-5 sm:p-6"><div className="flex items-center gap-3"><span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700">{icon}</span><h2 className="font-semibold">{title}</h2></div>{!items.length ? <p className="muted py-8 text-center">No accepted receipt spend for this period.</p> : <ol className="mt-5 space-y-4">{items.slice(0, 5).map((item, index) => <li key={item.label}><div className="mb-1.5 flex justify-between gap-3 text-sm"><span className="truncate"><span className="mr-2 text-muted-foreground">{index + 1}</span>{item.label}</span><strong className="shrink-0 tabular-nums">{amount(item.cents / 100, currency)}</strong></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(3, item.cents / max * 100)}%` }} /></div></li>)}</ol>}</section>; }
 
-function TransactionTable({ transactions, statements, currency, openReceipt, viewSource }: { transactions: Transaction[]; statements: StatementRecord[]; currency: string; openReceipt: (id: string) => void; viewSource: (statement: StatementRecord) => void }) {
-  return <section className="panel overflow-hidden" aria-labelledby="transactions-title"><div className="border-b p-5 sm:p-6"><h2 id="transactions-title" className="text-lg font-semibold">Imported bank transactions</h2><p className="muted mt-1">Review every normalized debit against the original statement. Duplicates and missing receipt evidence remain visible.</p></div>{!transactions.length ? <p className="muted p-8 text-center">No imported debits are available for this period.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-muted/70"><tr><th className="p-3 pl-6">Date</th><th className="p-3">Description</th><th className="p-3 text-right">Debit</th><th className="p-3">Status</th><th className="p-3 pr-6 text-right">Evidence</th></tr></thead><tbody>{transactions.map((item) => { const statement = statements.find((candidate) => candidate.statement_id === item.statement_id); return <tr key={item.transaction_id} className={`border-t ${item.status === "MATCHED" ? "" : "bg-amber-50/40"}`}><td className="whitespace-nowrap p-3 pl-6">{item.posted_date}</td><td className="p-3"><p className="font-medium">{item.description}</p>{item.reference && <p className="muted">Ref {item.reference}</p>}</td><td className="whitespace-nowrap p-3 text-right font-semibold tabular-nums">{amount(item.amount_cents / 100, currency)}</td><td className="p-3"><Status value={item.status} /></td><td className="p-3 pr-6"><div className="flex justify-end gap-2">{statement && <Button size="sm" variant="outline" onClick={() => viewSource(statement)}><FileText /> Statement</Button>}{item.receipt_id && <Button size="sm" variant="ghost" onClick={() => openReceipt(item.receipt_id!)}>Receipt <ArrowRight /></Button>}</div></td></tr>; })}</tbody></table></div>}</section>;
+function TransactionTable({ transactions, statements, currency, openReceipt, viewSource, inspectMonth }: {
+  transactions: Transaction[]; statements: StatementRecord[]; currency: string;
+  openReceipt: (id: string) => void; viewSource: (statement: StatementRecord) => void;
+  inspectMonth: (month: string) => void;
+}) {
+  return <section className="panel overflow-hidden" aria-labelledby="transactions-title">
+    <div className="border-b p-5 sm:p-6"><h2 id="transactions-title" className="text-lg font-semibold">Imported bank debits</h2><p className="muted mt-1">Compare each debit with the retained statement and accepted receipt. Possible matches in neighboring months need your review.</p></div>
+    {!transactions.length ? <p className="muted p-8 text-center">No imported debits are available for this period.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-muted/70"><tr><th className="p-3 pl-6">Date</th><th className="p-3">Description</th><th className="p-3 text-right">Debit</th><th className="p-3">Status</th><th className="p-3 pr-6 text-right">Evidence</th></tr></thead><tbody>{transactions.map((item) => {
+      const statement = statements.find((candidate) => candidate.statement_id === item.statement_id);
+      return <tr key={item.transaction_id} className={`border-t ${item.status === "MATCHED" ? "" : "bg-amber-50/40"}`}><td className="whitespace-nowrap p-3 pl-6">{item.posted_date}</td><td className="p-3"><p className="font-medium">{item.description}</p>{item.reference && <p className="muted">Ref {item.reference}</p>}{item.adjacent_month_candidate && <button className="mt-1 text-xs font-medium text-amber-800 underline" onClick={() => inspectMonth(item.adjacent_month_candidate!.month)}>Possible receipt in {item.adjacent_month_candidate.month} · inspect month</button>}</td><td className="whitespace-nowrap p-3 text-right font-semibold tabular-nums">{amount(item.amount_cents / 100, currency)}</td><td className="p-3"><Status value={item.status} /></td><td className="p-3 pr-6"><div className="flex justify-end gap-2">{statement && <Button size="sm" variant="outline" onClick={() => viewSource(statement)}><FileText /> Statement</Button>}{item.receipt_id && <Button size="sm" variant="ghost" onClick={() => openReceipt(item.receipt_id!)}>Receipt <ArrowRight /></Button>}</div></td></tr>;
+    })}</tbody></table></div>}
+  </section>;
 }
 
 function StatementSourcePanel({ token, statement, onClose, download }: { token: string; statement: StatementRecord; onClose: () => void; download: () => void }) {

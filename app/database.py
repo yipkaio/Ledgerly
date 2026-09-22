@@ -40,10 +40,10 @@ class ReceiptStore:
             connection.execute("PRAGMA foreign_keys=ON")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             # Serialize first-use schema creation, without write-locking normal reads.
-            if version in (0, 1, 2, 3, 4, 5, 6, 7):
+            if version in (0, 1, 2, 3, 4, 5, 6, 7, 8):
                 connection.execute("BEGIN IMMEDIATE")
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8):
+            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9):
                 raise DatabaseError("Unsupported database schema version")
             if version == 0:
                 for statement in SCHEMA:
@@ -88,6 +88,11 @@ class ReceiptStore:
                 for statement in STATEMENT_MIGRATION_8:
                     connection.execute(statement)
                 connection.execute("PRAGMA user_version=8")
+            if version in (0, 1, 2, 3, 4, 5, 6, 7, 8):
+                from app.statements import STATEMENT_MIGRATION_9
+                for statement in STATEMENT_MIGRATION_9:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version=9")
             connection.commit()
             with connection:
                 yield connection

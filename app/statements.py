@@ -40,6 +40,13 @@ STATEMENT_MIGRATION_8 = (
     "ALTER TABLE bank_statements ADD COLUMN imported_by TEXT NOT NULL DEFAULT 'Legacy import'",
 )
 
+STATEMENT_MIGRATION_9 = (
+    "CREATE TABLE monthly_close_reviews (id INTEGER PRIMARY KEY, month TEXT NOT NULL, "
+    "currency TEXT NOT NULL, actor TEXT NOT NULL, note TEXT NOT NULL, "
+    "reviewed_at TEXT NOT NULL, fingerprint TEXT NOT NULL)",
+    "CREATE INDEX monthly_close_review_period ON monthly_close_reviews(month,currency,id DESC)",
+)
+
 PREVIEW_TTL_SECONDS = 30 * 60
 
 
@@ -104,6 +111,17 @@ def change_statement_state(store, statement_id: str, body: StatementLifecycleReq
 class MonthlyExportRequest(BaseModel):
     month: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     currency: str = Field(pattern=r"^[A-Z]{3}$")
+
+
+class MonthReviewRequest(MonthlyExportRequest):
+    actor: str = Field(min_length=2, max_length=100)
+    note: str = Field(min_length=5, max_length=500)
+    fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @field_validator("actor", "note", mode="before")
+    @classmethod
+    def strip_review(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
 
 def _header(value: str) -> str:
@@ -261,6 +279,7 @@ def statement_preview(extraction: StatementExtraction, statement_month: str,
         )
     transactions = []
     credit_count = 0
+    credit_total_cents = 0
     net_cents = 0
     for source_row, item in enumerate(extraction.transactions, start=1):
         debit = _cents(item.debit_amount) or 0
@@ -268,6 +287,7 @@ def statement_preview(extraction: StatementExtraction, statement_month: str,
         net_cents += credit - debit
         if debit <= 0:
             credit_count += 1
+            credit_total_cents += credit
             continue
         transactions.append({
             "posted_date": item.posted_date.isoformat(),
@@ -320,6 +340,9 @@ def statement_preview(extraction: StatementExtraction, statement_month: str,
         "validation": {
             "balance_reconciled": reconciled,
             "confirmable": reconciled is not False,
+            "credit_total_cents": credit_total_cents,
+            "calculated_closing_balance_cents": opening + net_cents if opening is not None else None,
+            "balance_difference_cents": opening + net_cents - closing if opening is not None and closing is not None else None,
             "warnings": warnings,
             "credits_skipped": credit_count,
             "outside_month": outside,
@@ -423,9 +446,7 @@ def _normal(value: str | None) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", (value or "").lower()))
 
 
-def _receipt_rows(db, month: str, currency: str) -> list[dict]:
-    rows = db.execute(
-        """WITH effective AS (
+RECEIPTS_EFFECTIVE_CTE = """WITH effective AS (
         SELECT r.receipt_id, r.duplicate_candidates_json,
         COALESCE(json_extract(a.result_json,'$.final_data.vendor'),json_extract(v.result_json,'$.final_data.vendor'),json_extract(r.extraction_json,'$.vendor')) vendor,
         COALESCE(json_extract(a.result_json,'$.final_data.legal_entity'),json_extract(v.result_json,'$.final_data.legal_entity'),json_extract(r.extraction_json,'$.legal_entity')) legal_entity,
@@ -437,7 +458,12 @@ def _receipt_rows(db, month: str, currency: str) -> list[dict]:
         FROM receipts r LEFT JOIN classifications c USING(receipt_id)
         LEFT JOIN receipt_reviews v USING(receipt_id)
         LEFT JOIN receipt_amendments a ON a.receipt_id=r.receipt_id AND a.version=(SELECT max(a2.version) FROM receipt_amendments a2 WHERE a2.receipt_id=r.receipt_id)
-        WHERE r.lifecycle_state='ACTIVE')
+        WHERE r.lifecycle_state='ACTIVE')"""
+
+
+def _receipt_rows(db, month: str, currency: str) -> list[dict]:
+    rows = db.execute(
+        RECEIPTS_EFFECTIVE_CTE + """
         SELECT * FROM effective WHERE state IN ('AUTO_FILED','APPROVED') AND currency=?
         AND substr(receipt_date,1,7)=? AND amount IS NOT NULL ORDER BY receipt_date, receipt_id""",
         (currency, month),
@@ -460,6 +486,34 @@ def _latest_payment_states(db) -> dict[str, dict]:
         "(SELECT max(e2.version) FROM receipt_payment_events e2 WHERE e2.receipt_id=e.receipt_id)"
     ).fetchall()
     return {row[0]: json.loads(row[1]) for row in rows}
+
+
+def _adjacent_months(month: str) -> tuple[str | None, str | None]:
+    year, number = map(int, month.split("-"))
+    if year < 1 or year > 9999:
+        raise StatementInvalid("Statement year must be between 0001 and 9999")
+    previous = None if (year, number) == (1, 1) else (date(year - 1, 12, 1) if number == 1 else date(year, number - 1, 1))
+    following = None if (year, number) == (9999, 12) else (date(year + 1, 1, 1) if number == 12 else date(year, number + 1, 1))
+    return (previous.strftime("%Y-%m") if previous else None,
+            following.strftime("%Y-%m") if following else None)
+
+
+def _nearby_candidate(posted: str, description: str, cents: int,
+                      nearby: list[dict], *, receipt_side: bool) -> dict | None:
+    matches = []
+    for item in nearby:
+        if item["amount_cents"] != cents:
+            continue
+        receipt_date = posted if receipt_side else item["receipt_date"]
+        bank_date = item["posted_date"] if receipt_side else posted
+        if abs((date.fromisoformat(receipt_date) - date.fromisoformat(bank_date)).days) > 7:
+            continue
+        vendor = set(_normal(description if receipt_side else item["vendor"]).split())
+        bank_text = set(_normal(item["description"] if receipt_side else description).split())
+        if vendor and vendor & bank_text:
+            matches.append(item)
+    # Suggestions are read-only, and ambiguity must remain visible for human review.
+    return matches[0] if len(matches) == 1 else None
 
 
 def monthly_reconciliation(store, month: str, currency: str) -> dict:
@@ -485,6 +539,15 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
         )]
         receipts = _receipt_rows(db, month, currency)
         payment_states = _latest_payment_states(db)
+        nearby_months = _adjacent_months(month)
+        nearby_receipts = [receipt for near in nearby_months if near is not None
+                           for receipt in _receipt_rows(db, near, currency)]
+        nearby_transactions = [dict(row) for row in db.execute(
+            "SELECT t.*,s.statement_month FROM bank_transactions t JOIN bank_statements s USING(statement_id) "
+            "WHERE s.statement_month IN (?,?) AND s.currency=? "
+            "AND COALESCE(json_extract(s.metadata_json,'$.removed'),0)=0",
+            (*nearby_months, currency),
+        )]
 
     duplicate_keys: dict[tuple, int] = {}
     for tx in txs:
@@ -525,6 +588,12 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
             "reference": tx["reference"], "receipt_id": matched["receipt_id"] if matched else None,
             "receipt_vendor": matched["vendor"] if matched else None,
             "status": "DUPLICATE_TRANSACTION" if duplicate_keys[key] > 1 else ("MATCHED" if matched else "MISSING_RECEIPT"),
+            "adjacent_month_candidate": (
+                {"month": candidate["receipt_date"][:7], "receipt_id": candidate["receipt_id"]}
+                if not matched and (candidate := _nearby_candidate(
+                    tx["posted_date"], tx["description"], tx["amount_cents"],
+                    nearby_receipts, receipt_side=False)) else None
+            ),
         })
 
     receipt_rows = []
@@ -542,6 +611,12 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
             "amount_cents": receipt["amount_cents"], "status": status,
             "transaction_id": matched_receipts.get(receipt["receipt_id"]),
             "duplicate_receipt": receipt["duplicate_receipt"], "payment_event": event,
+            "adjacent_month_candidate": (
+                {"month": candidate["statement_month"], "statement_id": candidate["statement_id"]}
+                if receipt["receipt_id"] not in matched_receipts and (candidate := _nearby_candidate(
+                    receipt["receipt_date"], receipt["vendor"], receipt["amount_cents"],
+                    nearby_transactions, receipt_side=True)) else None
+            ),
         })
 
     def totals_by(key: str) -> list[dict]:
@@ -582,14 +657,97 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
     }
 
 
+def _period_fingerprint(store, data: dict) -> str:
+    ids = [receipt["receipt_id"] for receipt in data["receipts"]]
+    with store.connect() as db:
+        revisions = [tuple(row) for row in db.execute(
+            "SELECT receipt_id,updated_at FROM receipts WHERE receipt_id IN ("
+            + ",".join("?" for _ in ids) + ") ORDER BY receipt_id", ids,
+        )] if ids else []
+    payload = {
+        "statements": data["statements"], "removed_statements": data["removed_statements"],
+        "transactions": data["transactions"], "receipts": data["receipts"],
+        "revisions": revisions,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                                     allow_nan=False).encode("utf-8")).hexdigest()
+
+
+def period_review(store, data: dict) -> dict:
+    fingerprint = _period_fingerprint(store, data)
+    with store.connect() as db:
+        latest = db.execute(
+            "SELECT actor,note,reviewed_at,fingerprint FROM monthly_close_reviews "
+            "WHERE month=? AND currency=? ORDER BY id DESC LIMIT 1",
+            (data["month"], data["currency"]),
+        ).fetchone()
+    return {
+        "fingerprint": fingerprint,
+        "status": "not_reviewed" if latest is None else
+                  ("reviewed" if hmac.compare_digest(fingerprint, latest["fingerprint"]) else "outdated"),
+        "actor": latest["actor"] if latest else None,
+        "note": latest["note"] if latest else None,
+        "reviewed_at": latest["reviewed_at"] if latest else None,
+    }
+
+
+def reconciliation_detail(store, month: str, currency: str) -> dict:
+    data = monthly_reconciliation(store, month, currency)
+    data["review"] = period_review(store, data)
+    return data
+
+
+def record_month_review(store, body: MonthReviewRequest) -> dict:
+    # Serialize with imports and edits so a stale screen cannot certify a changed month.
+    with store.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        data = monthly_reconciliation(store, body.month, body.currency)
+        if not data["statements"]:
+            raise StatementInvalid("Import a statement before recording a monthly review")
+        fingerprint = _period_fingerprint(store, data)
+        if not hmac.compare_digest(fingerprint, body.fingerprint):
+            raise StatementInvalid("This month changed while you were reviewing it. Refresh and check it again.")
+        reviewed_at = datetime.now(timezone.utc).isoformat()
+        db.execute("INSERT INTO monthly_close_reviews (month,currency,actor,note,reviewed_at,fingerprint) "
+                   "VALUES (?,?,?,?,?,?)", (body.month, body.currency, body.actor,
+                                            body.note, reviewed_at, fingerprint))
+    return {"month": body.month, "currency": body.currency, "actor": body.actor,
+            "note": body.note, "reviewed_at": reviewed_at, "status": "reviewed"}
+
+
 def list_periods(store) -> list[dict]:
     with store.connect() as db:
-        return [dict(row) for row in db.execute(
+        statements = [dict(row) for row in db.execute(
             "SELECT statement_month AS month,currency,"
             "sum(CASE WHEN COALESCE(json_extract(metadata_json,'$.removed'),0)=0 THEN 1 ELSE 0 END) AS statement_count,"
             "sum(CASE WHEN COALESCE(json_extract(metadata_json,'$.removed'),0)=0 THEN row_count ELSE 0 END) AS transaction_count "
             "FROM bank_statements GROUP BY statement_month,currency ORDER BY statement_month DESC,currency"
         )]
+        receipt_periods = [dict(row) for row in db.execute(
+            RECEIPTS_EFFECTIVE_CTE + " SELECT substr(receipt_date,1,7) AS month,currency,"
+            "count(*) AS receipt_count FROM effective WHERE state IN ('AUTO_FILED','APPROVED') "
+            "AND receipt_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-*' "
+            "AND amount IS NOT NULL AND currency IS NOT NULL GROUP BY month,currency"
+        )]
+    periods = {(row["month"], row["currency"]): row for row in statements}
+    for row in receipt_periods:
+        key = (row["month"], row["currency"])
+        periods.setdefault(key, {"month": row["month"], "currency": row["currency"],
+                                 "statement_count": 0, "transaction_count": 0})
+    result = []
+    for month, currency in sorted(periods, reverse=True):
+        if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month) or not re.fullmatch(r"[A-Z]{3}", currency):
+            continue
+        data = monthly_reconciliation(store, month, currency)
+        item = {**periods[(month, currency)], "receipt_count": len(data["receipts"]),
+                "exception_count": data["totals"]["exception_count"],
+                "bank_missing_count": sum(tx["status"] == "MISSING_RECEIPT" for tx in data["transactions"]),
+                "receipt_unmatched_count": sum(r["status"] != "PAID" for r in data["receipts"]),
+                "duplicate_count": sum(tx["status"] == "DUPLICATE_TRANSACTION" for tx in data["transactions"])
+                                   + sum(r["duplicate_receipt"] for r in data["receipts"]),
+                "review": period_review(store, data)}
+        result.append(item)
+    return result
 
 
 def statement_source(store, statement_id: str) -> tuple[str, str, bytes]:

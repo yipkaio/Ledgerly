@@ -76,6 +76,8 @@ but are not included in dated reporting.
 
 ## Monthly close
 
+Start in **Overview** to check all recorded periods across years. Months with accepted receipts appear even when you have not imported a bank statement. Use **Needs attention only** to focus on missing statements, exceptions and outdated reviews. Open a period for its original-currency reconciliation. A month is shown as reviewed only after you record the reviewer and note; evidence changes flag the review as outdated. Reviewing a month does not automatically resolve its exceptions.
+
 ### Import a statement
 
 ![Statement upload form](assets/screenshots/172119.png)
@@ -88,7 +90,9 @@ used only in memory for preview.
 ![Correctly annotated statement validation](assets/screenshots/statement-balance-validation.svg)
 
 The preview contains two debit rows totalling SGD 252.88 and a passing balance
-check. The reviewer must compare every row with the source before import.
+check. The balance panel explains opening balance + credits − debits versus the
+statement closing balance, with the difference when they disagree. The reviewer
+must compare every row with the source before import.
 
 ![Statement retained and totals updated](assets/screenshots/172146.png)
 

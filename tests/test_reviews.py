@@ -152,7 +152,7 @@ def test_existing_v1_migrates_without_changing_evidence(tmp_path):
     store = ReceiptStore(path)
     assert store.get('old')['processing_status'] == 'FAILED'
     with store.connect() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 8
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 9
         columns = {row[1] for row in db.execute("PRAGMA table_info(bank_statements)")}
         assert {"source_media_type", "extraction_method", "metadata_json", "validation_json", "imported_by"} <= columns
         assert db.execute('SELECT image_path FROM receipts').fetchone()[0] == 'secret'
