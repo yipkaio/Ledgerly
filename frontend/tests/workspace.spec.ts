@@ -116,16 +116,18 @@ test("reprocessing creates an unsaved review draft with reconciliation and prove
 
 test("monthly close shows evidence gaps, spend concentration, and grounded prompts", async ({ page }) => {
   await setup(page);
-  await page.route("**/bank-statements/periods", (route) => route.fulfill({ json: { items: [{ month: "2026-09", currency: "SGD", statement_count: 1, transaction_count: 2 }] } }));
+  const statementId = "88d896c9-eb7f-4c22-996b-b89fbb8f77da";
+  const review = { status: "not_reviewed", fingerprint: "fingerprint", actor: null, note: null, reviewed_at: null };
+  await page.route("**/bank-statements/periods", (route) => route.fulfill({ json: { items: [{ month: "2026-09", currency: "SGD", statement_count: 1, transaction_count: 2, receipt_count: 1, exception_count: 2, bank_missing_count: 1, receipt_unmatched_count: 1, duplicate_count: 0, review }] } }));
   await page.route("**/reconciliation?*", (route) => route.fulfill({ json: {
-    month: "2026-09", currency: "SGD", generated_at: "2026-09-19T00:00:00Z",
+    month: "2026-09", currency: "SGD", generated_at: "2026-09-19T00:00:00Z", review, removed_statements: [],
     statements: [{ statement_id: "88d896c9-eb7f-4c22-996b-b89fbb8f77da", account_label: "Operating", original_filename: "sep.csv", uploaded_at: "2026-09-19T00:00:00Z", row_count: 2, skipped_rows: 0, source_media_type: "text/csv", imported_by: "Finance tester" }],
     totals: { bank_debits_cents: 15000, receipt_spend_cents: 12000, matched_cents: 10000, difference_cents: 3000, exception_count: 2 },
     transactions: [
       { transaction_id: "t1", statement_id: "88d896c9-eb7f-4c22-996b-b89fbb8f77da", posted_date: "2026-09-03", description: "Acme", amount_cents: 10000, reference: null, receipt_id: id, receipt_vendor: "Acme", status: "MATCHED" },
       { transaction_id: "t2", statement_id: "88d896c9-eb7f-4c22-996b-b89fbb8f77da", posted_date: "2026-09-04", description: "Unknown", amount_cents: 5000, reference: null, receipt_id: null, receipt_vendor: null, status: "MISSING_RECEIPT" },
     ],
-    receipts: [{ receipt_id: id, receipt_date: "2026-09-03", vendor: "Acme", category: "Repairs and Maintenance", amount_cents: 12000, status: "NO_BANK_MATCH", transaction_id: null, duplicate_receipt: false }],
+    receipts: [{ receipt_id: id, receipt_date: "2026-09-03", vendor: "Acme", category: "Repairs and Maintenance", amount_cents: 12000, status: "NO_BANK_MATCH", transaction_id: null, duplicate_receipt: false, payment_event: null, payment_events: [] }],
     categories: [{ category: "Repairs and Maintenance", total_cents: 12000 }],
     vendors: [{ vendor: "Acme", total_cents: 12000 }],
     suggestions: [{ title: "Review Repairs and Maintenance", detail: "It is the largest category. Compare recurring charges and request fresh quotes." }],
@@ -133,17 +135,29 @@ test("monthly close shows evidence gaps, spend concentration, and grounded promp
   await page.route("**/bank-statements/88d896c9-eb7f-4c22-996b-b89fbb8f77da/source", (route) => route.fulfill({ contentType: "text/csv", body: "Date,Description,Debit\n2026-09-03,Acme,100.00\n2026-09-04,Unknown,50.00\n" }));
   await page.getByRole("button", { name: "Monthly close", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Monthly close" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Every month in view" })).toBeVisible();
+  await page.getByRole("button", { name: "Open month" }).click();
   await expect(page.getByText("SGD 150.00", { exact: true })).toBeVisible();
   await expect(page.getByText(/^missing receipt$/i)).toBeVisible();
+  await page.getByText("Spending breakdown and review prompts").click();
   await expect(page.getByText("Highest spend by company")).toBeVisible();
   await expect(page.getByText("Review Repairs and Maintenance", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Imported bank transactions" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Imported bank debits" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Accepted receipts" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Statement", exact: true })).toHaveCount(2);
   await page.getByRole("button", { name: "View source", exact: true }).click();
   const source = page.getByRole("dialog", { name: "Operating" });
   await expect(source.getByText("2026-09-04,Unknown,50.00")).toBeVisible();
   await source.getByRole("button", { name: "Close statement source" }).click();
+  await page.getByRole("button", { name: "Ask Finance Copilot" }).click();
+  await expect(page.getByRole("dialog", { name: "Finance Copilot" }).getByText("Read-only advisory")).toBeVisible();
+  await page.getByRole("button", { name: "Close Finance Copilot" }).click();
+  await page.getByLabel("Show items needing attention only").check();
+  await page.getByLabel("Filter bank transactions by source").selectOption(statementId);
+  await page.getByRole("button", { name: "Open receipt", exact: true }).click();
+  await page.getByRole("button", { name: "Back to Monthly Close · 2026-09" }).click();
+  await expect(page.getByLabel("Show items needing attention only")).toBeChecked();
+  await expect(page.getByLabel("Filter bank transactions by source")).toHaveValue(statementId);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 

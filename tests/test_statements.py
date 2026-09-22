@@ -330,6 +330,35 @@ def test_statement_upload_reconciliation_payment_audit_and_export(monkeypatch, t
     assert row["status"] == "PAYMENT_ISSUE"
     assert row["payment_event"]["actor"] == "Finance reviewer"
 
+    payable = client.post(
+        f"/receipts/{unmatched_id}/payment-state", headers=HEADERS,
+        json={"state": "TRADE_PAYABLE", "actor": "Finance reviewer",
+              "note": "Invoice checked, payment planned after approval",
+              "invoice_due_date": "2026-09-30", "planned_payment_date": "2026-09-28",
+              "expected_version": 1},
+    )
+    assert payable.status_code == 200, payable.text
+    assert payable.json()["invoice_due_date"] == "2026-09-30"
+    assert payable.json()["previous_state"] == "PAYMENT_ISSUE"
+    assert client.post(
+        f"/receipts/{unmatched_id}/payment-state", headers=HEADERS,
+        json={"state": "CLEAR", "actor": "Finance reviewer",
+              "note": "Cannot clear with a payable date", "invoice_due_date": "2026-10-01"},
+    ).status_code == 422
+    stale = client.post(
+        f"/receipts/{unmatched_id}/payment-state", headers=HEADERS,
+        json={"state": "CLEAR", "actor": "Finance reviewer",
+              "note": "Payment was checked with the bank", "expected_version": 1},
+    )
+    assert stale.status_code == 422
+    latest = client.get("/reconciliation?month=2026-09&currency=SGD", headers=HEADERS).json()
+    updated_row = next(item for item in latest["receipts"] if item["receipt_id"] == unmatched_id)
+    assert updated_row["status"] == "TRADE_PAYABLE"
+    assert [event["version"] for event in updated_row["payment_events"]] == [2, 1]
+    detail = client.get(f"/receipts/{unmatched_id}", headers=HEADERS)
+    assert detail.status_code == 200
+    assert [event["version"] for event in detail.json()["payment_events"]] == [2, 1]
+
     workbook = build_monthly_export(store, "2026-09", "SGD")
     assert workbook.startswith(b"PK")
     with ZipFile(BytesIO(workbook)) as archive:

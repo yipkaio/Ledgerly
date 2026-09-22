@@ -112,6 +112,8 @@ That status alone does not prove an unpaid invoice, a failed payment or fraud.
 Finance Copilot prioritises the SGD 2,180 gap and explains evidence and limits.
 Its output is advisory and does not execute a change. In model context, 218,000
 cents represents SGD 2,180.
+The current interface opens Copilot using the animated receipt assistant at the lower
+right of Monthly Close; this screenshot shows the earlier full-width presentation.
 
 ![Unsaved payable dialog](assets/screenshots/172250.png)
 
@@ -119,6 +121,9 @@ The `Trade payable` option is selected, but the reviewer and evidence fields are
 blank. This is an unsaved dialog—not proof that a payable was recorded. Resolve
 the conflict between the receipt's `Card - paid` label and the missing bank match
 before saving a payment follow-up.
+The current dialog also supports optional invoice due and planned payment dates for
+Trade payable. Each saved change appears in the receipt’s payment-status history,
+and **Back to Monthly Close** returns to the month and filters you were reviewing.
 
 ![Retained statement source](assets/screenshots/172704.png)
 

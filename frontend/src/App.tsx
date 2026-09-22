@@ -36,6 +36,7 @@ import {
   rowStatus,
 } from "@/lib/api";
 import type { Page } from "@/lib/api";
+import type { MonthlyCloseLocation } from "@/components/monthly-close";
 import {
   loadAuthConfig,
   refreshFirebaseSession,
@@ -299,7 +300,8 @@ function Workspace({
     [filterDraft, setFilterDraft] = useState(emptyFilters),
     [filters, setFilters] = useState(emptyFilters),
     [checked, setChecked] = useState<Set<string>>(new Set()),
-    [exportBusy, setExportBusy] = useState(false);
+    [exportBusy, setExportBusy] = useState(false),
+    [monthlyReturn, setMonthlyReturn] = useState<MonthlyCloseLocation | null>(null);
   const now = useClock();
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -363,6 +365,7 @@ function Workspace({
       setFilters(nextFilters);
     }
     setSelected(null);
+    if (next !== "monthly") setMonthlyReturn(null);
     setView(next);
     setChecked(new Set());
     setOffset(0);
@@ -477,7 +480,7 @@ function Workspace({
                 }}
               >
                 <ArrowLeft />
-                Back to list
+                {view === "monthly" && monthlyReturn ? `Back to Monthly Close · ${monthlyReturn.month}` : "Back to list"}
               </Button>
             )}
           </div>
@@ -514,7 +517,7 @@ function Workspace({
             </Suspense>
           ) : view === "monthly" ? (
             <Suspense fallback={<p role="status">Loading monthly close…</p>}>
-              <MonthlyClose token={token} openReceipt={(id) => { setView("history"); setSelected(id); }} />
+              <MonthlyClose token={token} initialLocation={monthlyReturn} openReceipt={(id, location) => { setMonthlyReturn(location); setSelected(id); }} />
             </Suspense>
           ) : view === "upload" ? (
             <UploadForm

@@ -35,6 +35,7 @@ import { Reconciliation } from "@/components/reconciliation";
 import { ReprocessReceipt } from "@/components/reprocess-receipt";
 import { ReceiptLifecycle } from "@/components/receipt-lifecycle";
 import { AuditTimeline } from "@/components/audit-timeline";
+import { PaymentHistory } from "@/components/payment-history";
 
 function Field({
   name,
@@ -994,6 +995,7 @@ export function ReceiptDetail({
           )}
         </div>
       </div>
+      {!!receipt.payment_events?.length && <PaymentHistory events={receipt.payment_events} />}
       <AuditTimeline reviews={audit} amendments={amendments} />
       <Dialog
         open={!!confirm}

@@ -8,6 +8,8 @@ Monthly Close opens on an overview of periods with an accepted receipt or an imp
 
 Open a month to inspect the bank debits, accepted receipts, retained statement and original receipt evidence. Enter your name and a meaningful note when recording a monthly review. Reviews are append-only, require an active statement, and are marked outdated when the month’s evidence changes. A review can document exceptions without resolving them; exceptions remain visible in the overview. The reviewer name is an audit label in the shared workspace, not a separately verified personal login.
 
+Opening a receipt from Monthly Close keeps the month, currency, bank-source filter and exceptions-only setting. Use **Back to Monthly Close** to return to that same view. Payment-status history is available both beside the accepted receipt and in the original receipt detail.
+
 Possible matches between a receipt and a debit in neighboring months are shown as **inspection hints** only when the amount, date and vendor words support an unambiguous candidate. They do not create a paid status or change the bank and receipt totals. Compare the original records before recording any payment follow-up.
 
 ## PDF input and confirmation
@@ -45,7 +47,7 @@ Matching is deterministic and read-only. It uses exact currency and cents, a rec
 
 - **Paid** means the accepted receipt has a likely bank debit match.
 - **No bank match** is an exception, not a conclusion that an invoice is unpaid.
-- **Trade payable** and **Payment issue** are human-recorded audit events with actor, note, timestamp, and version.
+- **Trade payable** and **Payment issue** are human-recorded audit events with actor, note, timestamp, and version. Trade payable may also include separate optional invoice due and planned payment dates. A planned date is a reminder, not proof of payment; only a matching bank debit can establish the app’s **Paid** status. Saving a new status appends an event and preserves earlier decisions.
 - **Missing receipt** means a bank debit has no likely accepted receipt.
 - **Duplicate transaction** identifies repeated date, amount, and normalized description values within imported statements for that month and currency.
 - Existing receipt duplicate candidates remain visible as **Duplicate receipt**.
@@ -60,9 +62,11 @@ Statement sources sheets. It shows reconciliation totals, matched coverage,
 category and company shares, static detail totals, source provenance and
 highlighted exceptions. Each export remains in the selected original currency.
 
-## Cost prompts
+## Spending review prompts and Finance Copilot
 
-Cost-saving prompts use only accepted receipt totals for the selected month. They identify the largest category and vendor concentration, then suggest review actions. Ledgerly does not invent current market prices or claim a supplier is cheaper without verified quotes.
+The **Spending review prompts** below the receipt list are deterministic rules using accepted receipt totals for the selected month. They identify the largest category and vendor concentration, then suggest review actions. Ledgerly does not invent current market prices or claim a supplier is cheaper without verified quotes.
+
+The animated receipt assistant at the bottom right opens a read-only Finance Copilot panel. In the overview, choose the period to discuss; in month detail, it uses that selected period. Quick actions and suggested questions only call the assistant when you submit them. It can explain recorded exceptions, prepare a close brief, and answer questions scoped to the month. Its result is advisory and cannot change statuses, import statements, or execute payments. Receipt references identified in the current month can be opened directly from the response. Close the panel with its close button or Escape; reduced-motion preferences stop the mascot animation.
 
 ## Singapore controls
 

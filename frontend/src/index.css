@@ -129,3 +129,11 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+@keyframes copilot-float { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-3px) rotate(3deg); } }
+@keyframes copilot-wave { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(12deg); } }
+.copilot-agent { animation: copilot-float 3s ease-in-out infinite; }
+.copilot-agent-wave { transform-origin: 46px 36px; animation: copilot-wave 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .copilot-agent, .copilot-agent-wave { animation: none; }
+  .copilot-launcher { transition: none; }
+}

@@ -24,6 +24,7 @@ import { Notice, Status } from "@/components/feedback";
 import { FinanceCopilot } from "@/components/finance-copilot";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -32,6 +33,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { amount, authenticationHeaders, message, request, requestDownload } from "@/lib/api";
+import type { PaymentEvent } from "@/lib/api";
+import { PaymentHistory } from "@/components/payment-history";
+import { CopilotAgent } from "@/components/copilot-agent";
 
 type ReviewState = { status: "not_reviewed" | "reviewed" | "outdated"; fingerprint: string; actor: string | null; note: string | null; reviewed_at: string | null };
 type Period = { month: string; currency: string; statement_count: number; transaction_count: number; receipt_count: number; exception_count: number; bank_missing_count: number; receipt_unmatched_count: number; duplicate_count: number; review: ReviewState };
@@ -45,6 +49,7 @@ type ReceiptRow = {
   receipt_id: string; receipt_date: string; vendor: string; category: string; amount_cents: number;
   status: string; transaction_id: string | null; duplicate_receipt: boolean;
   adjacent_month_candidate?: { month: string; statement_id: string } | null;
+  payment_event: PaymentEvent | null; payment_events: PaymentEvent[];
 };
 type StatementRecord = {
   statement_id: string; account_label: string; original_filename: string; uploaded_at: string;
@@ -66,14 +71,26 @@ type Reconciliation = {
 
 const currentMonth = new Date().toISOString().slice(0, 7);
 
-export function MonthlyClose({ token, openReceipt }: { token: string; openReceipt: (id: string) => void }) {
+export type MonthlyCloseLocation = {
+  view: "overview" | "detail";
+  month: string;
+  currency: string;
+  exceptionsOnly: boolean;
+  statementFilter: string;
+};
+
+export function MonthlyClose({ token, openReceipt, initialLocation }: {
+  token: string;
+  openReceipt: (id: string, location: MonthlyCloseLocation) => void;
+  initialLocation?: MonthlyCloseLocation | null;
+}) {
   const [periods, setPeriods] = useState<Period[]>([]);
-  const [view, setView] = useState<"overview" | "detail">("overview");
+  const [view, setView] = useState<"overview" | "detail">(initialLocation?.view ?? "overview");
   const [periodsBusy, setPeriodsBusy] = useState(true);
   const [year, setYear] = useState("all");
   const [attentionOnly, setAttentionOnly] = useState(false);
-  const [month, setMonth] = useState(currentMonth);
-  const [currency, setCurrency] = useState("SGD");
+  const [month, setMonth] = useState(initialLocation?.month ?? currentMonth);
+  const [currency, setCurrency] = useState(initialLocation?.currency ?? "SGD");
   const [data, setData] = useState<Reconciliation | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
@@ -82,9 +99,13 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
   const [sourceStatement, setSourceStatement] = useState<StatementRecord | null>(null);
   const [lifecycleTarget, setLifecycleTarget] = useState<{ statement: StatementRecord; restore: boolean } | null>(null);
   const [success, setSuccess] = useState("");
-  const [exceptionsOnly, setExceptionsOnly] = useState(false);
-  const [statementFilter, setStatementFilter] = useState("");
+  const [exceptionsOnly, setExceptionsOnly] = useState(initialLocation?.exceptionsOnly ?? false);
+  const [statementFilter, setStatementFilter] = useState(initialLocation?.statementFilter ?? "");
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  function openReceiptFromMonth(id: string) {
+    openReceipt(id, { view, month, currency, exceptionsOnly, statementFilter });
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -120,6 +141,8 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
   const isAttention = (item: Period) => item.statement_count === 0 || item.exception_count > 0 || item.review.status === "outdated";
   const visiblePeriods = periods.filter((item) => (year === "all" || item.month.startsWith(year)) &&
     (!attentionOnly || isAttention(item))).sort((a, b) => Number(isAttention(b)) - Number(isAttention(a)) || b.month.localeCompare(a.month) || a.currency.localeCompare(b.currency));
+  const now = new Date();
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   function openPeriod(nextMonth: string, nextCurrency: string) {
     setSourceStatement(null); setStatementFilter(""); setSuccess("");
     setMonth(nextMonth); setCurrency(nextCurrency); setView("detail");
@@ -257,40 +280,59 @@ export function MonthlyClose({ token, openReceipt }: { token: string; openReceip
           </select></label>
           <p className="w-full text-xs text-muted-foreground">Filters affect the lists below. Summary totals and Excel exports always cover the entire month.</p>
         </section>
-        <TransactionTable transactions={data.transactions.filter((item) => (!exceptionsOnly || item.status !== "MATCHED") && (!data.statements.some((source) => source.statement_id === statementFilter) || item.statement_id === statementFilter))} statements={data.statements} currency={currency} openReceipt={openReceipt} viewSource={setSourceStatement} inspectMonth={(nextMonth) => openPeriod(nextMonth, currency)} />
+        <TransactionTable transactions={data.transactions.filter((item) => (!exceptionsOnly || item.status !== "MATCHED") && (!data.statements.some((source) => source.statement_id === statementFilter) || item.statement_id === statementFilter))} statements={data.statements} currency={currency} openReceipt={openReceiptFromMonth} viewSource={setSourceStatement} inspectMonth={(nextMonth) => openPeriod(nextMonth, currency)} />
         <section className="panel overflow-hidden" aria-labelledby="accepted-receipts-title">
           {exceptionsOnly && data.receipts.length > 0 && !data.receipts.some((item) => item.status !== "PAID" || item.duplicate_receipt) && <p className="muted p-4">No accepted receipts need attention in this period.</p>}
           <div className="border-b p-5 sm:p-6"><h2 id="accepted-receipts-title" className="text-lg font-semibold">Accepted receipts</h2><p className="muted mt-1">Open any accepted receipt in Ledgerly to compare its retained evidence and values. Record a payable or payment issue only after checking the bank and internal payment records.</p></div>
-          {!data.receipts.length ? <p className="muted p-8 text-center">No accepted receipts are dated in this period.</p> : <div className="divide-y">{data.receipts.filter((item) => !exceptionsOnly || item.status !== "PAID" || item.duplicate_receipt).map((item) => <div key={item.receipt_id} className="flex flex-wrap items-center justify-between gap-4 p-4 sm:px-6"><div className="min-w-0"><button className="text-left font-medium hover:underline" onClick={() => openReceipt(item.receipt_id)}>{item.vendor}</button><p className="muted">{item.receipt_date} · {item.category}{item.duplicate_receipt ? " · possible duplicate receipt" : ""}</p>{item.adjacent_month_candidate && <button className="mt-1 text-sm font-medium text-amber-800 underline" onClick={() => openPeriod(item.adjacent_month_candidate!.month, currency)}>Possible debit in {item.adjacent_month_candidate.month} · inspect month</button>}</div><div className="flex flex-wrap items-center gap-3"><span className="font-semibold tabular-nums">{amount(item.amount_cents / 100, currency)}</span><Status value={item.duplicate_receipt ? "DUPLICATE_RECEIPT" : item.status} />{item.status !== "PAID" && <PaymentDialog token={token} receipt={item} saved={() => setRefresh((value) => value + 1)} />}<Button variant="ghost" onClick={() => openReceipt(item.receipt_id)}>Open receipt <ArrowRight /></Button></div></div>)}</div>}
+          {!data.receipts.length ? <p className="muted p-8 text-center">No accepted receipts are dated in this period.</p> : <div className="divide-y">{data.receipts.filter((item) => !exceptionsOnly || item.status !== "PAID" || item.duplicate_receipt).map((item) => <article key={item.receipt_id}>
+            <div className="flex flex-wrap items-center justify-between gap-4 p-4 sm:px-6">
+              <div className="min-w-0"><button className="text-left font-medium hover:underline" onClick={() => openReceiptFromMonth(item.receipt_id)}>{item.vendor}</button><p className="muted">{item.receipt_date} · {item.category}{item.duplicate_receipt ? " · possible duplicate receipt" : ""}</p>
+                {item.adjacent_month_candidate && <button className="mt-1 text-sm font-medium text-amber-800 underline" onClick={() => openPeriod(item.adjacent_month_candidate!.month, currency)}>Possible debit in {item.adjacent_month_candidate.month} · inspect month</button>}
+                {item.payment_event?.state === "TRADE_PAYABLE" && <p className="mt-1 text-xs text-muted-foreground">
+                  {item.payment_event.invoice_due_date && <span className={item.payment_event.invoice_due_date < todayIso ? "font-semibold text-amber-800" : ""}>Invoice due {item.payment_event.invoice_due_date}{item.payment_event.invoice_due_date < todayIso ? " · date passed, verify payment" : ""}</span>}
+                  {item.payment_event.planned_payment_date && <span className={item.payment_event.planned_payment_date < todayIso ? "font-semibold text-amber-800" : ""}> · Planned payment {item.payment_event.planned_payment_date}{item.payment_event.planned_payment_date < todayIso ? " · follow up" : ""}</span>}
+                </p>}
+              </div>
+              <div className="flex flex-wrap items-center gap-3"><span className="font-semibold tabular-nums">{amount(item.amount_cents / 100, currency)}</span><Status value={item.duplicate_receipt ? "DUPLICATE_RECEIPT" : item.status} />{item.status !== "PAID" && <PaymentDialog token={token} receipt={item} saved={() => setRefresh((value) => value + 1)} />}<Button variant="ghost" onClick={() => openReceiptFromMonth(item.receipt_id)}>Open receipt <ArrowRight /></Button></div>
+            </div>
+            {!!item.payment_events?.length && <details className="group"><summary className="mx-4 mb-3 w-fit text-sm font-medium text-primary underline sm:mx-6">View payment-status history ({item.payment_events.length})</summary><PaymentHistory events={item.payment_events} compact /></details>}
+          </article>)}</div>}
         </section>
 
-        <details className="panel p-5"><summary className="cursor-pointer font-semibold">Spending breakdown and cost insights</summary><div className="mt-4 grid gap-6 xl:grid-cols-2">
+        <details className="panel p-5"><summary className="cursor-pointer font-semibold">Spending breakdown and review prompts</summary><div className="mt-4 grid gap-6 xl:grid-cols-2">
           <Breakdown title="Highest expense categories" icon={<FileSpreadsheet />} items={data.categories.map((item) => ({ label: item.category, cents: item.total_cents }))} currency={currency} />
           <Breakdown title="Highest spend by company" icon={<Building2 />} items={data.vendors.map((item) => ({ label: item.vendor, cents: item.total_cents }))} currency={currency} />
         </div>
 
         <section className="panel p-5 sm:p-6" aria-labelledby="insights-title">
-          <div className="flex items-center gap-3"><span className="rounded-xl bg-violet-50 p-2.5 text-violet-700"><Lightbulb className="size-5" /></span><div><h2 id="insights-title" className="font-semibold">Cost-saving prompts</h2><p className="muted">Grounded in this month’s accepted receipts</p></div></div>
+          <div className="flex items-center gap-3"><span className="rounded-xl bg-violet-50 p-2.5 text-violet-700"><Lightbulb className="size-5" /></span><div><h2 id="insights-title" className="font-semibold">Spending review prompts</h2><p className="muted">Simple rules based on this month’s accepted receipts, not AI advice</p></div></div>
           {data.suggestions.length ? <div className="mt-5 grid gap-3 lg:grid-cols-3">{data.suggestions.map((item) => <article key={item.title} className="rounded-xl border bg-muted/40 p-4"><h3 className="font-medium">{item.title}</h3><p className="muted mt-2">{item.detail}</p></article>)}</div> : <p className="muted mt-5">Add accepted receipts to generate grounded prompts.</p>}
           <p className="mt-4 text-xs text-muted-foreground">Supplier comparisons need current quotes and human review. Ledgerly does not claim a cheaper vendor without verified market evidence.</p>
         </section>
         </details>
-
-        <details className="panel p-5"><summary className="cursor-pointer font-semibold">Finance Copilot · optional analysis</summary><div className="mt-4"><FinanceCopilot
-          key={`${month}-${currency}-${refresh}`}
-          token={token}
-          month={month}
-          currency={currency}
-          exceptionCount={data.totals.exception_count}
-          matchedPercent={matchedPercent}
-          statementCount={data.statements.length}
-        /></div></details>
 
         <section className="rounded-xl border border-sky-200 bg-sky-50 p-5 text-sky-950" aria-labelledby="compliance-title">
           <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0" /><div><h2 id="compliance-title" className="font-semibold">Singapore record controls</h2><p className="mt-1 text-sm">Ledgerly keeps original receipt evidence, human decision history, payment follow-up events, and exportable monthly records. These controls support record keeping and PDPA accountability; they do not certify IRAS, GST, CPF, or PDPA compliance. Tax treatment and employee reimbursements still need your finance or HR reviewer.</p></div></div>
         </section>
       </>}
       </>}
+      <Dialog open={copilotOpen} onOpenChange={setCopilotOpen}>
+        <DialogTrigger asChild>
+          <button type="button" onClick={() => { if (view === "overview" && periods.length && !periods.some((period) => period.month === month && period.currency === currency)) { setMonth(periods[0].month); setCurrency(periods[0].currency); } }} className="copilot-launcher fixed right-4 bottom-4 z-40 flex items-center gap-2 rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-950 shadow-xl transition hover:-translate-y-1 hover:shadow-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 sm:right-6 sm:bottom-6" aria-label="Ask Finance Copilot">
+            <CopilotAgent /><span className="max-sm:sr-only">Ask Finance Copilot</span>
+          </button>
+        </DialogTrigger>
+        <DialogContent showCloseButton={false} className="!top-0 !right-0 !left-auto !h-[100dvh] !max-h-[100dvh] !w-full !max-w-[480px] !translate-x-0 !translate-y-0 !overflow-y-auto !rounded-none !border-0 !p-0 !shadow-2xl">
+          <DialogTitle className="sr-only">Finance Copilot</DialogTitle>
+          <DialogDescription className="sr-only">Read-only guidance using the selected monthly reconciliation.</DialogDescription>
+          <div className="flex items-center justify-between border-b bg-white px-5 py-3">
+            <p className="text-sm font-medium text-emerald-950">Monthly Close · {view === "detail" ? month : periods[0]?.month ?? month}</p>
+            <DialogClose asChild><Button variant="ghost" size="sm" aria-label="Close Finance Copilot"><X /></Button></DialogClose>
+          </div>
+          {view === "overview" && !!periods.length && <div className="px-5 pt-3"><label htmlFor="copilot-period" className="field-label">Period to discuss</label><select id="copilot-period" className="h-10 w-full rounded-lg border bg-white px-3" value={`${month}|${currency}`} onChange={(event) => { const [selectedMonth, selectedCurrency] = event.target.value.split("|"); setMonth(selectedMonth); setCurrency(selectedCurrency); }}><option value={`${month}|${currency}`}>{month} · {currency}</option>{periods.filter((period) => `${period.month}|${period.currency}` !== `${month}|${currency}`).map((period) => <option key={`${period.month}|${period.currency}`} value={`${period.month}|${period.currency}`}>{period.month} · {period.currency}</option>)}</select></div>}
+          <FinanceCopilot key={`${month}-${currency}-${refresh}`} compact token={token} month={month} currency={currency} exceptionCount={view === "detail" ? data?.totals.exception_count ?? 0 : periods.find((period) => period.month === month && period.currency === currency)?.exception_count ?? 0} matchedPercent={view === "detail" && data ? matchedPercent : null} statementCount={view === "detail" ? data?.statements.length ?? 0 : periods.find((period) => period.month === month && period.currency === currency)?.statement_count ?? 0} receiptIds={view === "detail" ? data?.receipts.map((receipt) => receipt.receipt_id) ?? [] : []} openReceipt={(id) => { setCopilotOpen(false); openReceiptFromMonth(id); }} />
+        </DialogContent>
+      </Dialog>
       {reviewOpen && data && <MonthReviewDialog token={token} data={data} close={() => setReviewOpen(false)} saved={() => { setReviewOpen(false); setSuccess("Monthly review recorded. It will be flagged if the evidence changes."); setRefresh((value) => value + 1); }} />}
       {lifecycleTarget && <StatementLifecycleDialog key={lifecycleTarget.statement.statement_id} token={token} target={lifecycleTarget}
         close={() => setLifecycleTarget(null)} saved={() => {
@@ -424,9 +466,32 @@ function StatementUpload({ token, completed }: { token: string; completed: (mont
 }
 
 function PaymentDialog({ token, receipt, saved }: { token: string; receipt: ReceiptRow; saved: () => void }) {
-  const [open, setOpen] = useState(false), [state, setState] = useState("TRADE_PAYABLE"), [actor, setActor] = useState(""), [note, setNote] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState("");
-  async function submit(event: React.FormEvent) { event.preventDefault(); setBusy(true); setError(""); try { await request(`/receipts/${receipt.receipt_id}/payment-state`, token, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state, actor, note }) }); setOpen(false); saved(); } catch (e) { setError(message(e)); } finally { setBusy(false); } }
-  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button variant="outline">Update status</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Record payment follow-up</DialogTitle><DialogDescription>This creates an audit event for {receipt.vendor}. It does not initiate or cancel a payment.</DialogDescription></DialogHeader><form onSubmit={submit} className="space-y-4"><div><label htmlFor="payment-state" className="field-label">Status</label><select id="payment-state" className="h-10 w-full rounded-md border bg-white px-3" value={state} onChange={(e) => setState(e.target.value)}><option value="TRADE_PAYABLE">Trade payable — valid amount still due</option><option value="PAYMENT_ISSUE">Payment issue — attempted or blocked</option><option value="CLEAR">Clear manual status</option></select></div><div><label htmlFor="payment-actor" className="field-label">Recorded by</label><Input id="payment-actor" required minLength={2} maxLength={100} value={actor} onChange={(e) => setActor(e.target.value)} /></div><div><label htmlFor="payment-note" className="field-label">Evidence and next step</label><Textarea id="payment-note" required minLength={5} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="For example: bank transfer rejected; finance will confirm beneficiary details." /></div>{error && <Notice variant="destructive">{error}</Notice>}<DialogFooter><Button disabled={busy}>{busy && <LoaderCircle className="animate-spin" />}Save audit event</Button></DialogFooter></form></DialogContent></Dialog>;
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState(receipt.payment_event?.state === "TRADE_PAYABLE" ? "TRADE_PAYABLE" : "PAYMENT_ISSUE");
+  const [actor, setActor] = useState("");
+  const [note, setNote] = useState("");
+  const [invoiceDue, setInvoiceDue] = useState(receipt.payment_event?.state === "TRADE_PAYABLE" ? receipt.payment_event.invoice_due_date ?? "" : "");
+  const [plannedPayment, setPlannedPayment] = useState(receipt.payment_event?.state === "TRADE_PAYABLE" ? receipt.payment_event.planned_payment_date ?? "" : "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      await request(`/receipts/${receipt.receipt_id}/payment-state`, token, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state, actor, note, expected_version: receipt.payment_event?.version ?? 0,
+          ...(state === "TRADE_PAYABLE" ? { invoice_due_date: invoiceDue || null, planned_payment_date: plannedPayment || null } : {}) }),
+      });
+      setOpen(false); saved();
+    } catch (e) { setError(message(e)); } finally { setBusy(false); }
+  }
+  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button variant="outline">Update status</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Record payment follow-up</DialogTitle><DialogDescription>This adds an audit event for {receipt.vendor}. Check bank records first; this action does not move money.</DialogDescription></DialogHeader><form onSubmit={submit} className="space-y-4">
+    <div><label htmlFor="payment-state" className="field-label">Status</label><select id="payment-state" className="h-10 w-full rounded-md border bg-white px-3" value={state} onChange={(e) => setState(e.target.value)}><option value="TRADE_PAYABLE">Trade payable — valid amount still due</option><option value="PAYMENT_ISSUE">Payment issue — attempted or blocked</option><option value="CLEAR">Clear manual status</option></select></div>
+    {state === "TRADE_PAYABLE" && <div className="grid gap-3 sm:grid-cols-2"><div><label htmlFor="invoice-due" className="field-label">Invoice due date (optional)</label><Input id="invoice-due" type="date" value={invoiceDue} onChange={(e) => setInvoiceDue(e.target.value)} /></div><div><label htmlFor="planned-payment" className="field-label">Planned payment date (optional)</label><Input id="planned-payment" type="date" value={plannedPayment} onChange={(e) => setPlannedPayment(e.target.value)} /></div><p className="muted sm:col-span-2">These are follow-up dates only. A plan never marks a receipt paid.</p></div>}
+    <div><label htmlFor="payment-actor" className="field-label">Recorded by</label><Input id="payment-actor" required minLength={2} maxLength={100} value={actor} onChange={(e) => setActor(e.target.value)} /></div>
+    <div><label htmlFor="payment-note" className="field-label">Evidence and next step</label><Textarea id="payment-note" required minLength={5} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="For example: payment scheduled for Friday; verify bank debit and beneficiary." /></div>
+    {error && <Notice variant="destructive">{error}</Notice>}<DialogFooter><Button disabled={busy}>{busy && <LoaderCircle className="animate-spin" />}Save audit event</Button></DialogFooter>
+  </form></DialogContent></Dialog>;
 }
 
 function TotalCard({ icon, label, value, help, tone = "plain" }: { icon: React.ReactNode; label: string; value: string; help: string; tone?: "plain" | "good" | "warn" }) { const tones = { plain: "bg-slate-100 text-slate-700", good: "bg-emerald-50 text-emerald-700", warn: "bg-amber-50 text-amber-800" }; return <article className="panel p-5"><div className="flex items-start justify-between gap-3"><div><p className="field-label text-muted-foreground">{label}</p><p className="text-2xl font-semibold tabular-nums">{value}</p></div><span className={`rounded-xl p-2.5 [&>svg]:size-5 ${tones[tone]}`}>{icon}</span></div><p className="muted mt-2">{help}</p></article>; }

@@ -107,7 +107,18 @@ export type ReprocessAttempt = {
   extracted_data: Extraction | null;
   error: string | null;
 };
+export type PaymentEvent = {
+  version: number;
+  state: "TRADE_PAYABLE" | "PAYMENT_ISSUE" | "CLEAR";
+  previous_state?: string;
+  actor: string;
+  note: string;
+  occurred_at: string;
+  invoice_due_date?: string | null;
+  planned_payment_date?: string | null;
+};
 export type Receipt = {
+  payment_events?: PaymentEvent[];
   reprocessing?: ReprocessAttempt[];
   lifecycle_state?: "ACTIVE" | "DELETED" | "VOIDED";
   lifecycle_version?: number;

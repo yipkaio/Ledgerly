@@ -13,7 +13,7 @@ import json
 import re
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.statement_extraction import StatementExtraction
 
@@ -66,6 +66,14 @@ class PaymentUpdate(BaseModel):
     state: str
     actor: str = Field(min_length=2, max_length=100)
     note: str = Field(min_length=5, max_length=500)
+    invoice_due_date: date | None = None
+    planned_payment_date: date | None = None
+    expected_version: int | None = Field(default=None, ge=0)
+
+    @field_validator("actor", "note", mode="before")
+    @classmethod
+    def strip_payment_text(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
     @field_validator("state")
     @classmethod
@@ -73,6 +81,12 @@ class PaymentUpdate(BaseModel):
         if value not in {"TRADE_PAYABLE", "PAYMENT_ISSUE", "CLEAR"}:
             raise ValueError("Unsupported payment state")
         return value
+
+    @model_validator(mode="after")
+    def dates_belong_to_payable(self):
+        if self.state != "TRADE_PAYABLE" and (self.invoice_due_date or self.planned_payment_date):
+            raise ValueError("Payable dates can only be recorded with Trade payable")
+        return self
 
 
 class StatementLifecycleRequest(BaseModel):
@@ -539,6 +553,15 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
         )]
         receipts = _receipt_rows(db, month, currency)
         payment_states = _latest_payment_states(db)
+        receipt_ids = {receipt["receipt_id"] for receipt in receipts}
+        payment_events: dict[str, list[dict]] = {receipt_id: [] for receipt_id in receipt_ids}
+        if receipt_ids:
+            placeholders = ",".join("?" for _ in receipt_ids)
+            for event in db.execute(
+                f"SELECT receipt_id,result_json FROM receipt_payment_events WHERE receipt_id IN ({placeholders}) "
+                "ORDER BY receipt_id,version DESC", tuple(receipt_ids),
+            ):
+                payment_events[event["receipt_id"]].append(json.loads(event["result_json"]))
         nearby_months = _adjacent_months(month)
         nearby_receipts = [receipt for near in nearby_months if near is not None
                            for receipt in _receipt_rows(db, near, currency)]
@@ -611,6 +634,7 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
             "amount_cents": receipt["amount_cents"], "status": status,
             "transaction_id": matched_receipts.get(receipt["receipt_id"]),
             "duplicate_receipt": receipt["duplicate_receipt"], "payment_event": event,
+            "payment_events": payment_events[receipt["receipt_id"]],
             "adjacent_month_candidate": (
                 {"month": candidate["statement_month"], "statement_id": candidate["statement_id"]}
                 if receipt["receipt_id"] not in matched_receipts and (candidate := _nearby_candidate(
@@ -764,6 +788,7 @@ def statement_source(store, statement_id: str) -> tuple[str, str, bytes]:
 def update_payment_state(store, receipt_id: str, body: PaymentUpdate) -> dict:
     timestamp = datetime.now(timezone.utc).isoformat()
     with store.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
         row = db.execute(
             "SELECT r.lifecycle_state,COALESCE(json_extract(v.result_json,'$.decision'),c.decision,r.processing_status) "
             "FROM receipts r LEFT JOIN classifications c USING(receipt_id) "
@@ -776,9 +801,20 @@ def update_payment_state(store, receipt_id: str, body: PaymentUpdate) -> dict:
             raise StatementInvalid("Only active receipts can receive a payment status")
         if row[1] not in {"AUTO_FILED", "APPROVED"}:
             raise StatementInvalid("Only approved or auto-filed receipts can receive a payment status")
-        version = db.execute("SELECT COALESCE(max(version),0)+1 FROM receipt_payment_events WHERE receipt_id=?", (receipt_id,)).fetchone()[0]
+        latest = db.execute("SELECT version,result_json FROM receipt_payment_events "
+                            "WHERE receipt_id=? ORDER BY version DESC LIMIT 1", (receipt_id,)).fetchone()
+        current_version = latest["version"] if latest else 0
+        if body.expected_version is not None and body.expected_version != current_version:
+            raise StatementInvalid("Payment status changed. Refresh the receipt and review the latest event.")
+        previous = json.loads(latest["result_json"]) if latest else None
+        version = current_version + 1
         event = {"state": body.state, "actor": body.actor.strip(), "note": body.note.strip(),
-                 "occurred_at": timestamp, "version": version}
+                 "occurred_at": timestamp, "version": version,
+                 "previous_state": previous["state"] if previous and previous["state"] != "CLEAR" else "NO_BANK_MATCH",
+                 "previous_invoice_due_date": previous.get("invoice_due_date") if previous else None,
+                 "previous_planned_payment_date": previous.get("planned_payment_date") if previous else None,
+                 "invoice_due_date": body.invoice_due_date.isoformat() if body.invoice_due_date else None,
+                 "planned_payment_date": body.planned_payment_date.isoformat() if body.planned_payment_date else None}
         db.execute("INSERT INTO receipt_payment_events VALUES (?,?,?)",
                    (receipt_id, version, json.dumps(event, allow_nan=False)))
     return event

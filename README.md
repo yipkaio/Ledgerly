@@ -349,3 +349,11 @@ The authenticated endpoint is `POST /bank-statements/{statement_id}/lifecycle` w
 Re-uploading an identical removed file remains blocked; restore the existing import instead.
 Bank-source and attention-only filters simplify review; summary totals and exports continue
 to cover the entire selected month. Removed statements are excluded from active Excel exports.
+
+Opening a receipt from Monthly Close now returns to its selected month, currency, and filters.
+Human payment-status changes retain an append-only history visible in both Monthly Close and
+receipt detail. Trade payable follow-up may include separate invoice due and planned payment
+dates; neither schedules a transfer nor marks the receipt paid. Spending review prompts are
+deterministic. The animated receipt assistant opens Finance Copilot in a read-only side panel
+with period-scoped questions, brief and exception actions; its motion respects reduced-motion
+settings. See [monthly reconciliation](docs/monthly-reconciliation.md) for the workflow.

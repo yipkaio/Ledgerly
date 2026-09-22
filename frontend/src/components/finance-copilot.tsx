@@ -69,15 +69,21 @@ export function FinanceCopilot({
   month,
   currency,
   exceptionCount = 0,
-  matchedPercent = 0,
+  matchedPercent = null,
   statementCount = 0,
+  compact = false,
+  receiptIds = [],
+  openReceipt,
 }: {
   token: string;
   month: string;
   currency: string;
   exceptionCount?: number;
-  matchedPercent?: number;
+  matchedPercent?: number | null;
   statementCount?: number;
+  compact?: boolean;
+  receiptIds?: string[];
+  openReceipt?: (id: string) => void;
 }) {
   const [busy, setBusy] = useState<"explain" | "brief" | "ask" | null>(null);
   const [question, setQuestion] = useState("");
@@ -101,7 +107,7 @@ export function FinanceCopilot({
       question: "Which bank debits are missing receipt evidence?",
       icon: FileSearch,
     },
-    matchedPercent < 100
+    matchedPercent !== null && matchedPercent < 100
       ? {
           label: "Understand coverage",
           question: `Why is only ${matchedPercent}% of accepted receipt spend matched?`,
@@ -173,10 +179,10 @@ export function FinanceCopilot({
 
   return (
     <section
-      className="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-[0_18px_50px_-30px_rgba(23,63,49,0.7)]"
+      className={compact ? "bg-white" : "overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-[0_18px_50px_-30px_rgba(23,63,49,0.7)]"}
       aria-labelledby="finance-copilot-title"
     >
-      <div className="relative overflow-hidden bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-700 px-5 py-6 text-white sm:px-7 sm:py-7">
+      <div className={`relative overflow-hidden bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-700 px-5 text-white ${compact ? "py-5" : "py-6 sm:px-7 sm:py-7"}`}>
         <div
           aria-hidden="true"
           className="absolute -top-20 -right-16 size-56 rounded-full border border-white/10 bg-white/5"
@@ -189,7 +195,7 @@ export function FinanceCopilot({
           <div className="max-w-2xl">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold tracking-[0.16em] text-emerald-100 uppercase">
               <Sparkles className="size-4" />
-              AI-assisted month-end review
+              Evidence-based assistant
             </div>
             <div className="flex items-center gap-3">
               <span className="rounded-2xl border border-white/15 bg-white/10 p-3 shadow-inner">
@@ -210,7 +216,7 @@ export function FinanceCopilot({
             Read-only advisory
           </span>
         </div>
-        <div className="relative mt-6 flex flex-wrap gap-2 text-xs">
+        <div className="relative mt-4 flex flex-wrap gap-2 text-xs">
           <ContextPill label="Period" value={month} />
           <ContextPill label="Currency" value={currency} />
           <ContextPill
@@ -218,17 +224,17 @@ export function FinanceCopilot({
             value={String(exceptionCount)}
             tone={exceptionCount ? "warning" : "success"}
           />
-          <ContextPill label="Matched" value={`${matchedPercent}%`} tone="success" />
+          {matchedPercent !== null && <ContextPill label="Matched" value={`${matchedPercent}%`} tone="success" />}
         </div>
       </div>
 
-      <div className="grid gap-6 p-5 sm:p-7 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className={`grid gap-6 p-5 ${compact ? "" : "sm:p-7 xl:grid-cols-[0.9fr_1.1fr]"}`}>
         <div>
           <div>
             <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
               Quick actions
             </p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+            <div className={`mt-3 grid gap-3 ${compact ? "" : "sm:grid-cols-2 xl:grid-cols-1"}`}>
               <QuickAction
                 title="Explain exceptions"
                 description={
@@ -368,7 +374,7 @@ export function FinanceCopilot({
               <Notice variant="destructive">{error}</Notice>
             </div>
           )}
-          {result && <CopilotResult result={result} />}
+          {result && <CopilotResult result={result} receiptIds={receiptIds} openReceipt={openReceipt} />}
         </div>
       </div>
     </section>
@@ -433,7 +439,11 @@ function QuickAction({
   );
 }
 
-function CopilotResult({ result }: { result: Result }) {
+function CopilotResult({ result, receiptIds, openReceipt }: { result: Result; receiptIds: string[]; openReceipt?: (id: string) => void }) {
+  const evidence = result.kind === "explanation"
+    ? result.data.exceptions.flatMap((item) => item.evidence_ids)
+    : result.kind === "answer" ? result.data.evidence : [];
+  const linkedReceipts = [...new Set(evidence.filter((id) => receiptIds.includes(id)))];
   return (
     <div className="mt-5 border-t border-emerald-100 pt-5" aria-live="polite">
       {result.source === "deterministic" && (
@@ -499,6 +509,7 @@ function CopilotResult({ result }: { result: Result }) {
         </>
       )}
 
+      {!!linkedReceipts.length && openReceipt && <div className="mt-4 border-t pt-3"><p className="text-xs font-semibold">Open cited receipts</p><div className="mt-2 flex flex-wrap gap-2">{linkedReceipts.map((id) => <Button key={id} variant="outline" size="sm" onClick={() => openReceipt(id)}>Receipt {id.slice(0, 8)} <ArrowRight /></Button>)}</div></div>}
       <p className="mt-4 border-t pt-3 text-[11px] text-muted-foreground">
         {result.source === "deterministic"
           ? "Direct reconciliation result · no AI call"
