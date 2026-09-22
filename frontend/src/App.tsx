@@ -355,8 +355,13 @@ function Workspace({
     setDirty(false);
     return true;
   }
-  function navigate(next: typeof view) {
+  function navigate(next: typeof view, historyFilters?: HistoryFilterValues) {
     if (!discardChanges()) return;
+    if (next === "history") {
+      const nextFilters = historyFilters || emptyFilters;
+      setFilterDraft(nextFilters);
+      setFilters(nextFilters);
+    }
     setSelected(null);
     setView(next);
     setChecked(new Set());
@@ -503,9 +508,7 @@ function Workspace({
                     date_from: range.from,
                     date_to: range.to,
                   };
-                  setFilterDraft(accepted);
-                  setFilters(accepted);
-                  navigate("history");
+                  navigate("history", accepted);
                 }}
               />
             </Suspense>

@@ -90,4 +90,16 @@ test("one date range drives spend, chart, count and accepted history", async ({ 
   await expect(page.getByLabel("Receipt date from")).toHaveValue("2026-09-01");
   await expect(page.getByLabel("Receipt date to")).toHaveValue("2026-09-30");
   await expect(page.getByText("1–2 of 2")).toBeVisible();
+  await page.getByRole("button", { name: "Main dashboard", exact: true }).click();
+  const allReceipts = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === "/receipts" && !url.searchParams.has("state")
+      && !url.searchParams.has("date_from") && !url.searchParams.has("date_to");
+  });
+  await page.getByText("Open receipt history").click();
+  await allReceipts;
+  await expect(page.getByLabel("Receipt date from")).toHaveValue("");
+  await expect(page.getByLabel("Receipt date to")).toHaveValue("");
+  await expect(page.getByText("All statuses")).toBeVisible();
+  await expect(page.getByText("1–4 of 4")).toBeVisible();
 });
