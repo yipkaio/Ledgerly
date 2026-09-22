@@ -1,6 +1,12 @@
-# Expense Classification Agent
+<p align="center">
+  <img src="docs/assets/screenshots/153316.png" alt="Ledgerly logo" width="120">
+</p>
 
-A hackathon MVP for turning receipt images into structured, reviewable business expenses.
+<h1 align="center">Ledgerly</h1>
+
+<p align="center">
+  AI-assisted receipt classification, human review and bank reconciliation for bookkeepers.
+</p>
 
 ## Documentation map
 
