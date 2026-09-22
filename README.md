@@ -2,6 +2,23 @@
 
 A hackathon MVP for turning receipt images into structured, reviewable business expenses.
 
+## Documentation map
+
+- [Documentation guide](docs/index.md) — organised entry point for operators,
+  reviewers and developers.
+- [Illustrated user guide](docs/user-guide.md) — privacy-reviewed walkthrough of
+  receipt review, reporting and monthly close.
+- [Architecture and data flow](docs/architecture.md) — numbered receipt workflow
+  and the deployed AWS Lightsail topology.
+- [Security model](docs/security.md) — trust boundaries, secrets, release checks
+  and accepted MVP limitations.
+- [Demo-readiness checklist](docs/demo-readiness.md) — final release gate and
+  end-to-end acceptance flow.
+
+The application is a single trusted workspace. AI components extract, recommend
+and explain; deterministic controls and human reviewers retain authority over
+financial records.
+
 Receipt details now support **Undo deletion**, audited **Reprocess receipt** extraction drafts, and a live totals reconciliation panel. See [reprocessing and reconciliation](docs/reprocessing.md) for workflow, eligibility, costs and schema v5 migration notes.
 
 Monthly close now accepts bank-issued **PDF statements** through a signed preview-and-confirm flow, including request-only passwords for encrypted PDFs, private deterministic parsing, explicit opt-in AI fallback, balance checks, and retained source provenance. Normalized CSV remains available as a fallback.
@@ -54,7 +71,7 @@ for endpoint examples, authority boundaries, privacy controls and the human work
 Docker packaging is available for the existing backend, including both OCR
 engines, persistent SQLite/upload/cache volumes, a non-root runtime and private
 localhost access. See [Docker setup and testing](docs/docker.md) for Windows,
-container smoke tests, backups and a private Lightsail trial. The Docker image
+container smoke tests, backups and the Lightsail deployment. The Docker image
 includes the built review UI at `/ui/`. No AWS resources are provisioned by these files.
 
 ## Authentication and production deployment
@@ -62,7 +79,7 @@ includes the built review UI at `/ui/`. No AWS resources are provisioned by thes
 Local development continues to use the shared app key. Production can use Firebase
 email/password for one pre-created bookkeeper UID; there is no self-service
 registration or multi-role permission system. `hybrid` mode retains the app key
-only for controlled integrations such as the planned Telegram/OpenClaw bridge.
+only for controlled integrations such as the deployed Telegram/OpenClaw relay.
 The browser refreshes Firebase ID tokens in memory, and the backend verifies the
 account with Firebase before accepting protected requests.
 
@@ -133,7 +150,9 @@ Foreign keys are enabled on every connection. Final extraction, line items and
 classification are committed together. No transaction stays open during OCR or
 gateway calls. Database operations run outside the async event loop.
 
-All history endpoints require the same `X-API-Key` as upload:
+All history endpoints require the configured application authentication. Local
+and trusted-integration requests use `X-API-Key`; the production browser uses an
+allowed Firebase bearer token in `hybrid` mode:
 
 - `GET /receipts/{receipt_id}` returns saved evidence, extraction, classification,
   safe error information and `processing_status`. Unknown IDs return 404.
@@ -196,13 +215,16 @@ Internal filesystem paths and raw exception messages are excluded from history.
 The database and uploaded images contain sensitive data: restrict filesystem
 access and never commit them. SQLite files and sidecars are ignored by Git.
 
-For a consistent MVP backup, stop Uvicorn and copy both the database and upload
-directory to protected backup storage; restore them together. Do not copy only
-the database while writes are running. Use a local persistent disk, not a network
-share or temporary container filesystem. There is a five-second lock timeout;
+For a consistent MVP backup, use SQLite's online backup API, copy the retained
+uploads, verify database integrity and checksum the resulting archive. Copy the
+archive to a protected off-instance destination; a Lightsail snapshot is an
+additional recommended layer. Restore the database and evidence together. Follow
+the [Docker backup procedure](docs/docker.md#production-backup).
+There is a five-second lock timeout;
 heavy concurrent writes can return 503. Existing uploads made before this commit
-are not automatically imported, and duplicate detection and retry jobs remain
-future work. Tests against SQLite do not claim PostgreSQL compatibility.
+are not automatically imported, and stalled-processing retry jobs remain future
+work. Exact and probable duplicate checks are implemented. Tests against SQLite
+do not claim PostgreSQL compatibility.
 
 ## Confirmed pipeline
 

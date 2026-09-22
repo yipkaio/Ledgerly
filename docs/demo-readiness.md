@@ -13,6 +13,10 @@ Use this list after every production deployment and before the hackathon demo.
 - Firebase accepts only the configured bookkeeper UID.
 - API documentation is disabled in production.
 - No API key, Firebase token, receipt text or bank data appears in logs.
+- The workflow and deployed topology still match
+  [the architecture diagrams](architecture.md).
+- The [security release checklist](security.md#before-every-production-release)
+  is complete, including `main` branch protection.
 
 ## End-to-end acceptance
 

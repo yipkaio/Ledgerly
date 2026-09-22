@@ -32,7 +32,9 @@ status, post a journal entry, initiate a payment or declare fraud.
 
 ## Endpoints
 
-All endpoints require `X-API-Key`.
+All endpoints require configured application authentication. In production
+`hybrid` mode, the browser uses an allowed Firebase bearer token and trusted
+integrations use `X-API-Key`.
 
 - `GET /ai/agents` describes the capabilities and authority of every agent.
 - `POST /ai/receipts/{receipt_id}/review-assistance` runs deterministic control

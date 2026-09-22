@@ -9,7 +9,7 @@ Ledgerly supports three authentication modes without changing the SQLite schema.
 | `hybrid` | Firebase email/password | `X-API-Key` |
 
 Use `api_key` for local development and `hybrid` for the current Lightsail
-deployment. Hybrid mode keeps a separate credential for the future Telegram/OpenClaw
+deployment. Hybrid mode keeps a separate credential for the Telegram/OpenClaw
 bridge while ordinary web users sign in with Firebase. There is no registration,
 password-reset or account-management UI.
 
@@ -43,22 +43,11 @@ requires another sign-in.
 
 ## 2. Back up the persistent data
 
-Before changing production configuration, stop writes and back up the complete
-receipt volume. Database and evidence must be restored together.
-
-```bash
-cd /opt/expense-classification-agent
-docker compose stop api
-mkdir -p "$HOME/ledgerly-backups"
-docker run --rm \
-  -v expense-agent_receipt-data:/source:ro \
-  -v "$HOME/ledgerly-backups":/backup \
-  alpine:3.22 sh -c 'tar -czf "/backup/ledgerly-$(date +%Y%m%d-%H%M%S).tar.gz" -C /source .'
-docker compose start api
-```
-
-List the archive and verify that it is non-empty before continuing. Keep a protected
-copy outside the Lightsail instance.
+Before changing production configuration, complete the
+[production backup procedure](docker.md#production-backup). It uses SQLite's
+online backup API, copies the retained evidence, verifies integrity and creates a
+checksummed archive. Keep a protected copy outside the Lightsail instance and
+restore the database and evidence together.
 
 ## 3. Start HTTPS on Lightsail
 
@@ -66,8 +55,9 @@ Point the domain's A record to the Lightsail static IP. In the Lightsail firewal
 allow TCP 22, 80 and 443 and UDP 443; do not expose port 8000 publicly.
 
 ```bash
-git switch feat/demo-readiness
-git pull origin feat/demo-readiness
+cd ~/expense-classification-agent
+git switch main
+git pull --ff-only origin main
 chmod 600 .env
 docker compose -f compose.yaml -f compose.production.yaml config --quiet
 docker compose -f compose.yaml -f compose.production.yaml build api
@@ -98,6 +88,9 @@ Expected security behavior:
 - Out-of-scope Copilot questions remain blocked.
 - `/docs`, `/redoc` and `/openapi.json` are disabled in production.
 - Receipt and statement responses use no-store, anti-framing and referrer controls.
+
+The exact deployment and trust boundaries are illustrated in
+[Architecture and data flow](architecture.md#aws-lightsail-deployment).
 
 ## Rollback
 

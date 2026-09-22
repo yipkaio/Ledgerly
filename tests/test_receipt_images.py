@@ -76,9 +76,15 @@ def test_built_ui_is_public_but_data_is_private(monkeypatch, tmp_path):
     assert TEST_KEY not in shell.text
     assert shell.headers['cache-control'] == 'no-store'
     assert "frame-ancestors 'none'" in shell.headers['content-security-policy']
+    assert shell.headers['x-frame-options'] == 'DENY'
+    assert 'camera=()' in shell.headers['permissions-policy']
     assert client.get('/docs').status_code == 404
     assert client.get('/receipts').status_code == 401
     assert client.get('/receipts').headers['cache-control'] == 'no-store'
+    agents = client.get('/ai/agents', headers=HEADERS)
+    assert agents.status_code == 200
+    assert agents.headers['cache-control'] == 'no-store'
+    assert agents.headers['x-content-type-options'] == 'nosniff'
 
 
 def test_history_shows_final_review_metadata(monkeypatch, tmp_path):

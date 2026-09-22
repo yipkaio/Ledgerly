@@ -1,10 +1,9 @@
 # Run the backend with Docker
 
-This packages the existing backend for local testing and a private Lightsail
-trial. It includes the receipt UI; it does not create AWS resources or add Telegram or HTTPS.
-The initial packaging was prepared in a workspace without Docker: host tests and
-YAML checks passed, but image build, native container tests and container recreation
-must still be verified using the commands below before deployment.
+This packages the backend and built receipt UI for local testing and Lightsail.
+The base Compose file keeps FastAPI on host loopback. The production overlay adds
+Caddy HTTPS; OpenClaw runs separately as a loopback-only systemd user service.
+These files configure existing infrastructure but do not create AWS resources.
 Use Docker Desktop with **Linux containers** on Windows, or Docker Engine with
 the Compose plugin on an x86-64 Ubuntu host. Compose targets `linux/amd64`.
 Paddle's memory needs must be measured on the target machine; a passing health
@@ -61,11 +60,41 @@ Do not use `docker compose down -v` or prune volumes containing receipts: those
 operations delete the database, uploads and caches. Volumes survive container
 replacement, not deletion of the Lightsail disk/instance. Back up separately.
 
-For a simple consistent backup, stop API writes with `docker compose stop api`,
-copy `/app/data` out of the stopped container with `docker compose cp` into a new
-protected backup directory, then start it with `docker compose start api`.
-Back up the entire directory. On Windows, avoid piping binary tar archives
-through PowerShell text redirection. Keep an off-instance copy for AWS recovery.
+## Production backup
+
+Use SQLite's online backup API so the database copy represents one consistent
+snapshot. Perform this during a controlled quiet period with no receipt,
+statement, amendment or lifecycle writes while the database and uploads are
+copied. Set one timestamp and keep using it throughout:
+
+```bash
+cd ~/expense-classification-agent
+BACKUP_TS="$(date -u +%Y%m%dT%H%M%SZ)"
+BACKUP_DIR="$HOME/ledgerly-backups/$BACKUP_TS"
+install -d -m 700 "$BACKUP_DIR"
+docker compose -f compose.yaml -f compose.production.yaml exec -T api python -c "import sqlite3; source=sqlite3.connect('/app/data/expenses.db'); backup=sqlite3.connect('/app/data/expenses-backup-${BACKUP_TS}.db'); source.backup(backup); backup.close(); source.close()"
+docker compose -f compose.yaml -f compose.production.yaml cp "api:/app/data/expenses-backup-${BACKUP_TS}.db" "$BACKUP_DIR/expenses.db"
+docker compose -f compose.yaml -f compose.production.yaml cp api:/app/data/uploads "$BACKUP_DIR/uploads"
+```
+
+Verify before archiving:
+
+```bash
+python3 -c "import os, sqlite3; path='$BACKUP_DIR/expenses.db'; db=sqlite3.connect(path); print('Bytes:', os.path.getsize(path)); print('Integrity:', db.execute('PRAGMA integrity_check').fetchone()[0]); print('Receipts:', db.execute('SELECT COUNT(*) FROM receipts').fetchone()[0]); db.close()"
+ARCHIVE="$HOME/ledgerly-backups/ledgerly-mvp-${BACKUP_TS}.tar.gz"
+tar -C "$HOME/ledgerly-backups" -czf "$ARCHIVE" "$BACKUP_TS"
+chmod 600 "$ARCHIVE"
+sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
+chmod 600 "${ARCHIVE}.sha256"
+sha256sum -c "${ARCHIVE}.sha256"
+```
+
+Copy the archive and checksum to a protected off-instance destination. A Lightsail
+snapshot is an additional recommended recovery layer. Only then remove the
+temporary `/app/data/expenses-backup-${BACKUP_TS}.db` copy. The portable archive
+deliberately excludes `.env`, SSH keys and service tokens. The checksum detects
+corruption; encrypt the off-instance destination because the archive itself is not
+encrypted by these commands.
 
 ## Automated checks without gateway credits
 
@@ -125,9 +154,9 @@ request downloads model weights and can be much slower than later requests.
 - Access logs are disabled to avoid logging receipt IDs in request URLs. Docker
   logs rotate at 10 MB with three files. Native OCR libraries may still emit
   diagnostics; inspect logs before sharing them.
-- Shared-key authentication is still one trusted workspace. HTTPS and individual
-  user authorization are required before opening this to general users. Hiding
-  Swagger is not an authentication replacement. Do not mount the Docker socket.
+- Production is still one trusted workspace. Firebase protects browser requests;
+  the shared key is reserved for controlled integrations. This is not a public
+  multi-tenant authorization model. Do not mount the Docker socket.
 
 Useful commands:
 
@@ -139,7 +168,7 @@ docker compose stop api
 docker compose start api
 ```
 
-## Lightsail trial and subsequent updates
+## Lightsail deployment and subsequent updates
 
 Provision Ubuntu x86-64, attach a static IP, install Docker Engine and Compose,
 and clone this private repository using read-only deploy credentials. Add `.env`
@@ -147,15 +176,17 @@ on the server with restricted permissions (`chmod 600 .env`). Use the same Compo
 commands. The Python 3.11 interpreter is in the image; Ubuntu's host Python version
 does not need changing. Never copy a Windows `.venv311` into the server or image.
 
-For private access, use your configured SSH key to open a tunnel from Windows:
+For maintenance access, you can use your configured SSH key to open a private
+tunnel from Windows:
 
 ```powershell
 ssh -L 18000:127.0.0.1:8000 ubuntu@YOUR_STATIC_IP
 ```
 
-Visit `http://127.0.0.1:18000/docs` while that SSH session stays open. This keeps the
-remote API private. Use a separate HTTPS reverse-proxy deployment when the public
-UI is ready; no public HTTP endpoint or TLS certificate is installed by this commit.
+Production API documentation is disabled. Use the tunnel only for deliberate
+maintenance with a temporary non-production configuration. Normal access is
+through Caddy at the configured HTTPS domain; see
+[authentication and production deployment](authentication.md).
 
 Before an update, back up data and preserve the old image under a unique tag:
 

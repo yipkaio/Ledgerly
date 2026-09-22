@@ -1108,9 +1108,17 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
     @api.middleware('http')
     async def privacy_headers(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(('/receipts', '/reviews', '/dashboard', '/workspace', '/bank-statements', '/reconciliation', '/auth', '/ui')):
+        protected_prefixes = (
+            '/ai', '/auth', '/bank-statements', '/dashboard', '/receipts',
+            '/reconciliation', '/reviews', '/ui', '/workspace',
+        )
+        if request.url.path.startswith(protected_prefixes):
             response.headers['X-Content-Type-Options'] = 'nosniff'
+            response.headers['X-Frame-Options'] = 'DENY'
             response.headers['Referrer-Policy'] = 'no-referrer'
+            response.headers['Permissions-Policy'] = (
+                'camera=(), geolocation=(), microphone=(), payment=(), usb=()'
+            )
             if not request.url.path.startswith('/ui/assets/'):
                 response.headers['Cache-Control'] = 'no-store'
         if request.url.path.startswith('/ui'):
