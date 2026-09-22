@@ -70,6 +70,11 @@ type Reconciliation = {
 };
 
 const currentMonth = new Date().toISOString().slice(0, 7);
+function monthLabel(value: string) {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value)
+    ? new Date(`${value}-01T12:00:00Z`).toLocaleDateString("en-SG", { month: "long", year: "numeric", timeZone: "UTC" })
+    : "Choose a month";
+}
 
 export type MonthlyCloseLocation = {
   view: "overview" | "detail";
@@ -136,6 +141,10 @@ export function MonthlyClose({ token, openReceipt, initialLocation }: {
   const periodValue = `${month}|${currency}`;
   const matchedPercent = data?.totals.receipt_spend_cents
     ? Math.min(100, Math.round((data.totals.matched_cents / data.totals.receipt_spend_cents) * 100)) : 0;
+  const missingDebitCount = data?.transactions.filter((item) => item.status === "MISSING_RECEIPT").length ?? 0;
+  const unmatchedReceiptCount = data?.receipts.filter((item) => item.status !== "PAID").length ?? 0;
+  const duplicateCount = (data?.transactions.filter((item) => item.status === "DUPLICATE_TRANSACTION").length ?? 0) +
+    (data?.receipts.filter((item) => item.duplicate_receipt).length ?? 0);
   const years = [...new Set(periods.map((item) => item.month.slice(0, 4)))].sort().reverse();
   const attentionCount = periods.filter((item) => item.statement_count === 0 || item.exception_count > 0 || item.review.status === "outdated").length;
   const isAttention = (item: Period) => item.statement_count === 0 || item.exception_count > 0 || item.review.status === "outdated";
@@ -207,51 +216,81 @@ export function MonthlyClose({ token, openReceipt, initialLocation }: {
       </>}
 
       {view === "detail" && <>
-      <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-medium text-emerald-800">Month detail</p><h2 className="text-xl font-semibold">{month} · {currency}</h2></div><Button variant="outline" size="sm" onClick={() => setView("overview")}>All months</Button></div>
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-800 p-5 text-white shadow-sm sm:p-7" aria-labelledby="month-detail-title">
+        <div className="relative flex flex-wrap items-start justify-between gap-5">
+          <div>
+            <p className="text-xs font-semibold tracking-[0.14em] text-emerald-200 uppercase">Monthly reconciliation · {currency}</p>
+            <h2 id="month-detail-title" className="mt-2 text-2xl font-semibold sm:text-3xl">{monthLabel(month)}</h2>
+            <p className="mt-2 max-w-xl text-sm text-emerald-50/90">Compare bank activity with accepted receipts, then record your review of the source evidence.</p>
+          </div>
+          <Button variant="outline" size="sm" className="border-white/40 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={() => setView("overview")}>All months <ArrowRight className="rotate-180" /></Button>
+        </div>
+        <div className="relative mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-white/20 pt-5">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className={`rounded-full px-3 py-1 font-medium ${data?.review.status === "outdated" ? "bg-amber-100 text-amber-950" : data?.review.status === "reviewed" ? "bg-emerald-100 text-emerald-950" : "bg-white/15 text-white"}`}>
+              {!data ? "Loading review…" : data.review.status === "outdated" ? "Review outdated" : data.review.status === "reviewed" ? "Reviewed" : "Not reviewed"}
+            </span>
+            {data && <span className="text-emerald-100">{data.statements.length} statements · {data.transactions.length} bank debits · {data.receipts.length} receipts</span>}
+          </div>
+          <Button variant="secondary" size="sm" disabled={!data?.statements.length} onClick={() => setReviewOpen(true)}>{!data || data.review.status === "not_reviewed" ? "Mark reviewed" : "Review again"}</Button>
+        </div>
+        {data && <p className="relative mt-3 text-sm text-emerald-50/90">
+          {!data.statements.length ? "Add a statement before recording a review." : data.review.status === "outdated" ? "The recorded evidence changed since the last review. Recheck this month before reviewing again." : data.review.status === "reviewed" ? `Reviewed by ${data.review.actor} · ${new Date(data.review.reviewed_at!).toLocaleString("en-SG")}${data.totals.exception_count ? " · exceptions remain visible" : ""}` : "Review the retained statement and receipts before marking this month reviewed."}
+          {data.review.note && <span className="mt-1 block text-emerald-100">Review note: {data.review.note}</span>}
+        </p>}
+      </section>
 
-      <section className="panel flex flex-wrap items-end gap-4 p-4" aria-label="Reconciliation period">
-        <div className="min-w-56 flex-1">
-          <label htmlFor="close-period" className="field-label">Statement period</label>
-          <select id="close-period" className="h-10 w-full rounded-md border bg-white px-3" value={periodValue}
-            onChange={(event) => { const [nextMonth, nextCurrency] = event.target.value.split("|"); setSourceStatement(null); setMonth(nextMonth); setCurrency(nextCurrency); }}>
-            {!periods.some((item) => `${item.month}|${item.currency}` === periodValue) && <option value={periodValue}>{month} · {currency} · no statement</option>}
-            {periods.map((item) => <option key={`${item.month}-${item.currency}`} value={`${item.month}|${item.currency}`}>{item.month} · {item.currency} · {item.statement_count ? `${item.transaction_count} debits` : "no statement"}</option>)}
-          </select>
+      <section className="panel p-4 sm:p-5" aria-label="Reconciliation period">
+        <div className="flex items-center gap-3"><span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-800"><CalendarDays className="size-5" /></span><div><h2 className="font-semibold">Period in view</h2><p className="muted">Switch to another recorded period or inspect a month manually.</p></div></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <div>
+            <label htmlFor="close-period" className="field-label">Recorded month and currency</label>
+            <select id="close-period" className="h-10 w-full rounded-md border bg-white px-3" value={periodValue}
+              onChange={(event) => { const [nextMonth, nextCurrency] = event.target.value.split("|"); setSourceStatement(null); setMonth(nextMonth); setCurrency(nextCurrency); }}>
+              {!periods.some((item) => `${item.month}|${item.currency}` === periodValue) && <option value={periodValue}>{month} · {currency} · no statement</option>}
+              {periods.map((item) => <option key={`${item.month}-${item.currency}`} value={`${item.month}|${item.currency}`}>{item.month} · {item.currency} · {item.statement_count ? `${item.transaction_count} debits` : "no statement"}</option>)}
+            </select>
+          </div>
+          {data && !busy && <a href="#close-evidence" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-medium text-primary hover:bg-emerald-50">Jump to evidence <ArrowRight className="size-4" /></a>}
         </div>
-        <div>
-          <label htmlFor="manual-month" className="field-label">Check another month</label>
-          <Input id="manual-month" type="month" value={month} onChange={(event) => { setSourceStatement(null); setMonth(event.target.value); }} />
-        </div>
-        <div>
-          <label htmlFor="manual-currency" className="field-label">Currency</label>
-          <select id="manual-currency" className="h-10 rounded-lg border bg-white px-3" value={currency} onChange={(event) => { setSourceStatement(null); setCurrency(event.target.value); }}>
-            {["SGD", "MYR", "USD", "EUR", "GBP", "AUD"].map((code) => <option key={code}>{code}</option>)}
-          </select>
-        </div>
+        <details className="group mt-4 border-t pt-3"><summary className="w-fit text-sm font-medium text-primary hover:underline">Check a different month or currency</summary><div className="mt-3 flex flex-wrap gap-3"><div><label htmlFor="manual-month" className="field-label">Month</label><Input id="manual-month" type="month" value={month} onChange={(event) => { setSourceStatement(null); setMonth(event.target.value); }} /></div><div><label htmlFor="manual-currency" className="field-label">Currency</label><select id="manual-currency" className="h-10 rounded-lg border bg-white px-3" value={currency} onChange={(event) => { setSourceStatement(null); setCurrency(event.target.value); }}>{["SGD", "MYR", "USD", "EUR", "GBP", "AUD"].map((code) => <option key={code}>{code}</option>)}</select></div></div></details>
       </section>
 
       {success && <Notice>{success}</Notice>}
       {error && <Notice variant="destructive">{error}</Notice>}
       {busy ? <MonthlySkeleton /> : data && <>
         {!data.statements.length && <Notice variant="warning">No {currency} statement is loaded for {month}. Accepted receipts are still shown so you can see what needs a bank match.</Notice>}
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Monthly reconciliation totals">
-          <TotalCard icon={<Landmark />} label="Bank debits" value={amount(data.totals.bank_debits_cents / 100, currency)} help={`${data.transactions.length} imported debit transactions`} />
-          <TotalCard icon={<FileSpreadsheet />} label="Accepted receipts" value={amount(data.totals.receipt_spend_cents / 100, currency)} help={`${data.receipts.length} receipts dated this month`} />
-          <TotalCard icon={<CheckCircle2 />} label="Matched paid" value={amount(data.totals.matched_cents / 100, currency)} help={`${matchedPercent}% of accepted receipt spend`} tone="good" />
-          <TotalCard icon={<AlertTriangle />} label="Needs attention" value={String(data.totals.exception_count)} help={`Bank less receipts: ${amount(data.totals.difference_cents / 100, currency)}`} tone={data.totals.exception_count ? "warn" : "good"} />
+        <section aria-labelledby="close-snapshot-title" className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-2"><div><h2 id="close-snapshot-title" className="text-lg font-semibold">Month at a glance</h2><p className="muted">Amounts are shown in the original statement currency.</p></div><span className="text-xs text-muted-foreground">{month} · {currency}</span></div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Monthly reconciliation totals">
+            <TotalCard icon={<Landmark />} label="Bank debits" value={amount(data.totals.bank_debits_cents / 100, currency)} help={`${data.transactions.length} imported debit transactions`} />
+            <TotalCard icon={<FileSpreadsheet />} label="Accepted receipts" value={amount(data.totals.receipt_spend_cents / 100, currency)} help={`${data.receipts.length} receipts dated this month`} />
+            <TotalCard icon={<CheckCircle2 />} label="Matched paid" value={amount(data.totals.matched_cents / 100, currency)} help={`${matchedPercent}% of accepted receipt spend`} tone="good" />
+            <TotalCard icon={<AlertTriangle />} label="Needs attention" value={String(data.totals.exception_count)} help="Items to inspect below" tone={data.totals.exception_count ? "warn" : "good"} />
+          </div>
         </section>
 
-        <section className="panel flex flex-wrap items-center justify-between gap-4 p-5" aria-label="Month review status"><div><h2 className="font-semibold">Review status</h2><p className="muted mt-1">{!data.statements.length ? "Import and inspect a bank statement before recording a review." : data.review.status === "outdated" ? "The evidence changed after the last review. Check this month again." : data.review.status === "reviewed" ? `Reviewed by ${data.review.actor} · ${new Date(data.review.reviewed_at!).toLocaleString("en-SG")}${data.totals.exception_count ? " · exceptions remain documented" : ""}` : "No review recorded for this month."}</p>{data.review.note && <p className="mt-1 text-xs text-muted-foreground">Review note: {data.review.note}</p>}</div><Button variant="outline" disabled={!data.statements.length} onClick={() => setReviewOpen(true)}>{data.review.status === "not_reviewed" ? "Mark reviewed" : "Review again"}</Button></section>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <section className="panel p-5 sm:p-6" aria-labelledby="coverage-title">
+            <div className="flex items-center justify-between gap-3"><h3 id="coverage-title" className="font-semibold">Receipt coverage</h3><span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-800 tabular-nums">{matchedPercent}% matched</span></div>
+            <p className="muted mt-2">Accepted receipt value linked to a likely bank debit.</p>
+            <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-emerald-100" role="progressbar" aria-label="Accepted receipt spend matched to bank debits" aria-valuenow={matchedPercent} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full bg-emerald-600 transition-[width] duration-500" style={{ width: `${matchedPercent}%` }} /></div>
+            <p className="mt-5 border-t pt-4 text-sm"><span className="text-muted-foreground">Bank debits less accepted receipts</span><strong className="ml-2 tabular-nums">{amount(data.totals.difference_cents / 100, currency)}</strong></p>
+          </section>
+          <section className="panel p-5 sm:p-6" aria-labelledby="close-check-title">
+            <h3 id="close-check-title" className="font-semibold">What needs checking</h3>
+            <ul className="mt-3 divide-y text-sm">
+              <li className="flex items-center justify-between gap-3 py-2"><span>Bank debits missing receipts</span><strong className={`rounded-full px-2.5 py-1 tabular-nums ${missingDebitCount ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800"}`}>{missingDebitCount}</strong></li>
+              <li className="flex items-center justify-between gap-3 py-2"><span>Receipts without a bank match</span><strong className={`rounded-full px-2.5 py-1 tabular-nums ${unmatchedReceiptCount ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800"}`}>{unmatchedReceiptCount}</strong></li>
+              <li className="flex items-center justify-between gap-3 py-2"><span>Possible duplicates</span><strong className={`rounded-full px-2.5 py-1 tabular-nums ${duplicateCount ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800"}`}>{duplicateCount}</strong></li>
+            </ul>
+            <p className="mt-2 text-xs text-muted-foreground">Inspect the original records before recording a payment follow-up.</p>
+          </section>
+        </div>
 
-        <section className="grid gap-3 sm:grid-cols-3" aria-label="Items to check this month">
-          <div className="rounded-xl border bg-white p-4"><p className="text-sm font-medium">Bank debits missing receipts</p><p className="mt-1 text-2xl font-semibold tabular-nums">{data.transactions.filter((item) => item.status === "MISSING_RECEIPT").length}</p><p className="muted">Check the bank source and request evidence.</p></div>
-          <div className="rounded-xl border bg-white p-4"><p className="text-sm font-medium">Receipts without a bank match</p><p className="mt-1 text-2xl font-semibold tabular-nums">{data.receipts.filter((item) => item.status !== "PAID").length}</p><p className="muted">Inspect payment records before recording a payable.</p></div>
-          <div className="rounded-xl border bg-white p-4"><p className="text-sm font-medium">Possible duplicates</p><p className="mt-1 text-2xl font-semibold tabular-nums">{data.transactions.filter((item) => item.status === "DUPLICATE_TRANSACTION").length + data.receipts.filter((item) => item.duplicate_receipt).length}</p><p className="muted">Compare originals before deciding what to do.</p></div>
-        </section>
-
-        {!!data.statements.length && <section className="panel p-4 sm:px-5" aria-label="Retained source statements">
-          <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="font-medium">{data.statements.length} source statement{data.statements.length === 1 ? "" : "s"} retained</p><p className="muted">Keep the original PDF or CSV open beside the imported values while you review them.</p></div></div>
-          <div className="mt-4 grid gap-3">{data.statements.map((item) => <article key={item.statement_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3"><div className="min-w-0"><p className="truncate font-medium">{item.account_label}</p><p className="muted truncate">{item.original_filename} · {item.row_count} debits{item.imported_by ? ` · ${item.imported_by}` : ""}</p></div><div className="flex gap-2"><Button size="sm" variant={sourceStatement?.statement_id === item.statement_id ? "secondary" : "outline"} onClick={() => setSourceStatement(item)}><Eye /> View source</Button><Button size="sm" variant="ghost" aria-label={`Download ${item.original_filename}`} onClick={() => void downloadSource(item.statement_id, item.original_filename)}><Download /></Button>
+        {!!data.statements.length && <section className="panel overflow-hidden" aria-label="Retained source statements">
+          <div className="flex flex-wrap items-center gap-3 border-b bg-emerald-50/50 p-5"><span className="rounded-xl bg-white p-2.5 text-emerald-800"><FileText className="size-5" /></span><div><h2 className="font-semibold">Source statements <span className="font-normal text-muted-foreground">({data.statements.length})</span></h2><p className="muted">Open the retained original to check imported rows.</p></div></div>
+          <div className="grid gap-3 p-4 sm:p-5">{data.statements.map((item) => <article key={item.statement_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4"><div className="min-w-0"><p className="truncate font-medium">{item.account_label}</p><p className="muted truncate">{item.original_filename} · {item.row_count} debits{item.imported_by ? ` · ${item.imported_by}` : ""}</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant={sourceStatement?.statement_id === item.statement_id ? "secondary" : "outline"} onClick={() => setSourceStatement(item)}><Eye /> View source</Button><Button size="sm" variant="ghost" aria-label={`Download ${item.original_filename}`} onClick={() => void downloadSource(item.statement_id, item.original_filename)}><Download /></Button>
             <Button size="sm" variant="ghost" className="text-red-700" onClick={() => setLifecycleTarget({ statement: item, restore: false })}>Remove</Button></div></article>)}</div>
         </section>}
         {!!data.removed_statements?.length && <details className="panel p-4">
@@ -263,27 +302,21 @@ export function MonthlyClose({ token, openReceipt, initialLocation }: {
               <Button size="sm" onClick={() => setLifecycleTarget({ statement: item, restore: true })}>Restore</Button></div>
           </div>)}
         </details>}
-        <section className="panel overflow-hidden" aria-labelledby="coverage-title">
-          <div className="flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6">
-            <div><h2 id="coverage-title" className="text-lg font-semibold">Reconciliation coverage</h2><p className="muted mt-1">Accepted receipt value linked to a likely bank debit</p></div>
-            <span className="text-2xl font-semibold tabular-nums">{matchedPercent}%</span>
+        <section id="close-evidence" className="scroll-mt-6 space-y-4" aria-labelledby="close-evidence-title">
+          <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-semibold tracking-wide text-emerald-800 uppercase">Evidence review</p><h2 id="close-evidence-title" className="mt-1 text-lg font-semibold">Check the underlying records</h2><p className="muted">Compare debits to accepted receipts and open the originals when needed.</p></div><span className="text-xs text-muted-foreground">{month} · {currency}</span></div>
+          <div className="panel flex flex-wrap items-center justify-between gap-3 bg-emerald-50/40 p-4" aria-label="Reconciliation filters">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={exceptionsOnly} onChange={(event) => setExceptionsOnly(event.target.checked)} />Show items needing attention only</label>
+            <label className="flex min-w-0 flex-wrap items-center gap-2 text-sm">Bank source <select aria-label="Filter bank transactions by source" className="h-10 w-full max-w-72 rounded-lg border bg-white px-2 sm:w-auto"
+              value={data.statements.some((item) => item.statement_id === statementFilter) ? statementFilter : ""}
+              onChange={(event) => setStatementFilter(event.target.value)}>
+              <option value="">All active statements</option>{data.statements.map((item) => <option key={item.statement_id} value={item.statement_id}>{item.account_label} · {item.original_filename}</option>)}
+            </select></label>
+            <p className="w-full text-xs text-muted-foreground">Filters change the lists below. Summary totals and Excel exports still cover the whole month.</p>
           </div>
-          <div className="h-3 bg-muted"><div className="h-full bg-emerald-600 transition-[width] duration-500" style={{ width: `${matchedPercent}%` }} /></div>
-        </section>
-
-        <section className="panel flex flex-wrap items-center justify-between gap-3 p-4" aria-label="Reconciliation filters">
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={exceptionsOnly} onChange={(event) => setExceptionsOnly(event.target.checked)} />Show items needing attention only</label>
-          <label className="text-sm">Bank source <select aria-label="Filter bank transactions by source" className="ml-2 rounded-lg border bg-white p-2"
-            value={data.statements.some((item) => item.statement_id === statementFilter) ? statementFilter : ""}
-            onChange={(event) => setStatementFilter(event.target.value)}>
-            <option value="">All active statements</option>{data.statements.map((item) => <option key={item.statement_id} value={item.statement_id}>{item.account_label} · {item.original_filename}</option>)}
-          </select></label>
-          <p className="w-full text-xs text-muted-foreground">Filters affect the lists below. Summary totals and Excel exports always cover the entire month.</p>
-        </section>
         <TransactionTable transactions={data.transactions.filter((item) => (!exceptionsOnly || item.status !== "MATCHED") && (!data.statements.some((source) => source.statement_id === statementFilter) || item.statement_id === statementFilter))} statements={data.statements} currency={currency} openReceipt={openReceiptFromMonth} viewSource={setSourceStatement} inspectMonth={(nextMonth) => openPeriod(nextMonth, currency)} />
         <section className="panel overflow-hidden" aria-labelledby="accepted-receipts-title">
           {exceptionsOnly && data.receipts.length > 0 && !data.receipts.some((item) => item.status !== "PAID" || item.duplicate_receipt) && <p className="muted p-4">No accepted receipts need attention in this period.</p>}
-          <div className="border-b p-5 sm:p-6"><h2 id="accepted-receipts-title" className="text-lg font-semibold">Accepted receipts</h2><p className="muted mt-1">Open any accepted receipt in Ledgerly to compare its retained evidence and values. Record a payable or payment issue only after checking the bank and internal payment records.</p></div>
+          <div className="border-b p-5 sm:p-6"><h3 id="accepted-receipts-title" className="text-lg font-semibold">Accepted receipts</h3><p className="muted mt-1">Open any accepted receipt in Ledgerly to compare its retained evidence and values. Record a payable or payment issue only after checking the bank and internal payment records.</p></div>
           {!data.receipts.length ? <p className="muted p-8 text-center">No accepted receipts are dated in this period.</p> : <div className="divide-y">{data.receipts.filter((item) => !exceptionsOnly || item.status !== "PAID" || item.duplicate_receipt).map((item) => <article key={item.receipt_id}>
             <div className="flex flex-wrap items-center justify-between gap-4 p-4 sm:px-6">
               <div className="min-w-0"><button className="text-left font-medium hover:underline" onClick={() => openReceiptFromMonth(item.receipt_id)}>{item.vendor}</button><p className="muted">{item.receipt_date} · {item.category}{item.duplicate_receipt ? " · possible duplicate receipt" : ""}</p>
@@ -298,22 +331,21 @@ export function MonthlyClose({ token, openReceipt, initialLocation }: {
             {!!item.payment_events?.length && <details className="group"><summary className="mx-4 mb-3 w-fit text-sm font-medium text-primary underline sm:mx-6">View payment-status history ({item.payment_events.length})</summary><PaymentHistory events={item.payment_events} compact /></details>}
           </article>)}</div>}
         </section>
+        </section>
 
-        <details className="panel p-5"><summary className="cursor-pointer font-semibold">Spending breakdown and review prompts</summary><div className="mt-4 grid gap-6 xl:grid-cols-2">
+        <details className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-5"><summary className="cursor-pointer font-semibold text-emerald-950">Spending breakdown and review prompts <span className="ml-2 text-sm font-normal text-emerald-800">Optional analysis</span></summary><div className="mt-4 grid gap-4 xl:grid-cols-2">
           <Breakdown title="Highest expense categories" icon={<FileSpreadsheet />} items={data.categories.map((item) => ({ label: item.category, cents: item.total_cents }))} currency={currency} />
           <Breakdown title="Highest spend by company" icon={<Building2 />} items={data.vendors.map((item) => ({ label: item.vendor, cents: item.total_cents }))} currency={currency} />
         </div>
 
-        <section className="panel p-5 sm:p-6" aria-labelledby="insights-title">
-          <div className="flex items-center gap-3"><span className="rounded-xl bg-violet-50 p-2.5 text-violet-700"><Lightbulb className="size-5" /></span><div><h2 id="insights-title" className="font-semibold">Spending review prompts</h2><p className="muted">Simple rules based on this month’s accepted receipts, not AI advice</p></div></div>
+        <section className="rounded-xl border bg-white p-5 sm:p-6" aria-labelledby="insights-title">
+          <div className="flex items-center gap-3"><span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700"><Lightbulb className="size-5" /></span><div><h3 id="insights-title" className="font-semibold">Spending review prompts</h3><p className="muted">Simple rules based on this month’s accepted receipts, not AI advice</p></div></div>
           {data.suggestions.length ? <div className="mt-5 grid gap-3 lg:grid-cols-3">{data.suggestions.map((item) => <article key={item.title} className="rounded-xl border bg-muted/40 p-4"><h3 className="font-medium">{item.title}</h3><p className="muted mt-2">{item.detail}</p></article>)}</div> : <p className="muted mt-5">Add accepted receipts to generate grounded prompts.</p>}
           <p className="mt-4 text-xs text-muted-foreground">Supplier comparisons need current quotes and human review. Ledgerly does not claim a cheaper vendor without verified market evidence.</p>
         </section>
         </details>
 
-        <section className="rounded-xl border border-sky-200 bg-sky-50 p-5 text-sky-950" aria-labelledby="compliance-title">
-          <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0" /><div><h2 id="compliance-title" className="font-semibold">Singapore record controls</h2><p className="mt-1 text-sm">Ledgerly keeps original receipt evidence, human decision history, payment follow-up events, and exportable monthly records. These controls support record keeping and PDPA accountability; they do not certify IRAS, GST, CPF, or PDPA compliance. Tax treatment and employee reimbursements still need your finance or HR reviewer.</p></div></div>
-        </section>
+        <details className="rounded-xl border bg-white p-4 text-sm text-muted-foreground"><summary className="flex items-center gap-2 font-medium text-foreground"><ShieldCheck className="size-4 text-emerald-700" /> Singapore record controls</summary><p className="mt-3 leading-6">Ledgerly keeps original receipt evidence, human decision history, payment follow-up events, and exportable monthly records. These controls support record keeping and PDPA accountability; they do not certify IRAS, GST, CPF, or PDPA compliance. Tax treatment and employee reimbursements still need your finance or HR reviewer.</p></details>
       </>}
       </>}
       <Dialog open={copilotOpen} onOpenChange={setCopilotOpen}>
@@ -494,8 +526,19 @@ function PaymentDialog({ token, receipt, saved }: { token: string; receipt: Rece
   </form></DialogContent></Dialog>;
 }
 
-function TotalCard({ icon, label, value, help, tone = "plain" }: { icon: React.ReactNode; label: string; value: string; help: string; tone?: "plain" | "good" | "warn" }) { const tones = { plain: "bg-slate-100 text-slate-700", good: "bg-emerald-50 text-emerald-700", warn: "bg-amber-50 text-amber-800" }; return <article className="panel p-5"><div className="flex items-start justify-between gap-3"><div><p className="field-label text-muted-foreground">{label}</p><p className="text-2xl font-semibold tabular-nums">{value}</p></div><span className={`rounded-xl p-2.5 [&>svg]:size-5 ${tones[tone]}`}>{icon}</span></div><p className="muted mt-2">{help}</p></article>; }
-function Breakdown({ title, icon, items, currency }: { title: string; icon: React.ReactNode; items: { label: string; cents: number }[]; currency: string }) { const max = Math.max(1, ...items.map((item) => item.cents)); return <section className="panel p-5 sm:p-6"><div className="flex items-center gap-3"><span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700">{icon}</span><h2 className="font-semibold">{title}</h2></div>{!items.length ? <p className="muted py-8 text-center">No accepted receipt spend for this period.</p> : <ol className="mt-5 space-y-4">{items.slice(0, 5).map((item, index) => <li key={item.label}><div className="mb-1.5 flex justify-between gap-3 text-sm"><span className="truncate"><span className="mr-2 text-muted-foreground">{index + 1}</span>{item.label}</span><strong className="shrink-0 tabular-nums">{amount(item.cents / 100, currency)}</strong></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(3, item.cents / max * 100)}%` }} /></div></li>)}</ol>}</section>; }
+function TotalCard({ icon, label, value, help, tone = "plain" }: { icon: React.ReactNode; label: string; value: string; help: string; tone?: "plain" | "good" | "warn" }) {
+  const tones = {
+    plain: { accent: "border-t-slate-300", icon: "bg-slate-100 text-slate-700" },
+    good: { accent: "border-t-emerald-600", icon: "bg-emerald-50 text-emerald-700" },
+    warn: { accent: "border-t-amber-500", icon: "bg-amber-50 text-amber-800" },
+  };
+  const style = tones[tone];
+  return <article className={`panel border-t-4 p-5 ${style.accent}`}>
+    <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p></div><span className={`rounded-xl p-2.5 [&>svg]:size-5 ${style.icon}`}>{icon}</span></div>
+    <p className="muted mt-2">{help}</p>
+  </article>;
+}
+function Breakdown({ title, icon, items, currency }: { title: string; icon: React.ReactNode; items: { label: string; cents: number }[]; currency: string }) { const max = Math.max(1, ...items.map((item) => item.cents)); return <section className="rounded-xl border bg-white p-5 sm:p-6"><div className="flex items-center gap-3"><span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700">{icon}</span><h3 className="font-semibold">{title}</h3></div>{!items.length ? <p className="muted py-8 text-center">No accepted receipt spend for this period.</p> : <ol className="mt-5 space-y-4">{items.slice(0, 5).map((item, index) => <li key={item.label}><div className="mb-1.5 flex justify-between gap-3 text-sm"><span className="truncate"><span className="mr-2 text-muted-foreground">{index + 1}</span>{item.label}</span><strong className="shrink-0 tabular-nums">{amount(item.cents / 100, currency)}</strong></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(3, item.cents / max * 100)}%` }} /></div></li>)}</ol>}</section>; }
 
 function TransactionTable({ transactions, statements, currency, openReceipt, viewSource, inspectMonth }: {
   transactions: Transaction[]; statements: StatementRecord[]; currency: string;
@@ -503,7 +546,7 @@ function TransactionTable({ transactions, statements, currency, openReceipt, vie
   inspectMonth: (month: string) => void;
 }) {
   return <section className="panel overflow-hidden" aria-labelledby="transactions-title">
-    <div className="border-b p-5 sm:p-6"><h2 id="transactions-title" className="text-lg font-semibold">Imported bank debits</h2><p className="muted mt-1">Compare each debit with the retained statement and accepted receipt. Possible matches in neighboring months need your review.</p></div>
+    <div className="border-b p-5 sm:p-6"><h3 id="transactions-title" className="text-lg font-semibold">Imported bank debits</h3><p className="muted mt-1">Compare each debit with the retained statement and accepted receipt. Possible matches in neighboring months need your review.</p></div>
     {!transactions.length ? <p className="muted p-8 text-center">No imported debits are available for this period.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-muted/70"><tr><th className="p-3 pl-6">Date</th><th className="p-3">Description</th><th className="p-3 text-right">Debit</th><th className="p-3">Status</th><th className="p-3 pr-6 text-right">Evidence</th></tr></thead><tbody>{transactions.map((item) => {
       const statement = statements.find((candidate) => candidate.statement_id === item.statement_id);
       return <tr key={item.transaction_id} className={`border-t ${item.status === "MATCHED" ? "" : "bg-amber-50/40"}`}><td className="whitespace-nowrap p-3 pl-6">{item.posted_date}</td><td className="p-3"><p className="font-medium">{item.description}</p>{item.reference && <p className="muted">Ref {item.reference}</p>}{item.adjacent_month_candidate && <button className="mt-1 text-xs font-medium text-amber-800 underline" onClick={() => inspectMonth(item.adjacent_month_candidate!.month)}>Possible receipt in {item.adjacent_month_candidate.month} · inspect month</button>}</td><td className="whitespace-nowrap p-3 text-right font-semibold tabular-nums">{amount(item.amount_cents / 100, currency)}</td><td className="p-3"><Status value={item.status} /></td><td className="p-3 pr-6"><div className="flex justify-end gap-2">{statement && <Button size="sm" variant="outline" onClick={() => viewSource(statement)}><FileText /> Statement</Button>}{item.receipt_id && <Button size="sm" variant="ghost" onClick={() => openReceipt(item.receipt_id!)}>Receipt <ArrowRight /></Button>}</div></td></tr>;

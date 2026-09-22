@@ -8,6 +8,8 @@ Monthly Close opens on an overview of periods with an accepted receipt or an imp
 
 Open a month to inspect the bank debits, accepted receipts, retained statement and original receipt evidence. Enter your name and a meaningful note when recording a monthly review. Reviews are append-only, require an active statement, and are marked outdated when the month’s evidence changes. A review can document exceptions without resolving them; exceptions remain visible in the overview. The reviewer name is an audit label in the shared workspace, not a separately verified personal login.
 
+Month detail places the selected period and review state first, followed by monthly totals, receipt coverage, items to check, retained source statements, and the bank and receipt evidence lists. The period selector has optional controls for an unlisted month or another currency. Filters apply to the evidence lists; the totals and export always cover the entire period. Spending prompts and record-control guidance can be expanded below the evidence.
+
 Opening a receipt from Monthly Close keeps the month, currency, bank-source filter and exceptions-only setting. Use **Back to Monthly Close** to return to that same view. Payment-status history is available both beside the accepted receipt and in the original receipt detail.
 
 Possible matches between a receipt and a debit in neighboring months are shown as **inspection hints** only when the amount, date and vendor words support an unambiguous candidate. They do not create a paid status or change the bank and receipt totals. Compare the original records before recording any payment follow-up.
