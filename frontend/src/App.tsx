@@ -496,10 +496,12 @@ function Workspace({
               <Dashboard
                 token={token}
                 navigate={navigate}
-                showAcceptedReceipts={() => {
+                showAcceptedReceipts={(range) => {
                   const accepted = {
                     ...emptyFilters,
                     state: ["AUTO_FILED", "APPROVED", "AMENDED"],
+                    date_from: range.from,
+                    date_to: range.to,
                   };
                   setFilterDraft(accepted);
                   setFilters(accepted);

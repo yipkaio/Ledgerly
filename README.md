@@ -118,15 +118,18 @@ service integrations. Telegram/OpenClaw receipt intake is implemented as a secur
 ## SQLite persistence and receipt history
 
 The workspace starts with **Main dashboard**, followed by **Monthly close**, **Upload receipt**,
-**Pending reviews**, **Receipt history**, and **Deleted receipts**. The dashboard opens on the latest
-month with accepted expenses. A saved **default reporting currency** converts all supported
-currencies into one view; native-currency views remain available. Select month and year,
-Q1–Q4, or a full year for the headline total. The interactive comparison chart supports
-multiple years and selected months or quarters, keyboard/touch inspection, and an exact-values
-table. Period totals use all available history, not only the latest 12 months.
-**View accepted receipts** opens history already filtered to approved, amended and auto-filed
-records. History supports checkbox-based multi-selection for categories, statuses, and
-currencies, with animated authenticated previews beside each receipt. See the
+**Pending reviews**, **Receipt history**, and **Deleted receipts**. The dashboard opens on
+**All time**, from the first dated accepted receipt through the latest. A saved **default
+reporting currency** converts supported currencies into one management view; native-currency
+views remain available. Beside it, choose the latest month, latest three months, latest receipt year,
+or an inclusive custom date range. The same receipt-date range drives the accepted expense
+total, accepted count, category breakdown and trend. The chart shows monthly points for
+up to 24 months and yearly points for longer ranges, with keyboard/touch inspection and an
+exact-values table. Receipts without a date are available in history but excluded from dated
+dashboard reporting. **View this date range** opens history already filtered to the same dates
+and the approved, amended and auto-filed statuses. History supports checkbox-based
+multi-selection for categories, statuses, and currencies, with animated authenticated
+previews beside each receipt. See the
 [workflow roadmap](docs/workflow-roadmap.md) for duplicate/amendment behavior,
 filtered Excel export, PDF ingestion, and remaining usability priorities.
 
@@ -175,7 +178,8 @@ allowed Firebase bearer token in `hybrid` mode:
 - `GET /receipts/{receipt_id}/reviews` returns its review audit history.
 - `POST /receipts/{receipt_id}/amendments` creates a new effective accepted version.
 - `GET /receipts/{receipt_id}/amendments` returns immutable amendment history.
-- `GET /dashboard` returns authenticated counts and accepted totals by currency.
+- `GET /dashboard` returns authenticated counts and accepted totals by currency;
+  inclusive `date_from`/`date_to` or `dated_only=true` filters dated accepted totals.
 - `GET /receipts?processing_status=FAILED` finds failed processing attempts.
 
 `processing_status` is `PROCESSING`, `COMPLETED`, `REVIEW_QUEUE`, or `FAILED`.

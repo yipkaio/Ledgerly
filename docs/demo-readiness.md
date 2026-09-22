@@ -27,7 +27,7 @@ Use this list after every production deployment and before the hackathon demo.
 5. Confirm deterministic matching and exception counts.
 6. Check source preview, remove a wrong statement, then restore it.
 7. Ask the Finance Copilot an in-scope question and an unrelated question.
-8. Confirm the dashboard's default currency and period comparisons.
+8. Confirm the dashboard's default currency, custom date range, quick ranges and all-time total; open the matching accepted receipts in history.
 9. Restart the containers and confirm records and evidence remain available.
 
 ## Demo metrics

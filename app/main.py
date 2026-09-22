@@ -708,12 +708,20 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
         )
 
     @api.get('/dashboard', tags=['dashboard'], summary='Workspace counts and accepted expense totals',
-             description='Read only and authenticated. Human decisions take precedence. Native amounts include APPROVED and AUTO_FILED receipts only and remain grouped by currency. When a default currency is configured, a separately labelled management estimate converts them with a dated ECB reference-rate snapshot; original amounts are unchanged and receipt-to-bank matching never uses converted values. Rejected, pending, failed and processing records are excluded. Trends use receipt dates and show up to the latest 12 months. These are workflow estimates, not accounting postings or transaction rates.',
+             description='Read only and authenticated. Human decisions take precedence. Native amounts include APPROVED and AUTO_FILED receipts only and remain grouped by currency. Optional inclusive date_from and date_to filters use effective receipt dates and apply to accepted counts, totals, categories and trends. dated_only=true includes all dated accepted receipts, including any added since the last request; undated receipts are excluded from dated reporting. Workspace workflow counts remain unfiltered. When a default currency is configured, a separately labelled management estimate converts accepted amounts with a dated ECB reference-rate snapshot; original amounts are unchanged and receipt-to-bank matching never uses converted values. These are workflow estimates, not accounting postings or transaction rates.',
              responses={401: {'description': 'Missing or wrong app key'}, 503: {'description': 'Database or configuration unavailable'}})
     async def dashboard(
         settings: Annotated[Settings, Depends(require_api_key)],
         fx_provider: Annotated[ECBRateProvider, Depends(get_fx_rate_provider)],
+        date_from: date | None = None,
+        date_to: date | None = None,
+        dated_only: bool = False,
     ) -> dict:
+        if date_from is not None and date_to is not None and date_from > date_to:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="date_from must be on or before date_to",
+            )
         store = ReceiptStore(settings.database_path)
         default = await run_in_threadpool(workspace_currency, store)
         snapshot = None
@@ -722,7 +730,9 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
                 snapshot = await latest_snapshot(store, fx_provider)
             except FXUnavailable:
                 pass
-        return await run_in_threadpool(dashboard_summary, store, snapshot)
+        return await run_in_threadpool(
+            dashboard_summary, store, snapshot, date_from, date_to, dated_only
+        )
 
     @api.get('/workspace/settings', tags=['dashboard'], summary='Read workspace reporting settings')
     async def read_workspace_settings(
