@@ -48,10 +48,17 @@ dist, browser test reports, local data, or credentials.
 
 ## Review a receipt
 
-After connecting, **Main dashboard** shows a focused accepted-spend total, three
-actionable metrics, a monthly trend, category ranking, workflow distribution, and
-attention counts. Currency totals are always viewed separately. Navigation then
-offers **Upload receipt**, **Pending reviews**, and **Receipt history**. Hover the
+After connecting, **Main dashboard** shows a focused accepted-spend total, actionable
+metrics, a trend, category ranking, workflow distribution, and attention counts.
+The date range beside the saved reporting currency offers quick latest-month,
+latest-three-months, latest-receipt-year, and all-time selections, plus a custom inclusive
+receipt-date range. It updates the accepted total, accepted count, categories, and
+monthly trend together. Ranges longer than 24 months show yearly points. Click
+**View this date range** to see the same dated accepted receipts in history.
+Undated accepted records remain accessible in Receipt history but cannot be included
+in a dated total. Pending reviews and overall workflow counts describe the entire
+workspace. Native currency totals remain separate when conversion is unavailable.
+Navigation then offers **Upload receipt**, **Pending reviews**, and **Receipt history**. Hover the
 eye button beside a history row for
 an animated private preview, or use click/Enter on keyboard and touch devices.
 See [workflow behavior and planned features](workflow-roadmap.md) for implemented

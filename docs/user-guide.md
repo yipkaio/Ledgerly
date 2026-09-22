@@ -58,14 +58,21 @@ and source evidence.
 
 ![Dashboard overview](assets/screenshots/154111.png)
 
-The selected September period totals SGD 2,432.88 across three receipts. The
-accepted-record navigation card shows four records overall; those figures use
-different scopes.
+This earlier screenshot shows the previous period selector. The current dashboard
+places one receipt-date range beside the default reporting currency. Choose All time
+(first to latest dated accepted receipt), latest month, latest three months,
+latest receipt year, or enter start and end dates and select **Apply dates**.
+The quick ranges end at the latest accepted receipt date. The same inclusive
+range updates the accepted total, receipt count, chart and categories. Select
+**View this date range** to open the matching accepted receipts in history.
 
 ![Period comparison](assets/screenshots/154133.png)
 
-Month, quarter and year comparisons use deterministic stored values. Reporting
-currency conversion does not alter the original receipt amount.
+This earlier screenshot shows the previous comparison controls. The chart now uses
+monthly points for ranges of up to 24 months and yearly points for longer ranges;
+you can still inspect points and exact values. Reporting currency conversion does
+not alter original receipt amounts. Undated accepted receipts remain in history
+but are not included in dated reporting.
 
 ## Monthly close
 

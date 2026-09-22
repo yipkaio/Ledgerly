@@ -1,8 +1,16 @@
 import { useEffect, useState } from "react";
 import { TrendChart } from "@/components/expense-trend";
-import { monthNames, periodLabel, periodTotals, type PeriodMode, type MonthTotal } from "@/lib/dashboard-periods";
+import {
+  dateRangeLabel,
+  presetDateRange,
+  type DateBounds,
+  type DateRange,
+  type DateRangePreset,
+  type MonthTotal,
+} from "@/lib/dashboard-periods";
 import {
   ArrowRight,
+  CalendarDays,
   CircleAlert,
   CircleCheckBig,
   Clock3,
@@ -27,7 +35,10 @@ type Summary = {
   total_receipts: number;
   counts: Record<string, number>;
   currencies: Currency[];
+  accepted_count: number;
   accepted_missing_value: number;
+  accepted_date_bounds: DateBounds;
+  date_range: { from: string | null; to: string | null };
   generated_at: string;
   default_currency: string | null;
   reporting: (Currency & { available: boolean; as_of: string | null; source: string | null; stale: boolean }) | null;
@@ -35,26 +46,37 @@ type Summary = {
 type View = "history" | "reviews" | "upload" | "monthly";
 
 export function Dashboard({ token, navigate, showAcceptedReceipts }: {
-  token: string; navigate: (view: View) => void; showAcceptedReceipts: () => void;
+  token: string; navigate: (view: View) => void; showAcceptedReceipts: (range: DateRange) => void;
 }) {
   const [data, setData] = useState<Summary | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [currency, setCurrency] = useState("consolidated");
-  const [mode, setMode] = useState<PeriodMode>("month");
-  const [year, setYear] = useState("");
-  const [part, setPart] = useState(0);
+  const [range, setRange] = useState<DateRange>({ from: "", to: "" });
+  const [draftRange, setDraftRange] = useState<DateRange>({ from: "", to: "" });
+  const [preset, setPreset] = useState<DateRangePreset>("all");
+  const [rangeError, setRangeError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
-    // oxlint-disable-next-line react/set-state-in-effect -- Reset the cancellable dashboard snapshot.
-    setData(null);
+    // oxlint-disable-next-line react/set-state-in-effect -- Track the cancellable dashboard request.
+    setLoading(true);
     setError("");
-    request<Summary>("/dashboard", token, { signal: controller.signal })
-      .then((result) => { if (!controller.signal.aborted) setData(result); })
-      .catch((caught) => { if (!controller.signal.aborted) setError(message(caught)); });
+    const params = new URLSearchParams();
+    if (preset === "all") params.set("dated_only", "true");
+    if (range.from) params.set("date_from", range.from);
+    if (range.to) params.set("date_to", range.to);
+    request<Summary>(`/dashboard?${params}`, token, { signal: controller.signal })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        if (preset === "all") setDraftRange(presetDateRange("all", result.accepted_date_bounds));
+        setData(result);
+      })
+      .catch((caught) => { if (!controller.signal.aborted) setError(message(caught)); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [token, refresh]);
+  }, [token, refresh, range, preset]);
 
   async function saveCurrency(value: string) {
     setSaving(true); setError("");
@@ -70,62 +92,100 @@ export function Dashboard({ token, navigate, showAcceptedReceipts }: {
   }
 
   const reporting = data?.reporting;
-  const current = currency === "consolidated" && data?.default_currency
+  const selectedCurrency = data?.currencies.some((item) => item.currency === currency) ? currency : "consolidated";
+  const current = selectedCurrency === "consolidated" && data?.default_currency
     ? (reporting?.available ? reporting : undefined)
-    : data?.currencies.find((item) => item.currency === currency) || data?.currencies[0];
-  const latest = current?.months.at(-1)?.month || new Date().toISOString().slice(0, 7);
-  const years = Array.from(new Set((current?.months || []).map((item) => item.month.slice(0, 4)))).sort().reverse();
-  const activeYear = year || latest.slice(0, 4);
-  const activePart = part || (mode === "quarter" ? Math.ceil(Number(latest.slice(5)) / 3) : Number(latest.slice(5)));
-  const total = periodTotals(current?.months || [], mode, activeYear, activePart);
-  const label = periodLabel(mode, activeYear, activePart);
+    : data?.currencies.find((item) => item.currency === selectedCurrency) || data?.currencies[0];
+  const bounds = data?.accepted_date_bounds || { first: null, last: null };
+  const effectiveRange = {
+    from: range.from || bounds.first || "",
+    to: range.to || bounds.last || "",
+  };
+  const label = dateRangeLabel(range, bounds, preset === "all");
+
+  function choosePreset(nextPreset: Exclude<DateRangePreset, "custom">) {
+    const next = presetDateRange(nextPreset, bounds);
+    setPreset(nextPreset);
+    setDraftRange(next);
+    setRange(nextPreset === "all" ? { from: "", to: "" } : next);
+    setRangeError("");
+  }
+
+  function applyCustomRange() {
+    if (!draftRange.from || !draftRange.to) {
+      setRangeError("Choose both a start and end date.");
+      return;
+    }
+    if (draftRange.from > draftRange.to) {
+      setRangeError("Start date must be on or before end date.");
+      return;
+    }
+    setPreset("custom");
+    setRange(draftRange);
+    setRangeError("");
+  }
   return <div className="space-y-6">
-    <div className="flex flex-wrap items-end justify-between gap-3">
-      <label className="text-sm font-medium">Default reporting currency
-        <select className="ml-3 h-10 rounded-lg border bg-white px-3" aria-label="Default reporting currency"
-          value={data?.default_currency || ""} disabled={saving || !data}
-          onChange={(event) => void saveCurrency(event.target.value)}>
-          <option value="" disabled>Choose currency</option>
-          {["SGD", "MYR", "USD", "EUR", "GBP", "AUD"].map((code) => <option key={code}>{code}</option>)}
-        </select>
-      </label>
-      <Button variant="outline" disabled={saving} onClick={() => setRefresh((n) => n + 1)}><RefreshCw /> Refresh</Button>
+    <div className="panel p-4 sm:p-5">
+      <div className="flex flex-wrap items-end gap-4">
+        <label className="min-w-48 text-sm font-medium">
+          <span className="mb-1.5 block">Default reporting currency</span>
+          <select className="h-10 w-full rounded-lg border bg-white px-3" aria-label="Default reporting currency"
+            value={data?.default_currency || ""} disabled={saving || loading || !data}
+            onChange={(event) => void saveCurrency(event.target.value)}>
+            <option value="" disabled>Choose currency</option>
+            {["SGD", "MYR", "USD", "EUR", "GBP", "AUD"].map((code) => <option key={code}>{code}</option>)}
+          </select>
+        </label>
+        <div className="min-w-0 basis-full border-t pt-4 sm:basis-auto sm:flex-1 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-4">
+          <div className="mb-1.5 flex items-center gap-2 text-sm font-medium">
+            <CalendarDays className="size-4 text-primary" /> Date range
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input aria-label="Accepted expenses start date" type="date" className="h-10 rounded-lg border bg-white px-3 text-sm"
+              value={draftRange.from}
+              onChange={(event) => { setDraftRange((old) => ({ ...old, from: event.target.value })); setRangeError(""); }} />
+            <span className="text-sm text-muted-foreground" aria-hidden="true">to</span>
+            <input aria-label="Accepted expenses end date" type="date" className="h-10 rounded-lg border bg-white px-3 text-sm"
+              value={draftRange.to}
+              onChange={(event) => { setDraftRange((old) => ({ ...old, to: event.target.value })); setRangeError(""); }} />
+            <Button variant="outline" disabled={loading || !data || !bounds.first} onClick={applyCustomRange}>Apply dates</Button>
+          </div>
+        </div>
+        <Button variant="outline" disabled={saving || loading} onClick={() => setRefresh((n) => n + 1)}><RefreshCw className={loading ? "animate-spin" : ""} /> Refresh</Button>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4" aria-label="Quick date ranges">
+        <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quick range</span>
+        {([ ["month", "Latest month"], ["three_months", "Latest 3 months"], ["year", "Latest year" ] ] as const).map(([value, text]) =>
+          <Button key={value} size="sm" disabled={loading || !bounds.last} variant={preset === value ? "default" : "ghost"} onClick={() => choosePreset(value)}>{text}</Button>)}
+        <Button size="sm" variant={preset === "all" ? "default" : "outline"} onClick={() => choosePreset("all")} disabled={loading || !bounds.first}>
+          All time · first to latest receipt
+        </Button>
+        <span className="ml-auto text-xs text-muted-foreground" aria-live="polite">{loading ? "Updating dashboard…" : label}</span>
+      </div>
+      {data && !bounds.first && <p className="muted mt-3 text-xs">No accepted receipts have a receipt date yet. Check Receipt history for undated records.</p>}
     </div>
+    {rangeError && <Notice variant="destructive">{rangeError}</Notice>}
     {error && <Notice variant="destructive">{error}</Notice>}
     {!data ? <DashboardSkeleton /> : <>
       <section className="dashboard-hero overflow-hidden rounded-2xl border p-6 text-white shadow-sm sm:p-8">
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-5">
           <div>
             <p className="flex items-center gap-2 text-sm text-emerald-100"><TrendingUp className="size-4" />Accepted expenses · {label}</p>
-            <h2 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">{current ? amount(total.total_cents / 100, current.currency) : data.default_currency ? "Conversion unavailable" : "No accepted spend"}</h2>
-            <p className="mt-3 text-sm text-emerald-50">{total.receipt_count} accepted receipts · Includes amendments</p>
+            <h2 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">{data.accepted_count === 0 ? "No dated accepted spend" : current ? amount(current.total_cents / 100, current.currency) : data.default_currency ? "Conversion unavailable" : "No accepted spend"}</h2>
+            <p className="mt-3 text-sm text-emerald-50">{current?.receipt_count ?? 0} valued receipts · Includes amendments</p>
+            {data.accepted_missing_value > 0 && <p className="mt-2 text-xs text-emerald-100">
+              {data.accepted_missing_value} accepted {data.accepted_missing_value === 1 ? "receipt is" : "receipts are"} missing an amount or currency and excluded from spend.
+            </p>}
           </div>
           <label className="text-sm">Display
-            <select aria-label="Spend display" className="ml-2 rounded-lg border bg-white p-2 text-foreground" value={currency}
+            <select aria-label="Spend display" className="ml-2 rounded-lg border bg-white p-2 text-foreground" value={selectedCurrency}
               onChange={(event) => setCurrency(event.target.value)}>
-              <option value="consolidated">{data.default_currency ? `All currencies → ${data.default_currency}` : "Native currency"}</option>
+              <option value="consolidated">{data.default_currency ? `All currencies → ${data.default_currency}` : data.currencies.length ? `${data.currencies[0].currency} only · Choose a default to consolidate` : "Native currency"}</option>
               {data.currencies.map((item) => <option key={item.currency} value={item.currency}>{item.currency} only</option>)}
             </select>
           </label>
         </div>
-        <div className="relative z-10 mt-6 flex flex-wrap gap-3 text-foreground">
-          <label className="text-sm"><span className="mb-1 block text-emerald-100">Period</span>
-            <select aria-label="Expense period" className="h-10 rounded-lg bg-white px-3" value={mode} onChange={(event) => { setMode(event.target.value as PeriodMode); setPart(0); }}>
-              <option value="month">Month and year</option><option value="quarter">Quarter</option><option value="year">Full year</option>
-            </select>
-          </label>
-          <label className="text-sm"><span className="mb-1 block text-emerald-100">Year</span>
-            <select aria-label="Expense year" className="h-10 rounded-lg bg-white px-3" value={activeYear} onChange={(event) => setYear(event.target.value)}>
-              {Array.from(new Set([...years, activeYear])).sort().reverse().map((value) => <option key={value}>{value}</option>)}
-            </select>
-          </label>
-          {mode !== "year" && <label className="text-sm"><span className="mb-1 block text-emerald-100">{mode === "month" ? "Month" : "Quarter"}</span>
-            <select aria-label="Expense month or quarter" className="h-10 rounded-lg bg-white px-3" value={activePart} onChange={(event) => setPart(Number(event.target.value))}>
-              {(mode === "month" ? monthNames : ["Q1", "Q2", "Q3", "Q4"]).map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
-            </select>
-          </label>}
-        </div>
-        {currency === "consolidated" && data.default_currency && <p className="relative z-10 mt-4 text-xs text-emerald-100">
+        {selectedCurrency === "consolidated" && data.default_currency && <p className="relative z-10 mt-4 text-xs text-emerald-100">
           {reporting?.available ? `Converted using ${reporting.source} rates dated ${reporting.as_of}${reporting.stale ? " · Cached rates" : ""}. Management estimate; original amounts are unchanged.`
             : "Exchange rates are unavailable. Refresh to retry or select a native currency; no partial converted total is shown."}
         </p>}
@@ -133,12 +193,12 @@ export function Dashboard({ token, navigate, showAcceptedReceipts }: {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Workspace summary">
         <MetricCard label="Monthly close" value="Reconcile" help="Match bank debits and receipt evidence" icon={<Landmark />} tone="violet" action="Open monthly close" onClick={() => navigate("monthly")} />
         <MetricCard label="Pending reviews" value={data.counts.REVIEW_QUEUE || 0} help="Needs a human decision" icon={<Clock3 />} tone="amber" action="Open review queue" onClick={() => navigate("reviews")} />
-        <MetricCard label="Accepted receipts" value={(data.counts.APPROVED || 0) + (data.counts.AUTO_FILED || 0)} help="Approved, auto-filed and amended" icon={<CircleCheckBig />} tone="green" action="View accepted receipts" onClick={showAcceptedReceipts} />
+        <MetricCard label="Accepted receipts" value={data.accepted_count} help={label} icon={<CircleCheckBig />} tone="green" action="View this date range" onClick={() => showAcceptedReceipts(effectiveRange)} disabled={loading || !data.accepted_count} />
         <MetricCard label="All receipts" value={data.total_receipts} help="Every saved processing record" icon={<ReceiptText />} tone="blue" action="Open receipt history" onClick={() => navigate("history")} />
       </section>
       {current && <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(20rem,0.85fr)]">
-        <TrendChart currency={current.currency} items={current.months} />
-        <CategoryBreakdown currency={current.currency} items={current.categories} />
+        <TrendChart currency={current.currency} items={current.months} range={effectiveRange} rangeLabel={label} />
+        <CategoryBreakdown currency={current.currency} items={current.categories} rangeLabel={label} />
       </div>}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.6fr)]">
         <WorkflowStatus counts={data.counts} total={data.total_receipts} navigate={navigate} /><AttentionPanel data={data} navigate={navigate} />
@@ -156,6 +216,7 @@ function MetricCard({
   tone,
   action,
   onClick,
+  disabled,
 }: {
   label: string;
   value: number | string;
@@ -164,6 +225,7 @@ function MetricCard({
   tone: "amber" | "green" | "blue" | "violet";
   action: string;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   const tones = {
     amber: "bg-amber-50 text-amber-800",
@@ -173,8 +235,9 @@ function MetricCard({
   };
   return (
     <button
-      className="panel group p-5 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
+      className="panel group p-5 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-none"
       onClick={onClick}
+      disabled={disabled}
     >
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -195,15 +258,17 @@ function MetricCard({
 function CategoryBreakdown({
   currency,
   items,
+  rangeLabel,
 }: {
   currency: string;
   items: Currency["categories"];
+  rangeLabel: string;
 }) {
   const max = Math.max(1, ...items.map((item) => item.total_cents));
   return (
     <section className="panel p-5 sm:p-6" aria-labelledby="category-title">
       <h2 id="category-title" className="text-lg font-semibold">Top categories</h2>
-      <p className="muted mt-1">All accepted receipts in {currency}</p>
+      <p className="muted mt-1">{rangeLabel} · {currency}</p>
       {!items.length ? (
         <p className="muted py-12 text-center">No category totals yet.</p>
       ) : (

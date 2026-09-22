@@ -1,7 +1,7 @@
 """Read-only workspace totals; human decisions and currencies stay separate."""
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from app.fx import FXUnavailable, convert_cents, workspace_currency
 
@@ -19,27 +19,59 @@ EFFECTIVE = """WITH effective AS (
 ) """
 
 
-def dashboard_summary(store, fx_snapshot: dict | None = None) -> dict:
+def dashboard_summary(
+    store,
+    fx_snapshot: dict | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    dated_only: bool = False,
+) -> dict:
     counts = {state: 0 for state in ('AUTO_FILED', 'APPROVED', 'REJECTED', 'REVIEW_QUEUE', 'PROCESSING', 'FAILED')}
     currencies = defaultdict(lambda: {'total_cents': 0, 'receipt_count': 0, 'categories': [], 'months': []})
-    accepted = " WHERE state IN ('AUTO_FILED','APPROVED') AND amount IS NOT NULL AND currency IS NOT NULL"
+    range_conditions = []
+    range_values: list[str] = []
+    if date_from is not None:
+        range_conditions.append('date >= ?')
+        range_values.append(date_from.isoformat())
+    if date_to is not None:
+        range_conditions.append('date <= ?')
+        range_values.append(date_to.isoformat())
+    if dated_only:
+        range_conditions.append('date IS NOT NULL')
+    range_sql = ''.join(f' AND {condition}' for condition in range_conditions)
+    accepted_state = " WHERE state IN ('AUTO_FILED','APPROVED')" + range_sql
+    accepted_values = accepted_state + ' AND amount IS NOT NULL AND currency IS NOT NULL'
     cents = 'SUM(CAST(ROUND(amount * 100) AS INTEGER))'
     with store.connect() as db:
         db.execute('BEGIN')
         for row in db.execute(EFFECTIVE + 'SELECT state, count(*) AS count FROM effective GROUP BY state'):
             counts[row['state']] = row['count']
-        incomplete = db.execute(EFFECTIVE + "SELECT count(*) FROM effective WHERE state IN ('AUTO_FILED','APPROVED') AND (amount IS NULL OR currency IS NULL)").fetchone()[0]
-        for row in db.execute(EFFECTIVE + 'SELECT currency, count(*) AS count, ' + cents + ' AS cents FROM effective' + accepted + ' GROUP BY currency ORDER BY currency'):
+        bounds = db.execute(
+            EFFECTIVE
+            + "SELECT min(date) AS first, max(date) AS last FROM effective "
+            + "WHERE state IN ('AUTO_FILED','APPROVED') AND date IS NOT NULL"
+        ).fetchone()
+        accepted_count = db.execute(
+            EFFECTIVE + 'SELECT count(*) FROM effective' + accepted_state,
+            range_values,
+        ).fetchone()[0]
+        incomplete = db.execute(
+            EFFECTIVE + 'SELECT count(*) FROM effective' + accepted_state
+            + ' AND (amount IS NULL OR currency IS NULL)',
+            range_values,
+        ).fetchone()[0]
+        for row in db.execute(EFFECTIVE + 'SELECT currency, count(*) AS count, ' + cents + ' AS cents FROM effective' + accepted_values + ' GROUP BY currency ORDER BY currency', range_values):
             currencies[row['currency']].update(total_cents=row['cents'], receipt_count=row['count'])
-        for row in db.execute(EFFECTIVE + "SELECT currency, COALESCE(category, 'Uncategorized') AS category, " + cents + ' AS cents FROM effective' + accepted + ' GROUP BY currency, category ORDER BY currency, cents DESC, category'):
+        for row in db.execute(EFFECTIVE + "SELECT currency, COALESCE(category, 'Uncategorized') AS category, " + cents + ' AS cents FROM effective' + accepted_values + ' GROUP BY currency, category ORDER BY currency, cents DESC, category', range_values):
             currencies[row['currency']]['categories'].append({'category': row['category'], 'total_cents': row['cents']})
         for row in db.execute(
             EFFECTIVE
             + 'SELECT currency, substr(date,1,7) AS month, count(*) AS count, '
             + cents
             + ' AS cents FROM effective'
-            + accepted
-            + " AND date IS NOT NULL GROUP BY currency, month ORDER BY currency, month DESC"
+            + accepted_values
+            + " AND date IS NOT NULL GROUP BY currency, month ORDER BY currency, month DESC",
+            range_values,
         ):
             months = currencies[row['currency']]['months']
             months.append({
@@ -88,7 +120,11 @@ def dashboard_summary(store, fx_snapshot: dict | None = None) -> dict:
                 )
             except FXUnavailable:
                 pass
-    return {'counts': counts, 'total_receipts': sum(counts.values()), 'accepted_missing_value': incomplete,
+    return {'counts': counts, 'total_receipts': sum(counts.values()),
+            'accepted_count': accepted_count, 'accepted_missing_value': incomplete,
+            'accepted_date_bounds': {'first': bounds['first'], 'last': bounds['last']},
+            'date_range': {'from': date_from.isoformat() if date_from else None,
+                           'to': date_to.isoformat() if date_to else None},
             'currencies': [{'currency': code, **value} for code, value in currencies.items()],
             'default_currency': default_currency, 'reporting': reporting,
             'generated_at': datetime.now(timezone.utc).isoformat()}
