@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:24-bookworm-slim AS frontend-build
+FROM node:26-bookworm-slim AS frontend-build
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
