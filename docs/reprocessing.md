@@ -1,5 +1,9 @@
 # Undo, extraction drafts and reconciliation
 
+These are separate reviewer actions: Undo deletion restores an eligible
+record, Reprocess creates a draft from retained OCR, and the totals panel
+checks arithmetic. None silently approves or posts an expense.
+
 After deletion, **Undo deletion** restores the record with one click, retaining a restore audit event under the same self-reported name. It uses the normal restore rules: stale changes, expiry and an identical retained receipt prevent restoration. An uncertain response retries the same request UUID. The banner lasts while the receipt detail remains mounted; after leaving, restore from Deleted receipts within 30 days. Voiding cannot be undone through this action.
 
 **Reprocess receipt** runs extraction against saved OCR text. It does not rerun OCR, classification, upload, or payment processing. The confirmation explains the possible AI cost. A name and reason are required. Active pending, failed, approved, auto-filed and amended records with saved OCR are eligible; processing, deleted, voided and rejected records are not. If original OCR was unavailable, upload a new readable file instead (or delete a failed duplicate first).

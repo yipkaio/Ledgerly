@@ -4,6 +4,10 @@ PDF upload uses the same authenticated `POST /receipts/upload` endpoint, duplica
 controls, extraction, classification, SQLite persistence and review workflow as
 JPEG/PNG. The original `.pdf` is retained in the private receipt-data volume.
 
+Receipt detail and the side preview require authentication to open that
+retained source. A preview supports checking fields; it does not establish
+that OCR or AI extraction is correct.
+
 ## Processing path
 
 1. Stream at most `MAX_UPLOAD_BYTES` and require both `application/pdf` and `%PDF-`.

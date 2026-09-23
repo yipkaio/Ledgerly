@@ -4,6 +4,11 @@ Ledgerly is a single-bookkeeper hackathon MVP containing financial documents. It
 security objective is to minimise public exposure, strictly authenticate data
 access, bound untrusted file processing and keep AI advisory.
 
+Firebase identifies the one approved production account; typed reviewer names
+on receipt and monthly-review events are still self-reported. The
+[maintenance review](maintenance-review.md) distinguishes removable code from
+schema migrations and compatibility endpoints that must be retained.
+
 ## Implemented controls
 
 | Area | Current control |

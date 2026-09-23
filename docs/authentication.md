@@ -1,6 +1,9 @@
 # Authentication and production deployment
 
 Ledgerly supports three authentication modes without changing the SQLite schema.
+This authenticates access to the shared workspace. Names entered into receipt
+or monthly-review events remain self-reported audit labels, not separate
+reviewer identities or roles.
 
 | Mode | Web UI | Trusted integrations |
 |---|---|---|

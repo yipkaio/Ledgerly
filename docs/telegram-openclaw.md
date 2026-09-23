@@ -1,5 +1,10 @@
 # Telegram receipt intake with OpenClaw
 
+A bot response of `AUTO_FILED` is an internal classification outcome, not a
+human approval or bank payment. `REVIEW_QUEUE` is a successful upload that
+still needs a reviewer decision in the web workspace. The
+[user guide](user-guide.md#telegram-examples) illustrates both outcomes.
+
 This integration adds a private Telegram receipt entry point without creating a second accounting pipeline. OpenClaw receives one authorized user's attachment, and the `ledgerly-receipt` skill sends it to the existing authenticated `POST /receipts/upload` endpoint on localhost. Ledgerly remains responsible for validation, OCR, extraction, vendor lookup, classification, confidence gating, persistence, duplicates, and review routing.
 
 The organiser's [ShowMeYourAgent starter kit](https://github.com/kenken64/ShowMeYourAgent-Starter-Kit#install-and-configure-openclaw) is the base host-install reference. The files under `integrations/openclaw/` are the Ledgerly-specific layer.

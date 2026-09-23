@@ -4,6 +4,10 @@ This document describes the implemented single-bookkeeper MVP. Diagram arrows
 show request or data flow; they do not grant a component authority beyond the
 controls described here.
 
+For current setup and release navigation, start at the [documentation index](index.md).
+Effective-value SQL is repeated across several readers; the risks of
+consolidation are tracked in the [maintenance review](maintenance-review.md).
+
 ## UML use cases
 
 ![Ledgerly UML use-case diagram](assets/diagrams/use-cases.svg)

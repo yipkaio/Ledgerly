@@ -2,6 +2,11 @@
 
 Ledgerly can import a monthly bank statement PDF or normalized CSV and compare debit transactions with active, accepted receipts for the same month and currency. The original confirmed source is retained in the authenticated workspace alongside normalized transactions.
 
+Month detail reads payment follow-up events for receipts in the selected period
+and shows both the latest state and the full event history. The
+[maintenance review](maintenance-review.md) explains the remaining overview
+query cost for workspaces with many recorded periods.
+
 ## Find months that need review
 
 Monthly Close opens on an overview of periods with an accepted receipt or an imported statement, including receipt-only months that have no statement. Select a year or show all years, and filter to periods needing attention. The overview lists missing statements, unmatched bank debits, receipts without a bank match, possible duplicates and the recorded review state. It does not assume that a month with no receipts or statements had bank activity; such months remain unlisted. Period amounts and reconciliation stay in their original currency.

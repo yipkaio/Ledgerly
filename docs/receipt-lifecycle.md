@@ -1,5 +1,10 @@
 # Receipt lifecycle
 
+The [user guide](user-guide.md#deleted-receipts-and-restoration) shows where to
+find the restore deadline and lifecycle history. Deletion removes eligible
+records from ordinary totals during a bounded recovery window; accepted
+records use a separate audited void action.
+
 The authenticated workspace supports **Move to deleted receipts**, **Restore receipt**, and **Void receipt**. Names are self-reported under the existing shared API key, not verified personal identities. No additional roles or authentication claims are introduced.
 
 ## Rules
