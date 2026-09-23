@@ -494,14 +494,6 @@ def _receipt_rows(db, month: str, currency: str) -> list[dict]:
     return result
 
 
-def _latest_payment_states(db) -> dict[str, dict]:
-    rows = db.execute(
-        "SELECT e.receipt_id,e.result_json FROM receipt_payment_events e WHERE e.version="
-        "(SELECT max(e2.version) FROM receipt_payment_events e2 WHERE e2.receipt_id=e.receipt_id)"
-    ).fetchall()
-    return {row[0]: json.loads(row[1]) for row in rows}
-
-
 def _adjacent_months(month: str) -> tuple[str | None, str | None]:
     year, number = map(int, month.split("-"))
     if year < 1 or year > 9999:
@@ -552,7 +544,6 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
             (month, currency),
         )]
         receipts = _receipt_rows(db, month, currency)
-        payment_states = _latest_payment_states(db)
         receipt_ids = {receipt["receipt_id"] for receipt in receipts}
         payment_events: dict[str, list[dict]] = {receipt_id: [] for receipt_id in receipt_ids}
         if receipt_ids:
@@ -571,6 +562,10 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
             "AND COALESCE(json_extract(s.metadata_json,'$.removed'),0)=0",
             (*nearby_months, currency),
         )]
+
+    payment_states = {
+        receipt_id: events[0] for receipt_id, events in payment_events.items() if events
+    }
 
     duplicate_keys: dict[tuple, int] = {}
     for tx in txs:

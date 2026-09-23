@@ -14,8 +14,9 @@ or exporting. The API equivalent is:
 GET /receipts?query=R000027830&category=Office%20Supplies&currency=MYR&state=AMENDED&date_from=2019-01-01&date_to=2019-12-31&limit=20&offset=0
 ```
 
-Supported effective states are `AUTO_FILED`, `APPROVED`, `AMENDED`, `REJECTED`,
-`REVIEW_QUEUE`, `PROCESSING`, and `FAILED`. Search treats `%` and `_` literally,
+Supported effective states are `AUTO_FILED`, `APPROVED`, `AMENDED`, `VOIDED`,
+`REJECTED`, `REVIEW_QUEUE`, `PROCESSING`, and `FAILED`. Deleted records are
+available through the separate Deleted receipts view. Search treats `%` and `_` literally,
 not as database wildcards. Date filters use the receipt date, not upload time.
 Approved or amended values take precedence over original AI fields.
 
@@ -28,7 +29,7 @@ Approved or amended values take precedence over original AI fields.
 - A 422 response means the request is invalid, a selected record disappeared, or
   the filtered result needs narrower filters.
 
-Selected API request:
+Send these bodies to `POST /receipts/export`. Selected API request:
 
 ```json
 {

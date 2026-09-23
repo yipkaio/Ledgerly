@@ -106,14 +106,6 @@ def normalize_vendor_name(vendor: str) -> str:
     return " ".join(re.sub(r"[^A-Z0-9]+", " ", normalized).split())
 
 
-def lookup_vendor_category(vendor: str | None) -> ExpenseCategory | None:
-    """Return a validated exact vendor mapping, never a substring match."""
-
-    if vendor is None:
-        return None
-    return DEFAULT_VENDOR_CATEGORIES.get(normalize_vendor_name(vendor))
-
-
 def apply_confidence_gate(
     receipt: ReceiptExtraction,
     suggestion: ClassificationSuggestion,

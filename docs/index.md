@@ -16,11 +16,14 @@ documents below contain the detailed contracts and operating procedures.
   sensitive data, backups and accepted MVP limitations.
 - [Workflow roadmap](workflow-roadmap.md) — product decisions and remaining
   usability priorities.
+- [Code health review](maintenance-review.md) — verified cleanup, impacts,
+  deletion risks and the next maintenance steps.
 
 ## Deploy and operate
 
 - [Docker setup](docker.md) — local containers, persistent volumes, checks,
   backup basics and image rollback.
+- [Developer setup](setup.md) — Windows PowerShell, OCR, gateway and test commands.
 - [Authentication and production deployment](authentication.md) — Firebase,
   hybrid authentication, Caddy HTTPS and Lightsail verification.
 - [Telegram and OpenClaw](telegram-openclaw.md) — owner-only Telegram intake,

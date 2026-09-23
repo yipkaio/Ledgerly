@@ -21,6 +21,9 @@ def test_concurrent_initialization_and_writes(tmp_path):
 def test_seed_is_once_only_and_lookup_is_exact(tmp_path):
     store = ReceiptStore(tmp_path / "expenses.db")
     assert store.lookup_vendor("Teo Heng Stationery & Books").value == "Office Supplies"
+    assert store.lookup_vendor("  TEO-HENG stationery & books  ").value == "Office Supplies"
+    assert store.lookup_vendor("TEO HENG") is None
+    assert store.lookup_vendor("MR D.I.Y. (JOHOR) SDN BHD") is None
     assert store.lookup_vendor("SPOTIFY FAKE") is None
     assert store.lookup_vendor("'; DROP TABLE receipts; --") is None
     with store.connect() as db:

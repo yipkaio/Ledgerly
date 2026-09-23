@@ -1,8 +1,9 @@
-# Workspace feedback and next features
+# Workspace behavior and remaining work
 
 ## Available now
 
-Navigation follows **Main dashboard → Upload receipt → Pending reviews → Receipt history**.
+Navigation includes **Main dashboard**, **Monthly close**, **Upload receipt**,
+**Pending reviews**, **Receipt history**, and **Deleted receipts**.
 The dashboard is the default after connecting. It reads one authenticated database
 snapshot with saved record counts, pending workload, accepted records and processing
 issues. Refresh reloads the snapshot; there is no background polling.
@@ -10,8 +11,10 @@ issues. Refresh reloads the snapshot; there is no background polling.
 Accepted totals include only human-approved and auto-filed receipts. Final human
 amounts, currency, category and receipt date take precedence over original AI fields.
 Rejected and pending records never contribute to these totals. Each currency has a
-separate total, category chart and receipt-month trend. Trends show the latest 12
-months with dated accepted records; empty months are omitted. Unknown amounts or
+separate total, category chart and receipt-month trend. One inclusive receipt-date
+range drives the total, count, categories and trend. The chart uses monthly
+points through 24 months and yearly points for longer ranges; empty periods
+are shown with zero recorded spend. Unknown amounts or
 currencies are excluded and counted separately. Integer cents are summed before
 formatting. Counts cover every saved attempt, including failures. These figures
 are not payments, ledger postings or a deduplicated financial report.
@@ -24,7 +27,8 @@ evidence and a structured, read-only history record. Pending queue items expose 
 review form; accepted history items require **Create amendment** before fields become
 editable. Reduced-motion preferences disable the transition.
 
-Previews request protected originals only when opened, with the app key in a header.
+Previews request protected originals only when opened, with the active
+development app key or production Firebase token in an authenticated header.
 They do not rerun OCR or LLM extraction. Previews never scroll: vendor title and
 amount stay in a fixed header and the entire image scales to fit the remaining
 space. Card height and side are chosen on opening rather than recalculated from
@@ -69,10 +73,11 @@ workflow status and inclusive receipt-date filters. Filters drive pagination and
 pages for **Export selected**; changing filters clears selection to prevent hidden
 rows from being exported accidentally. Selection never implies bulk approval.
 
-The authenticated server should generate:
+The authenticated server generates:
 
 | Sheet | Contents |
 | --- | --- |
+| Overview | Exported and accepted counts, accepted spend separated by currency and category, and status counts |
 | Receipts | Vendor, receipt/date, currency, amounts, tax/rounding, purpose, effective category, status and reviewer |
 | Line items | Receipt ID, description, quantity, prices, optional discounts and totals |
 | Review audit | Decisions/amendments, reviewer, timestamps and reasons |
@@ -106,3 +111,7 @@ One multi-page document represents one receipt; multiple invoices must be split.
 Duplicate prevention, audited amendments, filtered history, Excel export and PDF
 ingestion are now implemented. Dashboard and preview changes do not
 create AWS resources or automatically change the deployed instance.
+
+The current SQLite schema is v9, with monthly review events in addition to
+receipt, statement and payment history. See [the maintenance review](maintenance-review.md)
+for code cleanup candidates that require their own behavior and migration checks.

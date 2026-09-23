@@ -15,7 +15,6 @@ from app.classification import (
     GatewayExpenseClassifier,
     WorkflowDecision,
     apply_confidence_gate,
-    lookup_vendor_category,
 )
 from app.extraction import ReceiptExtraction
 
@@ -82,19 +81,6 @@ def gateway_response(suggestion: dict, **overrides) -> dict:
     }
     response.update(overrides)
     return response
-
-
-def test_exact_normalized_vendor_lookup_avoids_llm() -> None:
-    assert (
-        lookup_vendor_category("Teo Heng Stationery & Books")
-        == ExpenseCategory.OFFICE_SUPPLIES
-    )
-    assert (
-        lookup_vendor_category("  TEO-HENG stationery & books  ")
-        == ExpenseCategory.OFFICE_SUPPLIES
-    )
-    assert lookup_vendor_category("TEO HENG") is None
-    assert lookup_vendor_category("MR D.I.Y. (JOHOR) SDN BHD") is None
 
 
 def test_classifier_sends_only_structured_receipt_and_optional_purpose() -> None:
