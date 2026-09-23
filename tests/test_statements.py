@@ -3,6 +3,7 @@ from uuid import uuid4
 from io import BytesIO
 from decimal import Decimal
 from zipfile import ZipFile
+from xml.etree import ElementTree
 
 from app.database import ReceiptStore
 from app.main import get_settings, get_statement_extractor
@@ -394,6 +395,12 @@ def test_statement_upload_reconciliation_payment_audit_and_export(monkeypatch, t
         names = archive.namelist()
         workbook_xml = archive.read("xl/workbook.xml").decode()
         strings = archive.read("xl/sharedStrings.xml").decode()
+        summary_xml = ElementTree.fromstring(archive.read("xl/worksheets/sheet1.xml"))
+    ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    widths = {int(column.get("min")): float(column.get("width"))
+              for column in summary_xml.find(f"{ns}cols")}
+    assert widths[1] >= 39  # The full "Bank debits minus accepted receipts" label.
+    assert widths[3] >= 21  # The formatted SGD accepted-receipts KPI, not ###.
     assert all(name in workbook_xml for name in (
         "Summary", "Bank transactions", "Receipts", "Statement sources", "Payment audit"
     ))
@@ -403,6 +410,7 @@ def test_statement_upload_reconciliation_payment_audit_and_export(monkeypatch, t
     ))
     assert any(name.startswith("xl/tables/table") for name in names)
     summary = sheet_cells(workbook, 1)
+    assert summary["C7"] == 200
     assert (summary["B12"], summary["B13"], summary["B14"], summary["B15"], summary["B17"]) == (
         208, 200, 120, 8, Decimal("0.6"),
     )

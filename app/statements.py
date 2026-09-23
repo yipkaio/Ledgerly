@@ -861,7 +861,7 @@ def build_monthly_export(store, month: str, currency: str) -> bytes:
     summary.hide_gridlines(2)
     summary.set_landscape(); summary.fit_to_pages(1, 1); summary.set_margins(0.35, 0.35, 0.5, 0.5)
     summary.set_tab_color("#17324D")
-    summary.set_column("A:A", 27); summary.set_column("B:E", 18); summary.set_column("F:F", 3); summary.set_column("G:L", 17)
+    summary.set_column("A:A", 40); summary.set_column("B:E", 18); summary.set_column("F:F", 3); summary.set_column("G:L", 17)
     summary.write("A2", "Monthly close", title)
     summary.write("A3", f"{month} · {currency} · generated {data['generated_at'][:16].replace('T', ' ')} UTC · debit-only source", subtitle)
     kpis = [
@@ -915,7 +915,7 @@ def build_monthly_export(store, month: str, currency: str) -> bytes:
             "columns": [{"header": "Category"}, {"header": "Amount"}, {"header": "Share"}],
             "data": category_rows,
         })
-        summary.set_column("B:B", 18, money); summary.set_column("C:C", 12, percent)
+        summary.set_column("B:B", 18, money); summary.set_column("C:C", 22, percent)
 
     vendor_start = category_start + max(6, len(category_rows) + 4)
     summary.write(vendor_start, 0, "Spend by company", section)
@@ -928,7 +928,7 @@ def build_monthly_export(store, month: str, currency: str) -> bytes:
             "columns": [{"header": "Company"}, {"header": "Amount"}, {"header": "Share"}],
             "data": vendor_rows,
         })
-        summary.set_column("B:B", 18, money); summary.set_column("C:C", 12, percent)
+        summary.set_column("B:B", 18, money); summary.set_column("C:C", 22, percent)
     summary.freeze_panes(9, 0)
 
     tx_sheet = workbook.add_worksheet("Bank transactions")
