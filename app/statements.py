@@ -582,8 +582,11 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
     transaction_rows = []
     for tx in txs:
         tx_date = date.fromisoformat(tx["posted_date"])
+        key = (tx["posted_date"], tx["amount_cents"], _normal(tx["description"]))
         candidates = []
-        for index in unused:
+        # Identical debit rows are ambiguous evidence; do not mark a receipt
+        # matched to an arbitrary member of that duplicate group.
+        for index in (unused if duplicate_keys[key] == 1 else ()):
             receipt = receipts[index]
             if receipt["amount_cents"] != tx["amount_cents"]:
                 continue
@@ -603,7 +606,6 @@ def monthly_reconciliation(store, month: str, currency: str) -> dict:
                 matched = receipts[top[2]]
                 unused.remove(top[2])
                 matched_receipts[matched["receipt_id"]] = tx["transaction_id"]
-        key = (tx["posted_date"], tx["amount_cents"], _normal(tx["description"]))
         transaction_rows.append({
             "transaction_id": tx["transaction_id"], "statement_id": tx["statement_id"],
             "posted_date": tx["posted_date"],
@@ -823,7 +825,7 @@ def update_payment_state(store, receipt_id: str, body: PaymentUpdate) -> dict:
 def build_monthly_export(store, month: str, currency: str) -> bytes:
     import xlsxwriter
 
-    data = monthly_reconciliation(store, month, currency)
+    data = reconciliation_detail(store, month, currency)
     output = io.BytesIO()
     workbook = xlsxwriter.Workbook(
         output,
@@ -840,7 +842,7 @@ def build_monthly_export(store, month: str, currency: str) -> bytes:
     total_label = workbook.add_format({"bold": True, "top": 1, "top_color": "#94A3B8"})
     total_money = workbook.add_format({"bold": True, "top": 1, "top_color": "#94A3B8", "num_format": f'"{currency}" #,##0.00;[Red]("{currency}" #,##0.00);-'})
     issue = workbook.add_format({"bg_color": "#FDECEC", "font_color": "#9F1239"})
-    ok = workbook.add_format({"bg_color": "#ECFDF3", "font_color": "#166534"})
+    suggestion = workbook.add_format({"bg_color": "#EFF6FF", "font_color": "#1E40AF"})
 
     def add_table(sheet, name: str, start_row: int, headers: list[str], rows: list[list[object]],
                   style: str = "Table Style Medium 2") -> None:
@@ -861,11 +863,11 @@ def build_monthly_export(store, month: str, currency: str) -> bytes:
     summary.set_tab_color("#17324D")
     summary.set_column("A:A", 27); summary.set_column("B:E", 18); summary.set_column("F:F", 3); summary.set_column("G:L", 17)
     summary.write("A2", "Monthly close", title)
-    summary.write("A3", f"{month} · {currency} · generated {data['generated_at'][:16].replace('T', ' ')} UTC", subtitle)
+    summary.write("A3", f"{month} · {currency} · generated {data['generated_at'][:16].replace('T', ' ')} UTC · debit-only source", subtitle)
     kpis = [
         ("Bank debits", data["totals"]["bank_debits_cents"] / 100, kpi),
         ("Accepted receipts", data["totals"]["receipt_spend_cents"] / 100, kpi),
-        ("Matched paid", data["totals"]["matched_cents"] / 100, kpi),
+        ("Suggested matches", data["totals"]["matched_cents"] / 100, kpi),
         ("Exceptions", data["totals"]["exception_count"], kpi_count),
     ]
     for index, (name, value, value_format) in enumerate(kpis):
@@ -873,19 +875,34 @@ def build_monthly_export(store, month: str, currency: str) -> bytes:
         summary.write(5, column, name, label)
         summary.write_number(6, column, value, value_format)
 
-    summary.write("A10", "Reconciliation", section)
-    matched_ratio = (data["totals"]["matched_cents"] / data["totals"]["receipt_spend_cents"]
-                     if data["totals"]["receipt_spend_cents"] else 0)
+    summary.write("A10", "Evidence comparison", section)
+    receipt_spend_cents = data["totals"]["receipt_spend_cents"]
     summary_rows = [
         ["Bank debits", data["totals"]["bank_debits_cents"] / 100],
         ["Accepted receipt spend", data["totals"]["receipt_spend_cents"] / 100],
-        ["Matched receipt spend", data["totals"]["matched_cents"] / 100],
-        ["Bank less accepted receipts", data["totals"]["difference_cents"] / 100],
+        ["Suggested matched receipt spend", data["totals"]["matched_cents"] / 100],
+        ["Bank debits minus accepted receipts", data["totals"]["difference_cents"] / 100],
     ]
     add_table(summary, "MonthlyReconciliationTotals", 10, ["Measure", "Amount"], summary_rows)
     summary.set_column("B:B", 18, money)
-    summary.write(16, 0, "Matched coverage", label)
-    summary.write_number(16, 1, matched_ratio, percent)
+    summary.write(16, 0, "Suggested match coverage", label)
+    if receipt_spend_cents:
+        summary.write_number(16, 1, data["totals"]["matched_cents"] / receipt_spend_cents, percent)
+    else:
+        summary.write(16, 1, "N/A — no accepted spend", subtitle)
+    summary.merge_range("A19:E19", "Bank matches are suggestions, not proof of payment. Compare retained statements with receipts before confirming a month.", subtitle)
+
+    review = data["review"]
+    summary.write("G10", "Monthly review", section)
+    summary.write("G11", "Status", label)
+    summary.write("H11", review["status"].replace("_", " ").title())
+    summary.write("G12", "Reviewed by", label)
+    summary.write("H12", review["actor"] or "Not reviewed")
+    summary.write("G13", "Reviewed at", label)
+    summary.write("H13", review["reviewed_at"] or "—")
+    if review["note"]:
+        summary.write("G14", "Review note", label)
+        summary.merge_range("H14:L16", review["note"], workbook.add_format({"text_wrap": True, "valign": "top"}))
 
     category_start = 19
     summary.write(category_start, 0, "Spend by category", section)
@@ -916,19 +933,25 @@ def build_monthly_export(store, month: str, currency: str) -> bytes:
 
     tx_sheet = workbook.add_worksheet("Bank transactions")
     tx_sheet.hide_gridlines(2); tx_sheet.set_tab_color("#2A6F75")
-    tx_sheet.set_landscape(); tx_sheet.fit_to_pages(1, 0); tx_sheet.set_margins(0.35, 0.35, 0.5, 0.5)
+    tx_sheet.set_landscape(); tx_sheet.fit_to_pages(2, 0); tx_sheet.set_margins(0.35, 0.35, 0.5, 0.5)
     tx_sheet.write("A2", "Imported bank debits", title)
-    tx_sheet.write("A3", f"{month} · {currency}. Review every exception against the retained source statement.", subtitle)
-    tx_headers = ["Date", "Description", "Amount", "Reference", "Status", "Matched receipt"]
+    tx_sheet.write("A3", f"{month} · {currency}. Credits are excluded; matches are suggestions pending evidence review.", subtitle)
+    source_names = {item["statement_id"]: item["original_filename"] for item in data["statements"]}
+    tx_headers = ["Date", "Description", "Debit", "Reference", "Status", "Suggested receipt ID",
+                  "Suggested vendor", "Statement filename", "Statement ID", "Adjacent-month receipt"]
     tx_rows = [[item["posted_date"], item["description"], item["amount_cents"] / 100,
-                item["reference"], item["status"], item["receipt_id"]]
+                item["reference"], item["status"], item["receipt_id"], item["receipt_vendor"],
+                source_names.get(item["statement_id"]), item["statement_id"],
+                ((item["adjacent_month_candidate"]["month"] + " · " + item["adjacent_month_candidate"]["receipt_id"])
+                 if item["adjacent_month_candidate"] else None)]
                for item in data["transactions"]]
     add_table(tx_sheet, "MonthlyBankTransactions", 4, tx_headers, tx_rows)
     tx_sheet.set_column("A:A", 13); tx_sheet.set_column("B:B", 42); tx_sheet.set_column("C:C", 18, money); tx_sheet.set_column("D:F", 22)
+    tx_sheet.set_column("G:H", 26); tx_sheet.set_column("I:J", 42)
     tx_sheet.freeze_panes(5, 0)
     tx_sheet.repeat_rows(4)
     if tx_rows:
-        tx_sheet.conditional_format(5, 4, 4 + len(tx_rows), 4, {"type": "text", "criteria": "containing", "value": "MATCHED", "format": ok})
+        tx_sheet.conditional_format(5, 4, 4 + len(tx_rows), 4, {"type": "text", "criteria": "containing", "value": "MATCHED", "format": suggestion})
         for value in ("MISSING", "DUPLICATE"):
             tx_sheet.conditional_format(5, 4, 4 + len(tx_rows), 4, {"type": "text", "criteria": "containing", "value": value, "format": issue})
         total_row = 6 + len(tx_rows)
@@ -937,19 +960,24 @@ def build_monthly_export(store, month: str, currency: str) -> bytes:
 
     receipt_sheet = workbook.add_worksheet("Receipts")
     receipt_sheet.hide_gridlines(2); receipt_sheet.set_tab_color("#2A6F75")
-    receipt_sheet.set_landscape(); receipt_sheet.fit_to_pages(1, 0); receipt_sheet.set_margins(0.35, 0.35, 0.5, 0.5)
+    receipt_sheet.set_landscape(); receipt_sheet.fit_to_pages(2, 0); receipt_sheet.set_margins(0.35, 0.35, 0.5, 0.5)
     receipt_sheet.write("A2", "Accepted receipts", title)
-    receipt_sheet.write("A3", f"Receipts dated in {month}; payment states reflect the latest reconciliation audit event.", subtitle)
-    receipt_headers = ["Date", "Vendor", "Category", "Amount", "Payment state", "Duplicate flag", "Receipt ID"]
+    receipt_sheet.write("A3", f"Receipts dated in {month}. PAID is a suggested bank match; payable/issue statuses are recorded by a person.", subtitle)
+    receipt_headers = ["Date", "Vendor", "Category", "Amount", "Reconciliation status", "Duplicate flag",
+                       "Receipt ID", "Suggested debit ID", "Invoice due", "Planned payment"]
     receipt_rows = [[item["receipt_date"], item["vendor"], item["category"], item["amount_cents"] / 100,
-                     item["status"], "Yes" if item["duplicate_receipt"] else "No", item["receipt_id"]]
+                     "SUGGESTED_BANK_MATCH" if item["status"] == "PAID" else item["status"],
+                     "Yes" if item["duplicate_receipt"] else "No", item["receipt_id"], item["transaction_id"],
+                     (item["payment_event"] or {}).get("invoice_due_date"),
+                     (item["payment_event"] or {}).get("planned_payment_date")]
                     for item in data["receipts"]]
     add_table(receipt_sheet, "MonthlyAcceptedReceipts", 4, receipt_headers, receipt_rows)
     receipt_sheet.set_column("A:A", 13); receipt_sheet.set_column("B:C", 30); receipt_sheet.set_column("D:D", 18, money); receipt_sheet.set_column("E:G", 20)
+    receipt_sheet.set_column("H:H", 38); receipt_sheet.set_column("I:J", 18)
     receipt_sheet.freeze_panes(5, 0)
     receipt_sheet.repeat_rows(4)
     if receipt_rows:
-        receipt_sheet.conditional_format(5, 4, 4 + len(receipt_rows), 4, {"type": "text", "criteria": "containing", "value": "PAID", "format": ok})
+        receipt_sheet.conditional_format(5, 4, 4 + len(receipt_rows), 4, {"type": "text", "criteria": "containing", "value": "SUGGESTED_BANK_MATCH", "format": suggestion})
         for value in ("NO_BANK_MATCH", "PAYMENT_ISSUE", "TRADE_PAYABLE"):
             receipt_sheet.conditional_format(5, 4, 4 + len(receipt_rows), 4, {"type": "text", "criteria": "containing", "value": value, "format": issue})
         receipt_sheet.conditional_format(5, 5, 4 + len(receipt_rows), 5, {"type": "text", "criteria": "containing", "value": "Yes", "format": issue})
@@ -962,14 +990,33 @@ def build_monthly_export(store, month: str, currency: str) -> bytes:
     source_sheet.set_landscape(); source_sheet.fit_to_pages(1, 0); source_sheet.set_margins(0.35, 0.35, 0.5, 0.5)
     source_sheet.write("A2", "Retained statement sources", title)
     source_sheet.write("A3", "Original files remain available in Ledgerly for evidence review.", subtitle)
-    source_headers = ["Account", "Filename", "Imported by", "Uploaded at", "Debit rows", "Skipped rows", "Media type", "Extraction"]
-    source_rows = [[item["account_label"], item["original_filename"], item.get("imported_by"), item["uploaded_at"],
+    source_headers = ["Statement ID", "Account", "Filename", "Imported by", "Uploaded at", "Debit rows", "Skipped rows", "Media type", "Extraction"]
+    source_rows = [[item["statement_id"], item["account_label"], item["original_filename"], item.get("imported_by"), item["uploaded_at"],
                     item["row_count"], item["skipped_rows"], item.get("source_media_type"), item.get("extraction_method")]
                    for item in data["statements"]]
     add_table(source_sheet, "MonthlyStatementSources", 4, source_headers, source_rows, "Table Style Medium 4")
-    source_sheet.set_column("A:C", 25); source_sheet.set_column("D:D", 24); source_sheet.set_column("E:H", 16)
+    source_sheet.set_column("A:A", 38); source_sheet.set_column("B:D", 25); source_sheet.set_column("E:E", 24); source_sheet.set_column("F:I", 16)
     source_sheet.freeze_panes(5, 0)
     source_sheet.repeat_rows(4)
+
+    payment_sheet = workbook.add_worksheet("Payment audit")
+    payment_sheet.hide_gridlines(2); payment_sheet.set_tab_color("#7BA7AE")
+    payment_sheet.set_landscape(); payment_sheet.fit_to_pages(2, 0)
+    payment_sheet.set_margins(0.35, 0.35, 0.5, 0.5)
+    payment_sheet.write("A2", "Payment status history", title)
+    payment_sheet.write("A3", "Human-entered status events only. A suggested bank match is not a recorded payment decision.", subtitle)
+    payment_headers = ["Receipt ID", "Version", "Recorded at (UTC)", "State", "Previous state",
+                       "Actor", "Reason", "Invoice due", "Planned payment"]
+    payment_rows = [[receipt["receipt_id"], event["version"], event["occurred_at"],
+                     event["state"], event.get("previous_state"), event["actor"], event["note"],
+                     event.get("invoice_due_date"), event.get("planned_payment_date")]
+                    for receipt in data["receipts"] for event in reversed(receipt["payment_events"])]
+    add_table(payment_sheet, "MonthlyPaymentAudit", 4, payment_headers, payment_rows, "Table Style Medium 4")
+    payment_sheet.set_column("A:A", 38); payment_sheet.set_column("B:B", 10)
+    payment_sheet.set_column("C:C", 26); payment_sheet.set_column("D:F", 21)
+    payment_sheet.set_column("G:G", 44); payment_sheet.set_column("H:I", 18)
+    payment_sheet.freeze_panes(5, 0)
+    payment_sheet.repeat_rows(4)
 
     workbook.set_properties({"title": f"Ledgerly reconciliation {month}", "author": "Ledgerly"})
     workbook.close()

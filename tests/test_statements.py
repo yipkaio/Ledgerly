@@ -1,6 +1,7 @@
 from pathlib import Path
 from uuid import uuid4
 from io import BytesIO
+from decimal import Decimal
 from zipfile import ZipFile
 
 from app.database import ReceiptStore
@@ -21,6 +22,7 @@ from app.statements import (
     verify_preview_token,
 )
 from test_api import TEST_KEY, configured_client
+from xlsx_assertions import sheet_cells
 
 
 HEADERS = {"X-API-Key": TEST_KEY}
@@ -87,6 +89,10 @@ def test_period_overview_includes_receipts_without_statements_and_review_goes_st
     assert stale["review"]["status"] == "outdated"
     assert client.post("/reconciliation/reviews", headers=HEADERS, json=body).status_code == 422
     assert client.get("/bank-statements/periods", headers=HEADERS).json()["items"][0]["review"]["status"] == "outdated"
+    review_summary = sheet_cells(build_monthly_export(store, "2026-09", "SGD"), 1)
+    assert review_summary["H11"] == "Outdated"
+    assert review_summary["H12"] == "Finance reviewer"
+    assert review_summary["H14"] == "Checked original bank source and September receipts"
 
 
 def test_adjacent_month_candidate_does_not_change_paid_status(monkeypatch, tmp_path):
@@ -105,6 +111,29 @@ def test_adjacent_month_candidate_does_not_change_paid_status(monkeypatch, tmp_p
     assert september["transactions"][0]["status"] == "MISSING_RECEIPT"
     assert september["transactions"][0]["adjacent_month_candidate"] == {"month": "2026-08", "receipt_id": receipt_id}
     assert september["totals"]["matched_cents"] == 0
+    workbook = build_monthly_export(store, "2026-09", "SGD")
+    assert sheet_cells(workbook, 1)["B17"] == "N/A — no accepted spend"
+    assert receipt_id in sheet_cells(workbook, 2)["J6"]
+
+
+def test_duplicate_bank_debits_cannot_count_as_suggested_matches(tmp_path):
+    store = ReceiptStore(tmp_path / "expenses.db")
+    receipt_id = accepted(store, "Acme", 10.00, "2026-09-01")
+    import_statement(
+        store,
+        b"Date,Description,Debit,Reference\n"
+        b"2026-09-01,ACME,10.00,D1\n"
+        b"2026-09-01,ACME,10.00,D2\n",
+        "dupes.csv", "2026-09", "SGD", "Operating",
+    )
+    data = monthly_reconciliation(store, "2026-09", "SGD")
+    assert data["totals"]["matched_cents"] == 0
+    assert data["receipts"][0]["receipt_id"] == receipt_id
+    assert data["receipts"][0]["status"] == "NO_BANK_MATCH"
+    assert all(item["status"] == "DUPLICATE_TRANSACTION" and item["receipt_id"] is None
+               for item in data["transactions"])
+    summary = sheet_cells(build_monthly_export(store, "2026-09", "SGD"), 1)
+    assert summary["D7"] == 0
 
 
 def statement_text() -> str:
@@ -366,13 +395,31 @@ def test_statement_upload_reconciliation_payment_audit_and_export(monkeypatch, t
         workbook_xml = archive.read("xl/workbook.xml").decode()
         strings = archive.read("xl/sharedStrings.xml").decode()
     assert all(name in workbook_xml for name in (
-        "Summary", "Bank transactions", "Receipts", "Statement sources"
+        "Summary", "Bank transactions", "Receipts", "Statement sources", "Payment audit"
     ))
     assert all(value in strings for value in (
-        "Bank less accepted receipts", "Spend by category", "Total bank debits",
-        "Total accepted receipts", "Retained statement sources",
+        "Bank debits minus accepted receipts", "Spend by category", "Total bank debits",
+        "Total accepted receipts", "Retained statement sources", "Suggested matched receipt spend",
     ))
     assert any(name.startswith("xl/tables/table") for name in names)
+    summary = sheet_cells(workbook, 1)
+    assert (summary["B12"], summary["B13"], summary["B14"], summary["B15"], summary["B17"]) == (
+        208, 200, 120, 8, Decimal("0.6"),
+    )
+    assert summary["H11"] == "Not Reviewed"
+    bank = sheet_cells(workbook, 2)
+    assert bank["C6"] == 120
+    assert bank["H6"] == "month.csv"
+    assert bank["I6"] == response.json()["statement_id"]
+    receipts = sheet_cells(workbook, 3)
+    assert receipts["E6"] == "SUGGESTED_BANK_MATCH"
+    assert receipts["I7"] == "2026-09-30"
+    assert receipts["J7"] == "2026-09-28"
+    assert sheet_cells(workbook, 4)["A6"] == response.json()["statement_id"]
+    payment_audit = sheet_cells(workbook, 5)
+    assert (payment_audit["D6"], payment_audit["D7"], payment_audit["H7"], payment_audit["I7"]) == (
+        "PAYMENT_ISSUE", "TRADE_PAYABLE", "2026-09-30", "2026-09-28",
+    )
     exported = client.post("/reconciliation/export", headers=HEADERS,
                            json={"month": "2026-09", "currency": "SGD"})
     assert exported.status_code == 200

@@ -1,10 +1,14 @@
+from decimal import Decimal
 from io import BytesIO
 from uuid import uuid4
 from zipfile import ZipFile
 
+from app.database import ReceiptStore
+from app.exporting import ExportRequest, build_export
 from app.extraction import ReceiptExtraction
 from test_api import TEST_KEY, configured_client
 from test_duplicates_amendments import amendment_body
+from xlsx_assertions import sheet_cells
 
 
 HEADERS = {"X-API-Key": TEST_KEY}
@@ -108,11 +112,48 @@ def test_selected_export_has_polished_safe_effective_sheets(monkeypatch, tmp_pat
             if name.startswith("xl/worksheets/sheet")
         )
     assert all(name in workbook for name in ("Overview", "Receipts", "Line items", "Review audit"))
-    assert all(value in strings for value in ("Totals by currency", "Workflow status", "Spend by category and currency"))
+    assert all(value in strings for value in ("Accepted spend by currency", "Workflow status", "Accepted spend by category and currency"))
     assert any(name.startswith("xl/tables/table") for name in names)
     assert "HYPERLINK" in strings and "cmd|' /C calc'!A0" in strings
     assert "Receipt Discount" in strings
     assert "<f>" not in worksheets
+
+
+def test_receipt_overview_excludes_pending_values_and_keeps_currencies_separate(tmp_path):
+    store = ReceiptStore(tmp_path / "expenses.db")
+    ids = []
+    for vendor, currency, amount, state in (
+        ("Approved supplier", "SGD", 12.34, "AUTO_FILED"),
+        ("Pending supplier", "SGD", 99.99, "REVIEW_QUEUE"),
+        ("Another currency", "MYR", 23.45, "AUTO_FILED"),
+    ):
+        receipt_id = str(uuid4())
+        store.start(receipt_id, "image/jpeg", 10, "source.jpg", None)
+        store.complete({
+            "receipt_id": receipt_id,
+            "extracted_data": {"vendor": vendor, "date": "2026-09-18", "currency": currency,
+                               "total_amount": amount, "line_items": ([{
+                                   "description": "Office item", "quantity": 1, "unit_price": 13.71,
+                                   "discount_percent": 10, "discount_amount": 1.37,
+                                   "line_total": 12.34,
+                               }] if vendor == "Approved supplier" else [])},
+            "classification": {"workflow_decision": state, "category": "Office Supplies"},
+        })
+        ids.append(receipt_id)
+    workbook, count = build_export(store, ExportRequest(receipt_ids=ids))
+    assert count == 3
+    overview = sheet_cells(workbook, 1)
+    assert (overview["A12"], overview["B12"], overview["C12"], overview["E12"]) == (
+        "MYR", 1, 1, Decimal("23.45"),
+    )
+    assert (overview["A13"], overview["B13"], overview["C13"], overview["D13"], overview["E13"]) == (
+        "SGD", 2, 1, 1, Decimal("12.34"),
+    )
+    assert "Pending supplier" in sheet_cells(workbook, 2).values()
+    assert Decimal("99.99") not in overview.values()
+    assert sheet_cells(workbook, 3)["F6"] == 10
+    with ZipFile(BytesIO(workbook)) as archive:
+        assert '0.##&quot;%&quot;' in archive.read("xl/styles.xml").decode()
 
 
 def test_filtered_export_and_selection_validation(monkeypatch, tmp_path):

@@ -59,10 +59,17 @@ These exceptions are review signals, not proof of fraud. A person must inspect t
 The monthly workspace lists every imported debit and every accepted receipt, not
 only exceptions. A retained PDF or CSV can be opened in a read-only side panel
 for cross-reference; receipts open in Ledgerly's existing evidence view. The
-monthly Excel workbook includes Summary, Bank transactions, Receipts, and
-Statement sources sheets. It shows reconciliation totals, matched coverage,
-category and company shares, static detail totals, source provenance and
-highlighted exceptions. Each export remains in the selected original currency.
+monthly Excel workbook includes Summary, Bank transactions, Receipts, Statement
+sources and Payment audit sheets. Summary separates bank debits, accepted
+receipt spend and **suggested** matched spend, and shows review state, reviewer
+and note. Match coverage is `N/A` when there is no accepted spend. The
+difference is bank debits **minus** accepted receipt spend; it is not a bank
+balance or proof of payment. Duplicate debit rows stay unmatched until their
+source evidence is resolved. Statement IDs and filenames connect each debit to
+its retained file. Receipts include payable dates and linked debit IDs; Payment
+audit lists every human-entered status change with actor, note and version.
+Bank credits are excluded from this debit-focused export. Category and company
+shares and all amounts remain in the selected original currency.
 
 ## Spending review prompts and Finance Copilot
 

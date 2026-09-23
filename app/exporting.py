@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 import json
 from typing import Annotated
@@ -17,6 +18,11 @@ from app.history import HISTORY_CTE, HistoryFilters, filter_clause
 
 SELECTED_EXPORT_LIMIT = 500
 FILTERED_EXPORT_LIMIT = 1000
+ACCEPTED_STATES = frozenset({"AUTO_FILED", "APPROVED", "AMENDED"})
+
+
+def _cents(value: object) -> int:
+    return int((Decimal(str(value)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 class ExportInvalid(ValueError):
@@ -135,6 +141,8 @@ def _formats(workbook) -> dict:
         "label": workbook.add_format({"bold": True, "font_color": "#526577", "font_size": 9}),
         "kpi": workbook.add_format({"bold": True, "font_size": 14, "font_color": "#17324D", "bg_color": "#EDF5F7", "border": 1, "border_color": "#D5E3E8"}),
         "money": workbook.add_format({"num_format": "#,##0.00;[Red](#,##0.00);-"}),
+        # Source values are 10 for 10%, rather than Excel's 0.10 convention.
+        "percentage_points": workbook.add_format({"num_format": '0.##"%"'}),
         "count": workbook.add_format({"num_format": "#,##0"}),
         "total_label": workbook.add_format({"bold": True, "top": 1, "top_color": "#94A3B8"}),
         "total_money": workbook.add_format({"bold": True, "top": 1, "top_color": "#94A3B8", "num_format": "#,##0.00;[Red](#,##0.00);-"}),
@@ -167,10 +175,8 @@ def _write_table_sheet(
     table_row = 4
     last_column = len(headers) - 1
     widths = [len(value) for value in headers]
-    money_columns = {
-        index for index, value in enumerate(headers)
-        if any(word in value for word in ("Amount", "Subtotal", "Discount", "Tax", "Rounding", "Price", "Total"))
-    }
+    money_headers = {"Subtotal", "Receipt Discount", "Tax Amount", "Rounding",
+                     "Total Amount", "Unit Price", "Discount Amount", "Line Total"}
     if rows:
         sheet.add_table(
             table_row,
@@ -194,7 +200,8 @@ def _write_table_sheet(
             if value is not None:
                 widths[column] = min(60, max(widths[column], len(str(value))))
     for column, width in enumerate(widths):
-        cell_format = formats["money"] if column in money_columns else None
+        cell_format = (formats["percentage_points"] if headers[column] == "Discount Percent"
+                       else formats["money"] if headers[column] in money_headers else None)
         sheet.set_column(column, column, max(11, min(45, width + 2)), cell_format)
     sheet.freeze_panes(table_row + 1, 0)
     sheet.repeat_rows(table_row)
@@ -231,39 +238,44 @@ def _write_receipt_overview(workbook, formats: dict, records: list[dict],
     sheet.set_column("B:B", 30)
     sheet.set_column("C:F", 18)
     sheet.write("A2", "Receipt history", formats["title"])
-    sheet.write("A3", f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}. Totals remain separate by currency.", formats["subtitle"])
-    kpis = [("Receipts", len(records)), ("Line items", line_count), ("Review events", audit_count),
+    sheet.write("A3", f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}. Accepted spend excludes pending, rejected and failed records; currencies are never combined.", formats["subtitle"])
+    kpis = [("Exported receipts", len(records)),
+            ("Accepted receipts", sum(record["state"] in ACCEPTED_STATES for record in records)),
+            ("Line items", line_count), ("Review events", audit_count),
             ("Currencies", len({(record["data"] or {}).get("currency") for record in records if (record["data"] or {}).get("currency")}))]
     for index, (label, value) in enumerate(kpis):
         column = index + 1
         sheet.write(5, column, label, formats["label"])
         sheet.write_number(6, column, value, formats["kpi"])
 
-    currency_totals: dict[str, dict[str, float]] = defaultdict(lambda: {"count": 0, "subtotal": 0, "discount": 0, "tax": 0, "total": 0})
+    currency_totals: dict[str, dict[str, int]] = defaultdict(lambda: {"count": 0, "accepted": 0, "known": 0, "total_cents": 0})
     status_counts: dict[str, int] = defaultdict(int)
-    category_totals: dict[tuple[str, str], float] = defaultdict(float)
+    category_totals: dict[tuple[str, str], int] = defaultdict(int)
     for record in records:
         data = record["data"] or {}
         currency = data.get("currency") or "Unknown"
         bucket = currency_totals[currency]
         bucket["count"] += 1
-        for key in ("subtotal", "discount_amount", "tax_amount", "total_amount"):
-            if data.get(key) is not None:
-                bucket[{"discount_amount": "discount", "tax_amount": "tax", "total_amount": "total"}.get(key, key)] += float(data[key])
         status_counts[record["state"]] += 1
-        category_totals[(currency, record["category"] or "Uncategorized")] += float(data.get("total_amount") or 0)
+        if record["state"] in ACCEPTED_STATES:
+            bucket["accepted"] += 1
+            if data.get("total_amount") is not None:
+                cents = _cents(data["total_amount"])
+                bucket["known"] += 1
+                bucket["total_cents"] += cents
+                category_totals[(currency, record["category"] or "Uncategorized")] += cents
 
     row = 9
-    sheet.write(row, 0, "Totals by currency", formats["section"])
-    headers = ["Currency", "Receipts", "Subtotal", "Discounts", "Tax", "Total spend"]
-    rows = [[currency, values["count"], values["subtotal"], values["discount"], values["tax"], values["total"]]
+    sheet.write(row, 0, "Accepted spend by currency", formats["section"])
+    headers = ["Currency", "Exported", "Accepted", "With known total", "Accepted spend"]
+    rows = [[currency, values["count"], values["accepted"], values["known"], values["total_cents"] / 100]
             for currency, values in sorted(currency_totals.items())]
     if rows:
-        sheet.add_table(row + 1, 0, row + 1 + len(rows), 5, {
+        sheet.add_table(row + 1, 0, row + 1 + len(rows), 4, {
             "name": "ReceiptCurrencyTotals", "style": "Table Style Medium 2",
             "columns": [{"header": value} for value in headers], "data": rows,
         })
-        sheet.set_column("C:F", 16, formats["money"])
+        sheet.set_column("E:E", 18, formats["money"])
     else:
         sheet.write_row(row + 1, 0, headers)
         sheet.write(row + 2, 0, "No records matched this export.", formats["subtitle"])
@@ -278,13 +290,13 @@ def _write_receipt_overview(workbook, formats: dict, records: list[dict],
         })
 
     row += max(7, len(status_rows) + 4)
-    sheet.write(row, 0, "Spend by category and currency", formats["section"])
-    category_rows = [[currency, category, total] for (currency, category), total in
+    sheet.write(row, 0, "Accepted spend by category and currency", formats["section"])
+    category_rows = [[currency, category, cents / 100] for (currency, category), cents in
                      sorted(category_totals.items(), key=lambda item: (item[0][0], -item[1], item[0][1]))]
     if category_rows:
         sheet.add_table(row + 1, 0, row + 1 + len(category_rows), 2, {
             "name": "ReceiptCategoryTotals", "style": "Table Style Medium 2",
-            "columns": [{"header": "Currency"}, {"header": "Category"}, {"header": "Total spend"}],
+            "columns": [{"header": "Currency"}, {"header": "Category"}, {"header": "Accepted spend"}],
             "data": category_rows,
         })
         sheet.set_column("C:C", 16, formats["money"])
@@ -378,7 +390,7 @@ def build_export(store, request: ExportRequest) -> tuple[bytes, int]:
         formats,
         "Receipts",
         "Receipt details",
-        "Latest effective values for active receipts. Monetary totals are summarized by currency on Overview.",
+        "Latest recorded values for active receipts. Pending, rejected and failed amounts are excluded from accepted spend on Overview.",
         ["Receipt ID", "Vendor", "Receipt Number", "Receipt Date", "Currency", "Subtotal",
          "Receipt Discount", "Tax Amount", "Rounding", "Total Amount", "Business Purpose", "Category", "Status",
          "Uploaded At", "Latest Reviewer"],

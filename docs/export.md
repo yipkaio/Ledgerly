@@ -53,12 +53,17 @@ The private `.xlsx` is generated from one SQLite read snapshot:
 
 | Sheet | Contents |
 | --- | --- |
-| Overview | Receipt, line-item and audit counts; totals by currency; workflow status counts; category spend by currency |
+| Overview | Exported and accepted counts; accepted spend by currency and category; workflow status counts. Pending, rejected and failed values are excluded from spend. |
 | Receipts | Effective vendor, receipt/date, currency, subtotal, receipt discount, tax, totals, purpose, category, status, upload time, latest reviewer |
-| Line items | Receipt ID, order, description, quantity, unit price, nullable discounts, line total |
+| Line items | Receipt ID, order, description, quantity, unit price, nullable discounts, line total. Discount percentages display as percentage points (for example `10` appears as `10%`). |
 | Review audit | Approval/rejection/amendment type, version, category, reviewer, timestamp, reason, validation and override |
 
-Unknown values remain blank and currencies are never combined. Text beginning with
+Detail rows retain the latest extracted or reviewed values even for unaccepted
+receipts, but only `AUTO_FILED`, `APPROVED` and `AMENDED` contribute to accepted
+spend. **With known total** counts accepted receipts with a recorded amount;
+missing totals do not silently become zero spend. Overview sums integer cents
+per currency before displaying monetary totals. Unknown values remain blank and
+currencies are never combined. Text beginning with
 spreadsheet formula characters remains plain text. Summary and detail sheets use
 filterable tables, frozen headers, status highlighting and one-page-wide print
 settings. The response uses `no-store`; the downloaded file itself is sensitive
