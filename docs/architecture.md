@@ -3,6 +3,9 @@
 This document describes the implemented single-bookkeeper MVP. Diagram arrows
 show request or data flow; they do not grant a component authority beyond the
 controls described here.
+The AWS diagram shows the configured deployment topology. Check the actual host,
+firewall, certificates and identity settings before treating it as a verified
+picture of a live instance.
 
 For current setup and release navigation, start at the [documentation index](index.md).
 Effective-value SQL is repeated across several readers; the risks of
@@ -62,7 +65,7 @@ answers can therefore be produced without a model call.
 
 ![AWS Lightsail deployment diagram](assets/diagrams/aws-deployment.svg)
 
-| Pointer | Deployed component | Exposure and purpose |
+| Pointer | Configured component | Exposure and purpose |
 |---:|---|---|
 | 1 | Lightsail firewall | Public web traffic is limited to ports 80/443; SSH is an administrative path. Ports 8000 and 18789 remain private. |
 | 2 | Caddy container | Terminates TLS, redirects HTTP to HTTPS, applies response headers and proxies to the API through the private Compose network. |

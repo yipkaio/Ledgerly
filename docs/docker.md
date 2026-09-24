@@ -1,4 +1,4 @@
-# Run the backend with Docker
+# Run Ledgerly with Docker
 
 This packages the backend and built receipt UI for local testing and Lightsail.
 The base Compose file keeps FastAPI on host loopback. The production overlay adds
@@ -197,19 +197,29 @@ maintenance with a temporary non-production configuration. Normal access is
 through Caddy at the configured HTTPS domain; see
 [authentication and production deployment](authentication.md).
 
-Before an update, back up data and preserve the old image under a unique tag:
+Before an update, back up data and preserve the old image under a unique tag.
+The Lightsail commands must include **both** Compose files. Starting the base
+file alone on a production host would omit the `hybrid` authentication and
+disabled API docs from the production overlay.
 
 ```bash
 docker image tag expense-agent:local expense-agent:before-update-YYYYMMDD
-git pull --ff-only
-docker compose build api
-docker compose up -d --wait --wait-timeout 120
+git pull --ff-only origin main
+docker compose -f compose.yaml -f compose.production.yaml build api
+docker compose -f compose.yaml -f compose.production.yaml up -d --wait --wait-timeout 180
 ```
 
 Replace the date placeholder with a unique tag. Run smoke checks after updating.
 For an application-only rollback with a compatible database schema, retag the
-saved image as `expense-agent:local` and run `docker compose up -d --no-build
---force-recreate api`. If a later release changes the schema, use that release's
+saved image as `expense-agent:local` and recreate the API with the production
+overlay:
+
+```bash
+docker image tag expense-agent:before-update-YYYYMMDD expense-agent:local
+docker compose -f compose.yaml -f compose.production.yaml up -d --no-build --force-recreate api
+```
+
+If a later release changes the schema, use that release's
 migration/restore procedure; an old image alone is not a safe database rollback.
 
 Official references: [Docker on Ubuntu](https://docs.docker.com/engine/install/ubuntu/),

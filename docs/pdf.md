@@ -50,14 +50,15 @@ fields are ambiguous.
 
 ## Deployment check
 
-After pulling the commit, rebuild the image because PDF libraries are new runtime
-dependencies. Do not use `down -v`; the receipt-data volume contains the database,
-original files and generated previews.
+For a Lightsail update, rebuild the image after pulling to include its PDF
+runtime dependencies. Include the production overlay so Firebase authentication
+and disabled API docs remain configured. Do not use `down -v`; the receipt-data
+volume contains the database, original files and generated previews.
 
 ```bash
-sudo docker compose build api
-sudo docker compose up -d --wait --wait-timeout 120
-sudo docker compose ps
+sudo docker compose -f compose.yaml -f compose.production.yaml build api
+sudo docker compose -f compose.yaml -f compose.production.yaml up -d --wait --wait-timeout 180
+sudo docker compose -f compose.yaml -f compose.production.yaml ps
 curl --fail http://127.0.0.1:8000/health
 ```
 

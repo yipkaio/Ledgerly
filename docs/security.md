@@ -9,7 +9,12 @@ on receipt and monthly-review events are still self-reported. The
 [maintenance review](maintenance-review.md) distinguishes removable code from
 schema migrations and compatibility endpoints that must be retained.
 
-## Implemented controls
+## Implemented controls and deployment configuration
+
+The application code and deployment files implement or configure the controls
+below. They do not prove that the live Lightsail instance currently has those
+settings. Verify the public firewall, HTTPS, authentication, secrets and backup
+on the instance with the release checklist below.
 
 | Area | Current control |
 |---|---|

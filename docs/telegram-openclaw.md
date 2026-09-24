@@ -3,7 +3,7 @@
 A bot response of `AUTO_FILED` is an internal classification outcome, not a
 human approval or bank payment. `REVIEW_QUEUE` is a successful upload that
 still needs a reviewer decision in the web workspace. The
-[user guide](user-guide.md#telegram-examples) illustrates both outcomes.
+[user guide](user-guide.md#receipt-intake-and-review) illustrates both outcomes.
 
 This integration adds a private Telegram receipt entry point without creating a second accounting pipeline. OpenClaw receives one authorized user's attachment, and the `ledgerly-receipt` skill sends it to the existing authenticated `POST /receipts/upload` endpoint on localhost. Ledgerly remains responsible for validation, OCR, extraction, vendor lookup, classification, confidence gating, persistence, duplicates, and review routing.
 
@@ -23,17 +23,21 @@ OpenClaw has real host access. Keep the Gateway bound to localhost, install only
 
 ## 1. Prepare Ledgerly
 
-Use `AUTH_MODE=hybrid` if Firebase protects the web UI, or `AUTH_MODE=api_key` for the current MVP. In either mode, OpenClaw uses the same `APP_API_KEY` as a trusted service integration.
+Use the production Compose overlay for the Lightsail deployment so the web UI
+requires Firebase (`AUTH_MODE=hybrid`) and API docs stay disabled. In local
+`api_key` mode, the relay can use the same `APP_API_KEY` as a trusted integration.
 
 Confirm the container is private and healthy:
 
 ```bash
 cd ~/Ledgerly
-docker compose up -d --build --wait --wait-timeout 300
+docker compose -f compose.yaml -f compose.production.yaml up -d --build --wait --wait-timeout 300
 curl --fail http://127.0.0.1:8000/health
 ```
 
 The Compose port mapping must remain `127.0.0.1:8000:8000`; do not expose port 8000 publicly.
+Every subsequent production `up`, `build` and `config` command must also include
+the production overlay.
 
 ## 2. Install OpenClaw on Lightsail
 
