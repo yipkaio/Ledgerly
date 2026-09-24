@@ -1,4 +1,6 @@
-# Ledgerly
+<h1 align="center">Ledgerly</h1>
+
+<p align="center"><img src="docs/assets/screenshots/153316.png" alt="Ledgerly logo" width="120"></p>
 
 Ledgerly helps a bookkeeper turn receipts into usable expense records. Upload a receipt, inspect the extracted details and suggested category, review anything uncertain, then compare accepted receipts with bank transactions during the monthly close. The original evidence and human decisions remain available for later checks.
 
