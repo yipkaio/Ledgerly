@@ -25,7 +25,7 @@ ocr-paddle = [
     # Paddle OCR's dependency chain uses setuptools at runtime.
     "setuptools>=83",
     # PaddlePaddle 3.3.x has a CPU/oneDNN regression affecting PP-OCR models.
-    "paddlepaddle==3.2.2",
+    "paddlepaddle==3.3.1",
 ]
 test = [
     "pytest>=9.0.3,<10.0",
