@@ -30,7 +30,7 @@ documents below contain the detailed contracts and operating procedures.
   secret handling and gateway operation.
 - [Demo readiness](demo-readiness.md) — release gate, acceptance flow and metrics.
 - [v0.1.0 release notes](release-notes-v0.1.0.md) — included features, upgrade
-  precautions and MVP limits for the proposed first tag.
+  precautions and MVP limits for this version.
 
 ## Use and verify features
 
