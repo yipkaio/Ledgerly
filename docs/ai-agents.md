@@ -4,6 +4,10 @@ Ledgerly exposes three **logical** AI agents. They are bounded service
 responsibilities, not autonomous accounting users and not nine independent model
 processes.
 
+The [user guide](user-guide.md) shows where advice appears in the UI; the
+[maintenance review](maintenance-review.md) records consolidation candidates
+without expanding agent authority.
+
 ## Authority model
 
 | Agent | Capabilities | Authority |

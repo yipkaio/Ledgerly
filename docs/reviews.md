@@ -120,21 +120,25 @@ return 422 with no review/audit saved and the receipt still pending.
 Uploading a new test image may consume gateway credits; reviewing existing records
 does not. Model routing can vary, so an ambiguous image is not guaranteed to queue.
 
-This update migrates the database to schema version 3 without rewriting existing
-approvals. Previously accepted invalid requests remain visible in review history;
+The review and amendment features first arrived with schema v3; the current
+application migrates supported databases transactionally through schema v9.
+Previously accepted invalid requests remain visible in review history;
 use an audited amendment to correct an approved record. Keep invalid test records out of reports.
 
-Reviewer identity is explicitly `self_reported`: a shared app key cannot prove
-who reviewed a receipt. All key holders share read/write access to this workspace.
-Do not expose this as a public multi-user service until verified authentication
-and reviewer authorization are implemented. Review never modifies vendor rules.
+Reviewer identity in review events is explicitly `self_reported`: a typed name
+is not proof of which person submitted it. Production sign-in verifies one
+pre-approved Firebase account; trusted integrations may use the app key in
+hybrid mode. Reviewer roles and multi-account isolation are not implemented.
+Review never modifies vendor rules.
 
 ## Migration, verification and deployment
 
-Schema versions 1 and 2 upgrade transactionally to version 3 on first database
-access (including container startup). Duplicate metadata, amendment tables and
-audit protection triggers are added; original receipt, classification and vendor
-rows are not rewritten. There is no schema downgrade. Older images reject schema 3.
+Supported older schemas upgrade transactionally through version 9 on first
+database access (including container startup). The historical v3 step added
+duplicate metadata, amendments and audit protection triggers; later versions
+added lifecycle, statement, FX and monthly review data. Back up the database
+and retained originals before deploying. There is no schema downgrade; an
+older application image cannot be used against the upgraded database.
 
 Run the full local test suite and Docker tests BEFORE updating AWS:
 

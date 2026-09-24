@@ -9,6 +9,10 @@ the Compose plugin on an x86-64 Ubuntu host. Compose targets `linux/amd64`.
 Paddle's memory needs must be measured on the target machine; a passing health
 check does not prove that OCR models fit in RAM.
 
+The current application migrates supported SQLite databases through schema v9
+on first use. Create the database-and-evidence backup below before replacing
+an older image; an older app image cannot read the upgraded schema.
+
 ## First local run (PowerShell)
 
 Stop the existing Uvicorn process with Ctrl+C. Keep your existing `.env` and keys;

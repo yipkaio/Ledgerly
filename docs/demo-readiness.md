@@ -28,7 +28,10 @@ Use this list after every production deployment and before the hackathon demo.
 6. Check source preview, remove a wrong statement, then restore it.
 7. Ask the Finance Copilot an in-scope question and an unrelated question.
 8. Confirm the dashboard's default currency, custom date range, quick ranges and all-time total; open the matching accepted receipts in history.
-9. Restart the containers and confirm records and evidence remain available.
+9. Export a fresh Monthly Close workbook: confirm its whole-period totals, Summary labels,
+   statement-source links and payment audit. Open a receipt from Month detail and
+   use **Back to Monthly Close** to confirm month, currency and filters survive.
+10. Restart the containers and confirm records and evidence remain available.
 
 ## Demo metrics
 

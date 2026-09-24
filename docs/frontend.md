@@ -84,8 +84,9 @@ selection across pages. **Export selected** downloads only those IDs. The select
 count stays visible, and **Clear selection** never changes receipt decisions. See
 [History filters and Excel export](export.md) for limits and workbook fields.
 
-1. Connect with the chosen server's app key. All key holders share one workspace;
-   this is not individual user authentication.
+1. Sign in with the pre-approved Firebase email/password account in production.
+   In local `api_key` mode, enter the configured app key. The workspace is
+   shared; the reviewer name remains a self-reported audit label.
 2. Choose **Upload receipt**. Select a JPEG, PNG, or PDF up to 5 MB. PDFs can have
    up to three pages and represent one receipt. Enter an optional
    business purpose, then click **Upload and process** once. Processing may consume
@@ -164,23 +165,24 @@ formatted, filterable detail tables with one-page-wide print settings.
 
 ## Access the AWS container privately
 
-After you have reviewed this commit locally, pull and rebuild on Lightsail using
-the existing deployment procedure. Do not open port 8000 to the internet. Keep
-your Windows SSH tunnel from port 18000 to the instance's localhost port 8000 open,
-then visit http://127.0.0.1:18000/ui/. Enter the AWS server's APP_API_KEY. Local and
-AWS databases and keys are separate. This commit does not update your instance.
+For production updates, follow [Docker deployment](docker.md) and
+[authentication](authentication.md). The public browser uses HTTPS with the
+pre-approved Firebase account; the API stays private behind Caddy. A localhost
+SSH tunnel can be used for private operational inspection. Local and AWS
+databases and keys are separate; rebuilding locally does not update Lightsail.
 
 ## Security and accessibility
 
-The app key is kept only in React memory; disconnect/reload clears it. It is never
-stored in browser storage, URLs, build variables, or source files. The browser
-receives no gateway credentials. Data/image requests remain authenticated and
+The development app key and production Firebase ID token stay in React memory;
+disconnect/reload clears them. They are not placed in browser storage, URLs,
+build variables or source files. The browser receives no gateway credentials.
+Data/image requests remain authenticated and
 responses use `Cache-Control: no-store`. The public static shell contains no receipt
 or secret data. Production sets content security, no-sniff, and referrer headers.
-Blob image/PDF URLs are revoked on leaving a receipt. Use HTTPS for any future public
-host; retain the SSH tunnel for the current private setup. Trusted key holders and
-server administrators can access workspace data. Verified user identity, role
-permissions, account isolation, and audited reopening are future work.
+Blob image/PDF URLs are revoked on leaving a receipt. Production uses HTTPS.
+The single approved account, trusted integration key holders and server
+administrators can access workspace data. Separate reviewer roles, account
+isolation and audited reopening are future work.
 
 Labels, focus outlines, a skip link, semantic tables, native number inputs, Radix
 select keyboard behavior, and focus-trapped confirmation dialogs support keyboard
