@@ -32,6 +32,23 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python -m pytest
 
+  python-dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # Match the production image's Python extras, including Paddle OCR.
+      - run: python -m venv .venv-audit
+      - run: .venv-audit/bin/python -m pip install --upgrade pip
+      - run: .venv-audit/bin/python -m pip install '.[ocr-paddle]'
+      - run: .venv-audit/bin/python -m pip check
+      - uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          virtual-environment: .venv-audit/
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
