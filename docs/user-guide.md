@@ -180,7 +180,11 @@ Choose **Deleted receipts** in the top navigation to inspect recoverable records
 
 ### Find the period
 
-Choose **Monthly close → Overview** to check recorded periods across years. Months with accepted receipts appear even when no statement is imported. Choose **All years** or a specific year; **Needs attention only** narrows periods with missing statements, exceptions or outdated reviews. Select **Open month** to inspect one month and original currency. The September demo shows **Review outdated** even though its four bank debits and four accepted receipts have no matching exceptions: the evidence changed after its previous review.
+![Monthly Close overview with three recorded periods](assets/screenshots/2026-09-23/26-monthly-close-overview-with-three-recorded-periods.jpg)
+
+*Monthly Close overview with three recorded periods*
+
+Choose **Monthly close → Overview** to check recorded periods across years. Months with accepted receipts appear even when no statement is imported. Choose **All years** or a specific year; **Needs attention only** narrows periods with missing statements, exceptions or outdated reviews. Select **Open month** to inspect one month and original currency. The September example above shows **Review outdated** even though its four bank debits and four accepted receipts have no matching exceptions: the evidence changed after its previous review.
 
 ### Read Month detail
 
@@ -282,7 +286,7 @@ September now displays **Reviewed**. The two older MYR periods still need attent
 
 ## Complete screenshot inventory
 
-The 38 images shown in this guide are stored in [`assets/screenshots/2026-09-23`](assets/screenshots/2026-09-23/). Images explicitly described as earlier examples came from separate demo runs. The previous screenshot set remains in [`assets/screenshots`](assets/screenshots/) for historical reference; this guide no longer uses it.
+All 39 images shown in this guide are stored in [`assets/screenshots/2026-09-23`](assets/screenshots/2026-09-23/). Images explicitly described as earlier examples came from separate demo runs. The previous screenshot set remains in [`assets/screenshots`](assets/screenshots/) for historical reference; this guide no longer uses it.
 
 ## Interpretation limits
 
