@@ -1,9 +1,11 @@
 # Code quality and maintainability review
 
-Reviewed against `main` at `37cab84` (23 September 2026). Scope: tracked
+Code review performed against `main` at `37cab84` (23 September 2026). Scope: tracked
 backend modules and routes, React components and API client, runtime manifests,
 tests, integrations, deployment files, screenshots and Markdown documentation.
-This is a static and test-backed review, not a production query profile.
+This is a historical static and test-backed review, not a production query
+profile or a verification of the current deployment. Documentation and screenshot
+inventory were checked again on 24 September 2026 against `c239d6e`.
 
 ## Cleanup completed
 
@@ -23,7 +25,7 @@ This is a static and test-backed review, not a production query profile.
 | `app/main.py` (over 1,100 lines), `app/statements.py` (over 1,000) and `frontend/src/App.tsx` (over 1,100) mix several distinct workflows. | Edits require navigating unrelated branches and increase review effort. | Medium maintainability gain from extracting route groups, statement import/reconciliation/export services, and workspace views. | FastAPI dependencies, authorization, React state, back-navigation and side effects can regress. Move one bounded workflow at a time with behavior checks. |
 | Receipt detail in `app/database.py:get` performs several separate, indexed reads for classification, review, latest amendment, audit events and payment history. | Some joins or bulk reads may reduce round trips. | Low for one detail view; potentially useful after measurement. | The queries return different ordered histories and share one SQLite read snapshot. Keep the audit shape and ordering; do not collapse them just to reduce a query count. |
 | README used to carry an illustrative one-receipt OCR comparison and long gateway details alongside the quick start. | It buried setup under repeated status text. | Easier onboarding after moving details to `docs/setup.md`. | The comparison is not a benchmark; preserve that qualification and the Paddle CPU pin. |
-| The tracked screenshot set has 40 files; the root logo and illustrated guide link directly to 18 of them. The remainder are not linked individually, though the guide points to the folder as an inventory. | Some captures may be redundant or older interface states. | Possible reduction in repository size and reader confusion, after review. | They may be the only retained demonstration evidence. Compare each to the guide and visual preview, check privacy, then remove only confirmed duplicates with replacement links. |
+| The repository now has 79 screenshot assets: 39 linked from the current illustrated guide and 40 older assets in the parent screenshot directory (one used as the README logo). | Older captures can be confused with current screens if linked without a date. | Potential reduction in repository size and reader confusion after a separate review. | The guide distinguishes current views from earlier demo runs. Preserve historical evidence and the README logo until each older asset has been inspected before deletion. |
 
 ## Inventory and deletion decisions
 
@@ -47,8 +49,8 @@ This is a static and test-backed review, not a production query profile.
 
 ## Recommended order
 
-1. Land the verified dead-code and payment-query cleanup with the documentation
-   changes and the existing backend/frontend gates.
+1. The dead-code and payment-query cleanup landed with the documentation changes
+   and backend/frontend gates in the earlier review.
 2. Measure the Monthly Close overview with realistic period counts. Refactor its
    per-period queries only with a known baseline and identical fingerprints.
 3. Extract a shared effective-receipt projection after specifying history,

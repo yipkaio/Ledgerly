@@ -58,7 +58,7 @@ Arithmetic, duplicate checks, vendor lookup, matching, status changes and approv
 | Run locally and test | [Developer setup](docs/setup.md) and [frontend guide](docs/frontend.md) |
 | Deploy, back up or roll back | [Docker and Lightsail operations](docs/docker.md) |
 | Review release readiness | [Demo and release checklist](docs/demo-readiness.md) |
-| Review the first tagged release | [v0.1.0 release notes](docs/release-notes-v0.1.0.md) |
+| Review the proposed first release | [Draft v0.1.0 release notes](docs/release-notes-v0.1.0.md) |
 | Understand safe cleanup and remaining debt | [Code health review](docs/maintenance-review.md) |
 
 Feature contracts for review, reprocessing, receipt lifecycle, PDFs, Excel exports, Telegram and monthly reconciliation are linked from the [documentation index](docs/index.md).

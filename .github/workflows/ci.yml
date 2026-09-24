@@ -11,6 +11,15 @@ permissions:
   contents: read
 
 jobs:
+  documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python scripts/check_docs.py
+
   backend:
     runs-on: ubuntu-latest
     steps:
@@ -39,4 +48,3 @@ jobs:
       - run: npm run lint
       - run: npm run test:unit
       - run: npm run build
-

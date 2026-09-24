@@ -1,16 +1,19 @@
 # Human review (private MVP)
 
-All review and amendment routes require `X-API-Key`: `GET /reviews?limit=20&offset=0`,
+All review and amendment routes require authentication (`X-API-Key` in local
+`api_key` mode or a Firebase bearer token in production): `GET /reviews?limit=20&offset=0`,
 `POST /receipts/{receipt_id}/review`, `GET /receipts/{receipt_id}/reviews`, and
 `POST`/`GET /receipts/{receipt_id}/amendments`.
-No OCR or LLM calls are made by review actions. Use the SSH tunnel and `/docs`,
+No OCR or LLM calls are made by review actions. Use local `/docs` in development,
 or follow the [receipt workspace guide](frontend.md) to review in `/ui/`.
 
 ## Start here in Swagger
 
-Local: http://127.0.0.1:8000/docs. AWS tunnel: http://127.0.0.1:18000/docs.
-These are separate databases. Keep your tunnel open for AWS. Use the APP_API_KEY
-configured on the server you selected, never the LLM gateway key. Do not share
+Local: http://127.0.0.1:8000/docs when `API_DOCS_ENABLED=true`. The production
+overlay disables `/docs`, including through an SSH tunnel. Use the production
+HTTPS `/ui/` and Firebase account for deployed reviews; do not turn Swagger on
+in production to follow the examples below. Use the local `APP_API_KEY`, never
+the LLM gateway key. Do not share
 Swagger's Curl block: it includes your key. Share redacted Server response details.
 
 | Step | Endpoint | What to do |
@@ -86,8 +89,9 @@ proof that a reviewer supplied truthful information.
 6. Re-fetch the receipt and its review history. The top-level extraction,
    classification and processing_status remain ORIGINAL AI evidence. The new
    `review.decision`, `review.final_data`, and `review.category` are authoritative
-   after human review. `review_version` becomes 1. The old `/receipts` filters
-   deliberately describe original processing; use `/reviews` for the active queue.
+   after human review. `review_version` becomes 1. `processing_status` remains
+   original evidence; `/receipts` history filters use effective workflow state,
+   and `/reviews` lists the active queue.
 
 Exact retries with the same request ID and payload return the original result.
 Reusing an ID for different content, stale versions, reviewing nonqueued receipts,
@@ -148,16 +152,15 @@ docker compose -f compose.test.yaml up --build --abort-on-container-exit --exit-
 docker compose -f compose.test.yaml down
 ```
 
-The authoring workspace cannot run Docker; the two native container tests must
-be verified separately. Test the review of a disposable receipt locally first.
+Run the Docker tests on a host with Docker; these commands cannot be verified by
+the Python test suite alone. Test the review of a disposable receipt locally first.
 
-On AWS, schedule a short maintenance window. Stop the API, preserve its old image
-under a unique tag, and copy the entire `/app/data` from the stopped container
-into a NEW protected backup directory. Follow [Docker backup guidance](docker.md).
-Keep an off-instance backup and confirm it contains the database and uploads.
+On AWS, schedule a short maintenance window. Follow the [Docker backup procedure](docker.md#production-backup)
+while writers are paused; keep an off-instance copy and confirm it contains the
+database and uploads. Preserve the old image under a unique tag before updating.
 Only then pull the commit, build the image, and start it with the existing volumes.
 Never use `down -v`. Confirm health, old receipt retrieval, queue listing and one
-review through the private tunnel. No new credentials are needed.
+review through the authenticated HTTPS UI. No new credentials are needed.
 
 Rollback requires BOTH the old image and the pre-migration data backup, restored
 with all writers stopped. Preserve post-upgrade data separately first: restoring

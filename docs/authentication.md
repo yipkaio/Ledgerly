@@ -11,8 +11,8 @@ reviewer identities or roles.
 | `firebase` | Firebase email/password | Disabled |
 | `hybrid` | Firebase email/password | `X-API-Key` |
 
-Use `api_key` for local development and `hybrid` for the current Lightsail
-deployment. Hybrid mode keeps a separate credential for the Telegram/OpenClaw
+Use `api_key` for local development and `hybrid` for the Lightsail production
+configuration. Hybrid mode keeps a separate credential for the Telegram/OpenClaw
 bridge while ordinary web users sign in with Firebase. There is no registration,
 password-reset or account-management UI.
 
@@ -74,6 +74,7 @@ port 8000 and is also reachable by Caddy on the private Compose network.
 ## 4. Verify the deployment
 
 ```bash
+APP_DOMAIN=ledgerly.example.com  # Replace with the public hostname in .env.
 curl -fsS http://127.0.0.1:8000/health
 curl -fsS "https://$APP_DOMAIN/health"
 curl -fsS "https://$APP_DOMAIN/auth/config"

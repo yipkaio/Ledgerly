@@ -29,8 +29,10 @@ npm run dev
 ```
 
 Open http://127.0.0.1:5173/ui/. Run the backend separately on localhost port 8000
-using your Python environment and `.env`. Vite proxies `/receipts`, `/reviews` and `/dashboard`
-to that backend, so the same server key applies. This uses your local database.
+using your Python environment and `.env`. Vite proxies the `/auth`, `/ai`,
+`/bank-statements`, `/dashboard`, `/receipts`, `/reconciliation` and `/reviews`
+API paths to that backend. The same server key applies, and this uses your local
+database.
 
 To build and check the frontend:
 

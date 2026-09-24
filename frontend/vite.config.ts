@@ -12,8 +12,12 @@ export default defineConfig({
     host: "127.0.0.1",
     strictPort: true,
     proxy: {
+      "/ai": "http://127.0.0.1:8000",
+      "/auth": "http://127.0.0.1:8000",
+      "/bank-statements": "http://127.0.0.1:8000",
       "/dashboard": "http://127.0.0.1:8000",
       "/receipts": "http://127.0.0.1:8000",
+      "/reconciliation": "http://127.0.0.1:8000",
       "/reviews": "http://127.0.0.1:8000",
     },
   },
