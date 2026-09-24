@@ -863,10 +863,6 @@ function Workspace({
             </>
           )}
         </main>
-        <footer className="muted mt-10 border-t pt-4">
-          Evidence first. Every human decision keeps the original extraction and
-          an audit record.
-        </footer>
       </div>
     </>
   );
