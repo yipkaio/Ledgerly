@@ -6,6 +6,11 @@ Caddy HTTPS; OpenClaw runs separately as a loopback-only systemd user service.
 These files configure existing infrastructure but do not create AWS resources.
 Use Docker Desktop with **Linux containers** on Windows, or Docker Engine with
 the Compose plugin on an x86-64 Ubuntu host. Compose targets `linux/amd64`.
+The commands below use `~/Ledgerly` for a fresh server checkout. If an existing
+server checkout has a different directory name, run them from that checkout;
+renaming the GitHub repository does not move a local directory. Keep the
+`expense-agent` Compose project name so its existing receipt and OCR volumes
+remain attached.
 Paddle's memory needs must be measured on the target machine; a passing health
 check does not prove that OCR models fit in RAM.
 
@@ -72,7 +77,7 @@ statement, amendment or lifecycle writes while the database and uploads are
 copied. Set one timestamp and keep using it throughout:
 
 ```bash
-cd ~/expense-classification-agent
+cd ~/Ledgerly
 BACKUP_TS="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="$HOME/ledgerly-backups/$BACKUP_TS"
 install -d -m 700 "$BACKUP_DIR"

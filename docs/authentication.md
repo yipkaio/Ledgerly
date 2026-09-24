@@ -58,7 +58,7 @@ Point the domain's A record to the Lightsail static IP. In the Lightsail firewal
 allow TCP 22, 80 and 443 and UDP 443; do not expose port 8000 publicly.
 
 ```bash
-cd ~/expense-classification-agent
+cd ~/Ledgerly
 git switch main
 git pull --ff-only origin main
 chmod 600 .env

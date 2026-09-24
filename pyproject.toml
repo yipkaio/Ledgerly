@@ -3,9 +3,9 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "expense-classification-agent"
+name = "ledgerly"
 version = "0.1.0"
-description = "Secure receipt intake API for an AI expense-classification pipeline"
+description = "Ledgerly receipt review and monthly bank reconciliation workspace"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115,<1.0",
