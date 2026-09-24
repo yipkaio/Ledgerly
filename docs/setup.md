@@ -7,8 +7,8 @@ Use [Docker setup](docker.md) for the packaged backend and frontend, persistent 
 Install Python 3.11 and Node.js. PaddleOCR is the configured default; install its optional extra when you need local receipt OCR.
 
 ```powershell
-git clone https://github.com/yipkaio/expense-classification-agent.git
-cd expense-classification-agent
+git clone https://github.com/yipkaio/Ledgerly.git
+cd Ledgerly
 py -3.11 -m venv .venv311
 $python = ".\.venv311\Scripts\python.exe"
 & $python -m pip install --upgrade pip setuptools wheel

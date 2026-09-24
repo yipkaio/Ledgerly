@@ -23,8 +23,8 @@ The fastest end-to-end path is Docker. Copy the example environment file, config
 For Windows PowerShell development without Docker:
 
 ```powershell
-git clone https://github.com/yipkaio/expense-classification-agent.git
-cd expense-classification-agent
+git clone https://github.com/yipkaio/Ledgerly.git
+cd Ledgerly
 py -3.11 -m venv .venv311
 $python = ".\.venv311\Scripts\python.exe"
 & $python -m pip install -e ".[test,ocr-paddle]"
