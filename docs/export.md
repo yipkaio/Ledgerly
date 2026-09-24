@@ -69,6 +69,6 @@ spreadsheet formula characters remains plain text. Summary and detail sheets use
 filterable tables, frozen headers, status highlighting and one-page-wide print
 settings. The response uses `no-store`; the downloaded file itself is sensitive
 and belongs only in approved storage.
-# Lifecycle exclusions
+## Lifecycle exclusions
 
 Deleted and voided receipts are excluded from filtered exports. Explicit selections containing either are rejected with a clear error instead of silently exporting an incomplete selection. Existing downloaded workbooks are not modified. Voided evidence remains accessible in receipt history; deleted evidence remains accessible until its retention deadline and cleanup.

@@ -62,6 +62,6 @@ sudo docker compose -f compose.yaml -f compose.production.yaml ps
 curl --fail http://127.0.0.1:8000/health
 ```
 
-Through the existing SSH tunnel, upload one native-text PDF and one scanned PDF,
+Through the authenticated HTTPS workspace, upload one native-text PDF and one scanned PDF,
 open both originals/previews, and confirm the expected `pdf:` engine. Review logs
 and memory during the first PaddleOCR request before increasing traffic.

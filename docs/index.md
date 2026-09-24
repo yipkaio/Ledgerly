@@ -23,6 +23,8 @@ documents below contain the detailed contracts and operating procedures.
 
 - [Docker setup](docker.md) — local containers, persistent volumes, checks,
   backup basics and image rollback.
+- [Root README quick start](../README.md#choose-an-installation-path) — choose
+  local Docker, direct development or the existing Lightsail deployment.
 - [Developer setup](setup.md) — Windows PowerShell, OCR, gateway and test commands.
 - [Authentication and production deployment](authentication.md) — Firebase,
   hybrid authentication, Caddy HTTPS and Lightsail verification.
@@ -44,8 +46,8 @@ documents below contain the detailed contracts and operating procedures.
 
 ## Documentation rules
 
-- Keep operational commands in the deployment document that owns them instead
-  of copying divergent versions across multiple files.
+- Keep the README's local quick start short. Put detailed backup, deployment and
+  rollback commands in the operating document that owns them so they cannot drift.
 - Do not place real keys, tokens, UIDs, email addresses, receipt data or bank
   data in documentation or examples.
 - Update `architecture.md` whenever an external service, public port, trust

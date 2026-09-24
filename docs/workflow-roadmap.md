@@ -8,7 +8,7 @@ The dashboard is the default after connecting. It reads one authenticated databa
 snapshot with saved record counts, pending workload, accepted records and processing
 issues. Refresh reloads the snapshot; there is no background polling.
 
-Accepted totals include only human-approved and auto-filed receipts. Final human
+Accepted totals include active human-approved, amended and auto-filed receipts. Final human
 amounts, currency, category and receipt date take precedence over original AI fields.
 Rejected and pending records never contribute to these totals. Each currency has a
 separate total, category chart and receipt-month trend. One inclusive receipt-date
@@ -100,9 +100,10 @@ One multi-page document represents one receipt; multiple invoices must be split.
 ## Further usability priorities
 
 1. Receipt zoom/rotation and **Review next** to reduce repetitive navigation.
-2. Stage progress and failure recovery that reuses saved OCR instead of charging
-   for a whole repeated pipeline. Avoid invented progress percentages while the
-   current upload remains one synchronous request.
+2. Stage progress for the synchronous upload and more recovery from early OCR/PDF
+   failures. The existing reprocessing action can create a new extraction draft
+   from **saved** OCR, but some early failures retain no usable OCR or source.
+   Avoid invented progress percentages while the upload is one request.
 3. Individual authentication and reviewer roles before public multi-user access.
 4. Friendly empty states, saved-filter links without credentials and accessible
    action notifications. Preserve existing unsaved-change warnings, confirmation
