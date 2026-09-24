@@ -29,8 +29,8 @@ documents below contain the detailed contracts and operating procedures.
 - [Telegram and OpenClaw](telegram-openclaw.md) — owner-only Telegram intake,
   secret handling and gateway operation.
 - [Demo readiness](demo-readiness.md) — release gate, acceptance flow and metrics.
-- [Draft v0.1.0 release notes](release-notes-v0.1.0.md) — included features, upgrade
-  precautions and MVP limits for the proposed first tag.
+- [v0.1.0 release notes](release-notes-v0.1.0.md) — included features, upgrade
+  precautions and MVP limits for this version.
 
 ## Use and verify features
 

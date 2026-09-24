@@ -1,9 +1,9 @@
-# Ledgerly v0.1.0 — draft release notes
+# Ledgerly v0.1.0 — release notes
 
-Proposed first tagged release of the Ledgerly single-bookkeeper MVP. These notes
-describe the intended scope; a tag and GitHub release have not been created yet.
-Complete the [production release gates](demo-readiness.md#release-gate) and
-review the final commit before publishing.
+This page describes the scope of Ledgerly's first single-bookkeeper MVP version.
+The GitHub Releases page shows its publication status and the release tag
+identifies the reviewed commit. Complete the
+[production release gates](demo-readiness.md#release-gate) before publishing.
 
 ## Included
 
