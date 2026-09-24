@@ -15,6 +15,11 @@ Use `api_key` for local development and `hybrid` for the Lightsail production
 configuration. Hybrid mode keeps a separate credential for the Telegram/OpenClaw
 bridge while ordinary web users sign in with Firebase. There is no registration,
 password-reset or account-management UI.
+Absence of a registration screen does not disable Firebase's
+[account-creation API](https://firebase.google.com/docs/reference/rest/auth).
+The backend allows access only when Firebase identifies the configured
+`FIREBASE_ALLOWED_UID`; do not treat the public web API key as a secret or as an
+authorization rule.
 
 ## 1. Create the controlled Firebase account
 
@@ -23,8 +28,8 @@ password-reset or account-management UI.
 3. In **Authentication → Users**, add the one bookkeeper account manually.
 4. Copy the project's Web API key and project ID.
 5. Copy the user's Firebase UID from the Users table.
-6. Do not enable public sign-up in Ledgerly and do not place service-account JSON
-   in this repository or container.
+6. Keep the allowed UID restricted to that account. Do not place service-account
+   JSON, credentials or real account identifiers in this repository or container.
 
 Add the following to the server's ignored `.env`:
 
@@ -56,9 +61,11 @@ restore the database and evidence together.
 
 Point the domain's A record to the Lightsail static IP. In the Lightsail firewall,
 allow TCP 22, 80 and 443 and UDP 443; do not expose port 8000 publicly.
+Run the commands from the **existing server checkout**. A repository rename does
+not rename its local directory; an older installation may still live at
+`/home/ubuntu/expense-classification-agent`.
 
 ```bash
-cd ~/Ledgerly
 git switch main
 git pull --ff-only origin main
 chmod 600 .env
@@ -98,7 +105,10 @@ The exact deployment and trust boundaries are illustrated in
 
 ## Rollback
 
-The authentication change has no database migration. To return temporarily to the
-previous local-key sign-in, set `AUTH_MODE=api_key` and restart the API. Do not
-restore an older database. If data recovery is required, stop the API and restore
-the database and uploads from the same backup archive.
+The production Compose overlay forces `AUTH_MODE=hybrid`; changing `.env` to
+`api_key` does **not** change the deployed mode. Keep the production identity
+boundary in place. For an application rollback, use the compatible-image and
+matched-data procedure in [Docker operations](docker.md#lightsail-deployment-and-subsequent-updates).
+If data recovery is required, stop writers and restore the database and uploads
+from the same verified backup. Never start an older image against a database
+whose schema it cannot read.

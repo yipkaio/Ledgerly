@@ -5,7 +5,7 @@ find the restore deadline and lifecycle history. Deletion removes eligible
 records from ordinary totals during a bounded recovery window; accepted
 records use a separate audited void action.
 
-The authenticated workspace supports **Move to deleted receipts**, **Restore receipt**, and **Void receipt**. Names are self-reported under the existing shared API key, not verified personal identities. No additional roles or authentication claims are introduced.
+The authenticated workspace supports **Move to deleted receipts**, **Restore receipt**, and **Void receipt**. In production the approved Firebase account signs in to the browser and a separate app key serves trusted integrations. Names typed into lifecycle events are self-reported audit labels, not verified personal identities or roles.
 
 ## Rules
 

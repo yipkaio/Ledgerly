@@ -27,7 +27,7 @@ The default parser is deterministic and private to the application. An unfamilia
 
 Every PDF produces a preview before import. The server binds the exact file hash and exact normalized preview to a 30-minute HMAC confirmation token. Browser-side changes, a different file, expiry, or replay after a successful import cannot silently create another statement. The user must inspect the debit rows and confirm the evidence. Opening balance plus credits less debits is compared with closing balance when both are available; a mismatch blocks import. The preview shows opening balance, total credits, debits, calculated closing balance, statement closing balance and difference so the operator can identify a misread row. Missing balances remain a visible warning rather than a fabricated validation result. AI extraction does not override a failed balance check.
 
-Unconfirmed files are not retained. After confirmation, the original PDF, self-reported importer name, extraction method, masked metadata and validation result are stored with the normalized transactions. The PDF password is not stored. The importer name is an audit label under the shared application key, not verified identity.
+Unconfirmed files are not retained. After confirmation, the original PDF, self-reported importer name, extraction method, masked metadata and validation result are stored with the normalized transactions. The PDF password is not stored. The importer name is a self-reported audit label, not a separately verified identity; browser sign-in uses Firebase in production.
 
 ## CSV input
 
@@ -90,7 +90,7 @@ The workflow preserves original receipt evidence, confirmed source statement PDF
 - [PDPC data protection obligations](https://www.pdpc.gov.sg/overview-of-pdpa/the-legislation/personal-data-protection-act/data-protection-obligations) remain the organisation's responsibility, including appropriate protection, access, and retention practices.
 - [CPF Board guidance on payments attracting CPF](https://www.cpf.gov.sg/employer/employer-obligations/what-payments-attract-cpf-contributions) distinguishes qualifying official-purpose reimbursements from wages. Finance or HR must review the facts; receipt classification alone cannot decide CPF treatment.
 
-Back up the SQLite database and retained receipt files as one evidence set. Restrict the shared API key to trusted staff and devices.
+Back up the SQLite database and retained receipt files as one evidence set. In production, reserve the application key for trusted integrations; the browser uses the approved Firebase account.
 
 ## Default reporting currency
 

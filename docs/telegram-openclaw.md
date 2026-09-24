@@ -28,9 +28,10 @@ requires Firebase (`AUTH_MODE=hybrid`) and API docs stay disabled. In local
 `api_key` mode, the relay can use the same `APP_API_KEY` as a trusted integration.
 
 Confirm the container is private and healthy:
+Run this from the existing server checkout; its directory need not have been
+renamed when the GitHub repository became Ledgerly.
 
 ```bash
-cd ~/Ledgerly
 docker compose -f compose.yaml -f compose.production.yaml up -d --build --wait --wait-timeout 300
 curl --fail http://127.0.0.1:8000/health
 ```
@@ -41,7 +42,11 @@ the production overlay.
 
 ## 2. Install OpenClaw on Lightsail
 
-Follow the organiser guide on the same Ubuntu 24.04 Lightsail instance. Its current sequence installs OpenCode, NVM/Node 24, OpenClaw, then runs:
+Follow the organiser guide and the [official OpenClaw installation instructions](https://docs.openclaw.ai/install)
+on the same Ubuntu Lightsail instance. Confirm how the Gateway service was
+installed before editing it: Linux onboarding commonly creates a systemd **user**
+service, while an explicitly provisioned always-on host may use a system service.
+Do not run both for the same Gateway. Onboard with:
 
 ```bash
 openclaw onboard
@@ -78,34 +83,40 @@ Confirm `ledgerly-receipt` is present. OpenClaw normally watches skills; start a
 
 ## 5. Supply the integration key to systemd
 
-Create a root-readable environment file without printing the key:
+For a **systemd user service** (the usual Linux install), create a private
+environment file readable by the service account without printing the key:
 
 ```bash
-sudo install -d -m 700 /etc/openclaw
+install -d -m 700 "$HOME/.config/ledgerly"
 read -rsp 'Ledgerly APP_API_KEY: ' LEDGERLY_KEY_INPUT; echo
 printf 'LEDGERLY_API_KEY=%s\nLEDGERLY_API_URL=http://127.0.0.1:8000\n' "$LEDGERLY_KEY_INPUT" \
-  | sudo tee /etc/openclaw/ledgerly.env >/dev/null
+  > "$HOME/.config/ledgerly/openclaw.env"
 unset LEDGERLY_KEY_INPUT
-sudo chmod 600 /etc/openclaw/ledgerly.env
-sudo systemctl edit openclaw-gateway
+chmod 600 "$HOME/.config/ledgerly/openclaw.env"
+systemctl --user edit openclaw-gateway
 ```
 
 Add this systemd override:
 
 ```ini
 [Service]
-EnvironmentFile=/etc/openclaw/ledgerly.env
+EnvironmentFile=%h/.config/ledgerly/openclaw.env
 ```
 
 Then reload and restart:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart openclaw-gateway
-sudo systemctl status openclaw-gateway --no-pager
+systemctl --user daemon-reload
+systemctl --user restart openclaw-gateway
+systemctl --user status openclaw-gateway --no-pager
 ```
 
-If the organiser installation uses a user service, run the equivalent `systemctl --user edit/restart` commands and store the environment file under a user-owned `0700` directory instead.
+If the host uses a **system service** instead, edit and restart it with
+`sudo systemctl`; set its `EnvironmentFile` to a protected file readable by the
+service's `User=` account. Keep the existing service type and verify it with
+`openclaw gateway status`. For a user service on a host that stops user units
+after logout, verify that lingering is enabled as described in the
+[OpenClaw Linux setup guide](https://docs.openclaw.ai/start/setup).
 
 ## 6. Lock Telegram to your account
 
@@ -150,7 +161,7 @@ Validate and restart:
 
 ```bash
 openclaw doctor
-sudo systemctl restart openclaw-gateway
+systemctl --user restart openclaw-gateway
 openclaw channels status --probe
 ```
 
@@ -179,7 +190,7 @@ Inspect status without leaking message bodies or secrets:
 ```bash
 openclaw channels status --probe
 openclaw hooks list
-sudo journalctl -u openclaw-gateway -n 100 --no-pager
+journalctl --user -u openclaw-gateway -n 100 --no-pager
 docker compose logs --tail=100 api
 ```
 
@@ -191,5 +202,8 @@ Disable the Telegram channel or the skill, then restart the Gateway. Ledgerly's 
 
 ```bash
 openclaw config set channels.telegram.enabled false --strict-json
-sudo systemctl restart openclaw-gateway
+systemctl --user restart openclaw-gateway
 ```
+
+For a system service, use the matching `sudo systemctl` and `sudo journalctl`
+commands in steps 6–7 and rollback.

@@ -107,7 +107,7 @@ edits, not a server administrator deliberately modifying the database.
 | Symptom | Next action |
 |---|---|
 | Empty queue | Check server/port; AUTO_FILED, failed, processing and finalized receipts are excluded. Refresh from offset 0 after reviews change the queue. |
-| 401 | Use the selected server's APP_API_KEY. |
+| 401 | In local `api_key` mode use the configured `APP_API_KEY`; in production sign in with the allowed Firebase account. |
 | 404 | Check ID and server; local and AWS receipts differ. |
 | 409 | GET detail. Another reviewer may have finalized it, or request_id was reused with different data. New IDs cannot reopen decisions. |
 | 422 | Read detail/field location; replace templates and fix missing, unsupported or inconsistent values. Do not add a meaningless override. |

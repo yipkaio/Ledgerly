@@ -41,8 +41,11 @@ Never commit or paste these values into issues, logs, screenshots or Telegram:
 - OpenClaw provider credentials
 
 Firebase's web API key and project ID identify the public Firebase client and are
-delivered to the browser by design. The configured Firebase UID, authentication
-rules and password remain the access boundary.
+delivered to the browser by design. Hiding the sign-up screen does not prevent
+other Firebase accounts from being created through its public API. The server
+checks the signed-in account against `FIREBASE_ALLOWED_UID` (and the optional
+allowed email) before allowing access to Ledgerly data. Keep that rule and the
+account credentials protected; the API key alone grants no workspace access.
 
 ## Before every production release
 

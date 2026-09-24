@@ -74,10 +74,11 @@ replacement, not deletion of the Lightsail disk/instance. Back up separately.
 Use SQLite's online backup API so the database copy represents one consistent
 snapshot. Perform this during a controlled quiet period with no receipt,
 statement, amendment or lifecycle writes while the database and uploads are
-copied. Set one timestamp and keep using it throughout:
+copied. Run these commands from the existing server checkout, even if its local
+directory still has the old repository name. Set one timestamp and keep using
+it throughout:
 
 ```bash
-cd ~/Ledgerly
 BACKUP_TS="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="$HOME/ledgerly-backups/$BACKUP_TS"
 install -d -m 700 "$BACKUP_DIR"
@@ -149,7 +150,8 @@ request downloads model weights and can be much slower than later requests.
 - The process runs as UID/GID 10001 with all Linux capabilities dropped,
   no new privileges, a read-only root filesystem and a bounded temporary area.
 - The API is published only at `127.0.0.1`; keep port 8000 closed in Lightsail's
-  public firewall. Use SSH tunnelling for the private trial.
+  public firewall. Caddy proxies public HTTPS requests to authenticated API
+  routes; use an SSH tunnel only for deliberate loopback maintenance.
 - One Uvicorn worker is used, with no development reload. Docker forwards signals
   through an init process and allows 330 seconds before forced shutdown; Uvicorn
   gets 300 seconds for graceful shutdown. Very long/hung Paddle inference can
@@ -180,7 +182,7 @@ docker compose start api
 ## Lightsail deployment and subsequent updates
 
 Provision Ubuntu x86-64, attach a static IP, install Docker Engine and Compose,
-and clone this private repository using read-only deploy credentials. Add `.env`
+and clone the public Ledgerly repository or use the existing checkout. Add `.env`
 on the server with restricted permissions (`chmod 600 .env`). Use the same Compose
 commands. The Python 3.11 interpreter is in the image; Ubuntu's host Python version
 does not need changing. Never copy a Windows `.venv311` into the server or image.
