@@ -28,7 +28,7 @@ Use `AUTH_MODE=hybrid` if Firebase protects the web UI, or `AUTH_MODE=api_key` f
 Confirm the container is private and healthy:
 
 ```bash
-cd ~/expense-classification-agent
+cd ~/Ledgerly
 docker compose up -d --build --wait --wait-timeout 300
 curl --fail http://127.0.0.1:8000/health
 ```
