@@ -24,6 +24,7 @@
 <p align="center">
   <a href="docs/user-guide.md"><img alt="Read the Ledgerly user guide" src="https://img.shields.io/badge/User%20guide-Read-007A72"></a>
   <a href="docs/index.md"><img alt="Browse the documentation index" src="https://img.shields.io/badge/Documentation%20index-Browse-007A72"></a>
+  <a href="docs/Ledgerly_Technical_Design.pdf"><img alt="Read the Ledgerly technical design PDF" src="https://img.shields.io/badge/Technical%20design-PDF-007A72"></a>
 </p>
 
 ![Ledgerly interface: original receipt alongside the expense record, and monthly close with periods to review](docs/assets/readme-hero.png)
