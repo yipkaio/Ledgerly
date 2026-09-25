@@ -1,1 +1,60 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 670" role="img" aria-label="Three logical AI responsibilities and deterministic controls"><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#527068"/></marker></defs><style>text{font-family:Arial,sans-serif;fill:#193c32;font-size:14px}.edge{fill:none;stroke:#527068;stroke-width:1.6;marker-end:url(#arrow)}.assoc{fill:none;stroke:#527068;stroke-width:1.3}</style><rect x="240" y="15" width="340" height="55" rx="8" fill="#f0f7f3" stroke="#98b5a8"/><text text-anchor="middle"><tspan x="410.0" y="47.5">Authenticated Ledgerly API</tspan></text><rect x="20" y="150" width="250" height="95" rx="8" fill="#f0f7f3" stroke="#98b5a8"/><text text-anchor="middle"><tspan x="145.0" y="193.5">Document Intelligence</tspan><tspan x="145.0" y="211.5">Structured extraction</tspan></text><path class="edge" d="M410,70V110H145V150"/><rect x="285" y="150" width="250" height="95" rx="8" fill="#f0f7f3" stroke="#98b5a8"/><text text-anchor="middle"><tspan x="410.0" y="193.5">Classification and Compliance</tspan><tspan x="410.0" y="211.5">Category and review guidance</tspan></text><path class="edge" d="M410,70V110H410V150"/><rect x="550" y="150" width="250" height="95" rx="8" fill="#f0f7f3" stroke="#98b5a8"/><text text-anchor="middle"><tspan x="675.0" y="193.5">Finance Copilot</tspan><tspan x="675.0" y="211.5">Explanations and scoped Q&amp;A</tspan></text><path class="edge" d="M410,70V110H675V150"/><rect x="140" y="325" width="540" height="95" rx="8" fill="#f0f7f3" stroke="#98b5a8"/><text text-anchor="middle"><tspan x="410.0" y="359.5">Deterministic controls</tspan><tspan x="410.0" y="377.5">Validation, duplicates, vendor lookup, confidence gate,</tspan><tspan x="410.0" y="395.5">balances, reconciliation and lifecycle eligibility</tspan></text><path class="edge" d="M145,245V280H410V325"/><path class="edge" d="M410,245V280H410V325"/><path class="edge" d="M675,245V280H410V325"/><rect x="35" y="520" width="345" height="80" rx="8" fill="#f0f7f3" stroke="#98b5a8"/><text text-anchor="middle"><tspan x="207.5" y="556.0">SQLite and retained evidence</tspan><tspan x="207.5" y="574.0">Reporting source of truth</tspan></text><rect x="440" y="520" width="345" height="80" rx="8" fill="#f0f7f3" stroke="#98b5a8"/><text text-anchor="middle"><tspan x="612.5" y="556.0">Human authority</tspan><tspan x="612.5" y="574.0">Approve, reject, amend and record payment state</tspan></text><path class="edge" d="M330,420V475H207V520"/><path class="edge" d="M490,420V475H612V520"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 970" role="img" aria-labelledby="diagram-title diagram-description">
+<title id="diagram-title">AI responsibilities</title>
+<desc id="diagram-description">Authenticated Ledgerly API invokes Document Intelligence, Classification and Compliance, and Finance Copilot. Their results pass deterministic validation, duplicates, vendor lookup, confidence, balances, reconciliation and lifecycle controls. SQLite and retained evidence remain the reporting source of truth; human authority governs approvals, rejections, amendments and payment state.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5 0 10Z" fill="#007A72"/></marker><marker id="support-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5 0 10Z" fill="#78949A"/></marker></defs>
+<style>text{font-family:DejaVu Sans,Arial,sans-serif}.kicker{font-size:13px;font-weight:700;letter-spacing:2px;fill:#007A72}.title{font-size:30px;font-weight:700;fill:#1E3341}.subtitle{font-size:15px;fill:#52666F}.panel-title{font-size:17px;font-weight:700;fill:#1E3341}.panel-body{font-size:14px;fill:#415660}.panel-kicker{font-size:11px;font-weight:700;letter-spacing:1.4px;fill:#007A72}.panel-num{font-size:12px;font-weight:700;fill:#fff}.use-text{font-size:15px;font-weight:700;fill:#1E3341}.edge{stroke:#007A72;stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrow)}.support{stroke:#78949A;stroke-width:2;stroke-dasharray:6 5;fill:none;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#support-arrow)}.assoc{stroke:#78A7A5;stroke-width:1.7;fill:none;stroke-linecap:round}.branch{font-size:12px;font-weight:700;fill:#52666F}.footer{font-size:13px;fill:#52666F}</style>
+<rect width="1200" height="970" fill="#FFFFFF"/>
+<rect width="1200" height="9" fill="#007A72"/>
+<image x="18" y="12" width="190" height="74" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAG4AAAArCAYAAACZzr0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAUdSURBVHhe7dpfSFtnGMfxb9eLjF2ku1hbQ4kLzLRau9qtboGhBanaUEuLKbbTxo4gUqFVO2xxyLaSFq2tCKuFEeZcwASs3Yx4Uee2poJssrTKVmuVmVxsyaTTDUaFjgmT7MImHs+2mD8u9ZT3A+fivM9zzgv+OMc3ebMuGAwGERTnGfmAoAwiOIUSwSmUCE6hRHAKJYJTKBGcQongFEoEp1AiOIVal+hXXp7JMa72OvBMjslL/1BdbKbGVC4fFuKQcHBtLgdXe50YMnbKS2HSUA0ZO3E2tCyrC7FLODh9+b4VwzA3ncUzOUZ1sTkccqR+YWUJ/Y+L5vUoVWMqp7rYjGdyDHPTWXlZiEFCwcVDhLc6khpcm8tBm8sRPvdMjsX81AqLkhLc6+mLC5ervc7wEeKZvCvpjCSAzaRDY2rHLy/FwV2vQ5Nei1teWFWDnEzXoakflBcSlpTgakzlOBtaqC42LzuE+CUlOB5/DKgxlYcPQ0aWvEWIQdKC+9/NjWKrzkWXqUOTuQ1DdTfehXCROx1V7MrSoUnXsau6m/G/ll/Owiz91qLw9QXNnVjlr+YIc/g78tGk52PtamRP1r+9Hn00F+rQmDuZCY/NYjfLx6LzdAS34MNWcRjrd5k09d7G80kl6lv1HLg4CsDM9SoOtgygOnSJr9w3adX38eGN5be4czGfiq4Ar52wM/SlC8sf7dgmJA0rzLHIh821gY7bP/LgUp5kHCCNwwe0MNJH/y+Ph37qwz4C+81H2SzrXsnTEdw37VjvqbC02ijbuolUwxmaSlXMdV3HTYDeT4ch9RTO80fZsSWNvTV2LhZIbzDIta45MF7AWZOHfksmZedt1G6RtEScI0SFpf4UepXkOgn9kUqyGcU1OAuA/2Y3XvVxLAX/cUEET0Vwfu8oMI/9rcVXoSZdx0HnPCz8CfjwTgCv7EYfvkLFhuckN5j2MbYA+pdfZelPqOb5DUstkecI0ZK6UXIql3IUixFGbgwwQ4D+Gz5URUZy1ssbV/bEgjNk7MTr+GJVvnRO1e8G1Fg+us33X0uPC+SgJfUlwOuTfIyYxT8tuUGKlq2Ad8q3NLYQwP/z0mnkOaKlwlR6HNXIAO6hbuwTWqpK3pA3ReWJBRe3h+O4BwboDx33ZiHbSNkLc9ibW3E/mAfm+XWonctDD1GRxv58LUw0UtE8wPjUffqbT9M8Jbnn+jz2GoG+Wio6hvFODWOrO439kaQn4hwxMByiTD2MtaETf3Yllu3yhug8seDaXA705fti/+Zkuo+G01VUhA7nfXguj9bPbJSpP6euJJddObkc+Pg+qambANCf7KGjNBOvo4qCEgs9G+s4t2ztoMJ0vodzBc/S31LGHnMj3qIPeGcbEHqNrTBH9HZjMWuZ+22O7CJjzIuSsGACvp24G0wzFwaPNZ6RlyK60tMZTDMXBtPMhcErPZ3y8trw8Frw2LYXgynv3ZJXEnavNSeYsv1EsOeRvBK9pDxx5qaz4acrtH/HGttY9TtrqesaZHx6Fq+nk7o363GjpbZEvqyP3/xcgHFXPRUdAdSllZikC6QYJbwfJ91rkwuFIg0rZC2FBjAzUE+JtRvv74vn6q1G3n7/MlXZanlrnALYTLlYf1Cx48gVnO8a2RzHajIk4eAibc9Iw1mrT5pSJRxciHS7JkQeTpvLgSEjK+LPHITorFpwQnIlZXEirD4RnEKJ4BRKBKdQIjiFEsEplAhOoURwCiWCUygRnEL9DSHyqG7WeMOmAAAAAElFTkSuQmCC"/>
+<text class="kicker" x="228" y="53">TECHNICAL DESIGN</text>
+<text class="title" x="36" y="97">AI responsibilities</text>
+<text class="subtitle" x="36" y="122">Three bounded model roles within deterministic application controls</text>
+<line x1="36" x2="1164" y1="139" y2="139" stroke="#D4E2E4" stroke-width="1.4"/>
+<rect x="430" y="183" width="340" height="90" rx="14" fill="#E5F3F1" stroke="#007A72" stroke-width="1.5"/>
+<rect x="430" y="183" width="5" height="90" rx="2.5" fill="#007A72"/>
+<text class="panel-kicker" x="449" y="208">APPLICATION BOUNDARY</text>
+<text class="panel-title" x="449" y="232">Authenticated Ledgerly API</text>
+<text class="panel-body" x="449" y="250">Only allowed requests proceed</text>
+<rect x="55" y="345" width="340" height="100" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="55" y="345" width="5" height="100" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="74" y="370">AI / EXTRACTION</text>
+<text class="panel-title" x="74" y="394">Document Intelligence</text>
+<text class="panel-body" x="74" y="412">Structured extraction</text>
+<rect x="430" y="345" width="340" height="100" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="430" y="345" width="5" height="100" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="449" y="370">AI / RECOMMENDATION</text>
+<text class="panel-title" x="449" y="394">Classification and Compliance</text>
+<text class="panel-body" x="449" y="412">Category and review guidance</text>
+<rect x="805" y="345" width="340" height="100" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="805" y="345" width="5" height="100" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="824" y="370">AI / EXPLANATION</text>
+<text class="panel-title" x="824" y="394">Finance Copilot</text>
+<text class="panel-body" x="824" y="412">Explanations and scoped Q&amp;A</text>
+<path class="edge" d="M505 273 L505 305 L225 305 L225 345"/>
+<path class="edge" d="M600 273 L600 345"/>
+<path class="edge" d="M695 273 L695 305 L975 305 L975 345"/>
+<rect x="270" y="535" width="660" height="126" rx="14" fill="#E5F3F1" stroke="#007A72" stroke-width="1.5"/>
+<rect x="270" y="535" width="5" height="126" rx="2.5" fill="#007A72"/>
+<text class="panel-kicker" x="289" y="560">APPLICATION RULES</text>
+<text class="panel-title" x="289" y="584">Deterministic controls</text>
+<text class="panel-body" x="289" y="602">Validation, duplicates, vendor lookup, confidence gate,</text>
+<text class="panel-body" x="289" y="620">balances, reconciliation and lifecycle eligibility</text>
+<path class="edge" d="M225 445 L225 487 L390 487 L390 535"/>
+<path class="edge" d="M600 445 L600 535"/>
+<path class="edge" d="M975 445 L975 487 L810 487 L810 535"/>
+<rect x="125" y="735" width="425" height="110" rx="14" fill="#E6F5ED" stroke="#75B9A0" stroke-width="1.5"/>
+<rect x="125" y="735" width="5" height="110" rx="2.5" fill="#75B9A0"/>
+<text class="panel-kicker" x="144" y="760">PERSISTENCE</text>
+<text class="panel-title" x="144" y="784">SQLite and retained evidence</text>
+<text class="panel-body" x="144" y="802">Reporting source of truth</text>
+<rect x="650" y="735" width="425" height="110" rx="14" fill="#FFF7E8" stroke="#DAB26B" stroke-width="1.5"/>
+<rect x="650" y="735" width="5" height="110" rx="2.5" fill="#DAB26B"/>
+<text class="panel-kicker" x="669" y="760">DECISION</text>
+<text class="panel-title" x="669" y="784">Human authority</text>
+<text class="panel-body" x="669" y="802">Approve, reject, amend;</text>
+<text class="panel-body" x="669" y="820">record payment state</text>
+<path class="edge" d="M390 661 L390 694 L337 694 L337 735"/>
+<path class="edge" d="M810 661 L810 694 L862 694 L862 735"/>
+<line x1="36" x2="1164" y1="910" y2="910" stroke="#D4E2E4"/>
+<text class="footer" x="36" y="931">AI proposes and explains; deterministic rules and human decisions retain their separate authority.</text>
+</svg>
