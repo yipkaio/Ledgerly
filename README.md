@@ -27,7 +27,7 @@
   <a href="docs/Ledgerly_Technical_Design.pdf"><img alt="Read the Ledgerly technical design PDF" src="https://img.shields.io/badge/Technical%20design-PDF-007A72"></a>
 </p>
 
-![Ledgerly interface: original receipt alongside the expense record, and monthly close with periods to review](docs/assets/readme-hero.png)
+![Ledgerly UI process: upload a receipt, check the original and proposed category during human review, then compare accepted receipts with bank transactions](docs/assets/readme-ui-process.png)
 
 *Actual UI with illustrative sample data. See the [user guide](docs/user-guide.md) for the complete screens and workflows.*
 
@@ -141,6 +141,8 @@ If you changed `API_PORT` in `.env`, use that port instead of 8000. The health r
 The containers use named volumes; an existing Windows `data/` folder is not automatically imported. Keep the same `.env` and Compose project name when updating an installation. To stop the app while retaining its volumes, run `docker compose down` from the same checkout. Before an upgrade, back up SQLite **and** retained uploads together. See [Docker operations](docs/docker.md) for backup, deployment, update and rollback steps; an older image may not read a migrated database.
 
 ## Use Ledgerly
+
+![Ledgerly interface with an original receipt, the recorded expense and the monthly close workspace](docs/assets/readme-hero.png)
 
 1. **Sign in** with the local app key, or with the approved Firebase account in production.
 2. **Upload** a receipt in **Upload receipt**, or send one to the configured Telegram relay.
