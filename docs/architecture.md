@@ -13,7 +13,9 @@ consolidation are tracked in the [maintenance review](maintenance-review.md).
 
 ## UML use cases
 
-![Ledgerly UML use-case diagram](assets/diagrams/use-cases.svg)
+![UML use cases showing the bookkeeper's receipt, review and monthly-close tasks, plus the operator's service tasks](assets/diagrams/use-cases.svg)
+
+*Figure 1 — Ledgerly use cases and the two human roles.*
 
 The bookkeeper performs receipt, review, reporting and monthly-close work. The
 administrator operates configuration and recovery. Telegram/OpenClaw is an
@@ -22,7 +24,9 @@ support identity, model inference and exchange rates.
 
 ## Receipt-processing workflow
 
-![Receipt-processing activity diagram](assets/diagrams/receipt-flow.svg)
+![Receipt workflow showing the web and Telegram routes, duplicate rejection, category decision and human-review gate](assets/diagrams/receipt-flow.svg)
+
+*Figure 2 — Receipt intake, extraction, category routing and decision gate.*
 
 | Stage | Responsibility | Control boundary |
 |---|---|---|
@@ -36,7 +40,9 @@ support identity, model inference and exchange rates.
 
 ## Bank-statement and monthly-close workflow
 
-![Bank-statement import activity diagram](assets/diagrams/bank-flow.svg)
+![Monthly-close workflow with a confirmed PDF route, directly validated CSV route and shared reconciliation](assets/diagrams/bank-flow.svg)
+
+*Figure 3 — Statement import and monthly close with distinct PDF and CSV controls.*
 
 PDF import begins with deterministic extraction and a signed preview. The user
 must verify each extracted debit against the source and can import only when the
@@ -48,6 +54,8 @@ source, then deterministic reconciliation links debits to accepted receipts.
 ## AI responsibilities
 
 ![AI responsibility diagram](assets/diagrams/ai-components.svg)
+
+*Figure 4 — Logical AI responsibilities and their limits.*
 
 Ledgerly has three logical AI responsibilities inside one application boundary:
 
@@ -63,7 +71,9 @@ answers can therefore be produced without a model call.
 
 ## AWS Lightsail deployment
 
-![AWS Lightsail deployment diagram](assets/diagrams/aws-deployment.svg)
+![Configured Lightsail topology showing Caddy, FastAPI, OpenClaw, persistent volumes and external providers](assets/diagrams/aws-deployment.svg)
+
+*Figure 5 — Configured AWS Lightsail deployment and supporting services.*
 
 | Pointer | Configured component | Exposure and purpose |
 |---:|---|---|

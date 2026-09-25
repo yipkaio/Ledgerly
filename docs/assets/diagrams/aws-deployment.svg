@@ -1,1 +1,96 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1090" role="img" aria-label="AWS Lightsail deployment and external dependencies"><defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="#45695a"/></marker></defs><rect width="900" height="1090" fill="white"/><style>text{font:14px Arial,sans-serif;fill:#183f32}.e{stroke:#45695a;stroke-width:1.5;fill:none;marker-end:url(#arr)}</style><rect x="20" y="15" width="220" height="60" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="130.0" y="50.0">Browser</tspan></text><rect x="340" y="15" width="220" height="60" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="450.0" y="50.0">Telegram Bot API</tspan></text><rect x="660" y="15" width="220" height="60" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="770.0" y="50.0">Administrator</tspan></text><rect x="15" y="130" width="870" height="690" rx="10" fill="#fafcfb" stroke="#91af9f"/><text text-anchor="middle"><tspan x="450" y="157">AWS Lightsail · Ubuntu host</tspan></text><rect x="45" y="205" width="565" height="390" rx="8" fill="#eef5f0" stroke="#91af9f" stroke-dasharray="5 4"/><text text-anchor="middle"><tspan x="330" y="230">Private Docker Compose network</tspan></text><rect x="80" y="260" width="215" height="65" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="187.5" y="288.5">Caddy</tspan><tspan x="187.5" y="306.5">Public TLS endpoint</tspan></text><rect x="80" y="420" width="475" height="90" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="317.5" y="452.0">FastAPI container</tspan><tspan x="317.5" y="470.0">React UI, OCR and logical AI roles</tspan><tspan x="317.5" y="488.0">Host port 8000 bound to loopback</tspan></text><rect x="650" y="260" width="210" height="85" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="755.0" y="289.5">OpenClaw</tspan><tspan x="755.0" y="307.5">Host user service</tspan><tspan x="755.0" y="325.5">Gateway: loopback</tspan></text><rect x="40" y="675" width="280" height="85" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="180.0" y="704.5">Receipt-data volume</tspan><tspan x="180.0" y="722.5">SQLite + receipt uploads</tspan><tspan x="180.0" y="740.5">Bank sources inside SQLite</tspan></text><rect x="355" y="675" width="210" height="85" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="460.0" y="713.5">OCR cache volume</tspan><tspan x="460.0" y="731.5">Used by API</tspan></text><rect x="610" y="675" width="235" height="85" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="727.5" y="713.5">Caddy TLS volumes</tspan><tspan x="727.5" y="731.5">Used by Caddy</tspan></text><path class="e" d="M130,75V260"/><path class="e" d="M755,260V110H450V75"/><path class="e" d="M770,75V130"/><path class="e" d="M185,325V420"/><path class="e" d="M650,310H625V465H555"/><path class="e" d="M240,510V630H180V675"/><path class="e" d="M460,510V675"/><path class="e" d="M295,290H590V635H727V675"/><text text-anchor="middle"><tspan x="155" y="112">HTTPS / firewall</tspan></text><text text-anchor="middle"><tspan x="605" y="99">Outbound polling</tspan></text><text text-anchor="middle"><tspan x="793" y="108">SSH / firewall</tspan></text><text text-anchor="middle"><tspan x="700" y="430">Local authenticated</tspan><tspan x="700" y="448">API calls</tspan></text><rect x="20" y="930" width="240" height="85" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="140.0" y="968.5">Firebase Authentication</tspan><tspan x="140.0" y="986.5">Browser and API identity</tspan></text><rect x="330" y="930" width="240" height="85" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="450.0" y="968.5">Organiser LLM gateway</tspan><tspan x="450.0" y="986.5">API and OpenClaw models</tspan></text><rect x="640" y="930" width="240" height="85" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="760.0" y="968.5">ECB reference rates</tspan><tspan x="760.0" y="986.5">API reporting conversions</tspan></text><path class="e" d="M450,820V875H140V930"/><path class="e" d="M450,820V875H450V930"/><path class="e" d="M450,820V875H760V930"/><text text-anchor="middle"><tspan x="450" y="1060">External dependency lines summarise host/browser integrations.</tspan></text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 1170" role="img" aria-labelledby="diagram-title diagram-description">
+<title id="diagram-title">AWS Lightsail deployment</title>
+<desc id="diagram-description">AWS Lightsail Ubuntu host and firewall contain a private Docker Compose network with Caddy HTTPS proxy and FastAPI UI. The OpenClaw Telegram relay is a separate host user service outside Compose. A persistent volume contains SQLite and evidence. Browser, Telegram, operator, Firebase, model gateway and ECB are outside the host.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5 0 10Z" fill="#007A72"/></marker><marker id="support-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5 0 10Z" fill="#78949A"/></marker></defs>
+<style>text{font-family:DejaVu Sans,Arial,sans-serif}.kicker{font-size:13px;font-weight:700;letter-spacing:2px;fill:#007A72}.title{font-size:30px;font-weight:700;fill:#1E3341}.subtitle{font-size:15px;fill:#52666F}.panel-title{font-size:17px;font-weight:700;fill:#1E3341}.panel-body{font-size:14px;fill:#415660}.panel-kicker{font-size:11px;font-weight:700;letter-spacing:1.4px;fill:#007A72}.panel-num{font-size:12px;font-weight:700;fill:#fff}.use-text{font-size:15px;font-weight:700;fill:#1E3341}.edge{stroke:#007A72;stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrow)}.support{stroke:#78949A;stroke-width:2;stroke-dasharray:6 5;fill:none;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#support-arrow)}.assoc{stroke:#78A7A5;stroke-width:1.7;fill:none;stroke-linecap:round}.branch{font-size:12px;font-weight:700;fill:#52666F}.footer{font-size:13px;fill:#52666F}</style>
+<rect width="1200" height="1170" fill="#FFFFFF"/>
+<rect width="1200" height="9" fill="#007A72"/>
+<image x="18" y="12" width="190" height="74" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAG4AAAArCAYAAACZzr0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAUdSURBVHhe7dpfSFtnGMfxb9eLjF2ku1hbQ4kLzLRau9qtboGhBanaUEuLKbbTxo4gUqFVO2xxyLaSFq2tCKuFEeZcwASs3Yx4Uee2poJssrTKVmuVmVxsyaTTDUaFjgmT7MImHs+2mD8u9ZT3A+fivM9zzgv+OMc3ebMuGAwGERTnGfmAoAwiOIUSwSmUCE6hRHAKJYJTKBGcQongFEoEp1AiOIVal+hXXp7JMa72OvBMjslL/1BdbKbGVC4fFuKQcHBtLgdXe50YMnbKS2HSUA0ZO3E2tCyrC7FLODh9+b4VwzA3ncUzOUZ1sTkccqR+YWUJ/Y+L5vUoVWMqp7rYjGdyDHPTWXlZiEFCwcVDhLc6khpcm8tBm8sRPvdMjsX81AqLkhLc6+mLC5ervc7wEeKZvCvpjCSAzaRDY2rHLy/FwV2vQ5Nei1teWFWDnEzXoakflBcSlpTgakzlOBtaqC42LzuE+CUlOB5/DKgxlYcPQ0aWvEWIQdKC+9/NjWKrzkWXqUOTuQ1DdTfehXCROx1V7MrSoUnXsau6m/G/ll/Owiz91qLw9QXNnVjlr+YIc/g78tGk52PtamRP1r+9Hn00F+rQmDuZCY/NYjfLx6LzdAS34MNWcRjrd5k09d7G80kl6lv1HLg4CsDM9SoOtgygOnSJr9w3adX38eGN5be4czGfiq4Ar52wM/SlC8sf7dgmJA0rzLHIh821gY7bP/LgUp5kHCCNwwe0MNJH/y+Ph37qwz4C+81H2SzrXsnTEdw37VjvqbC02ijbuolUwxmaSlXMdV3HTYDeT4ch9RTO80fZsSWNvTV2LhZIbzDIta45MF7AWZOHfksmZedt1G6RtEScI0SFpf4UepXkOgn9kUqyGcU1OAuA/2Y3XvVxLAX/cUEET0Vwfu8oMI/9rcVXoSZdx0HnPCz8CfjwTgCv7EYfvkLFhuckN5j2MbYA+pdfZelPqOb5DUstkecI0ZK6UXIql3IUixFGbgwwQ4D+Gz5URUZy1ssbV/bEgjNk7MTr+GJVvnRO1e8G1Fg+us33X0uPC+SgJfUlwOuTfIyYxT8tuUGKlq2Ad8q3NLYQwP/z0mnkOaKlwlR6HNXIAO6hbuwTWqpK3pA3ReWJBRe3h+O4BwboDx33ZiHbSNkLc9ibW3E/mAfm+XWonctDD1GRxv58LUw0UtE8wPjUffqbT9M8Jbnn+jz2GoG+Wio6hvFODWOrO439kaQn4hwxMByiTD2MtaETf3Yllu3yhug8seDaXA705fti/+Zkuo+G01VUhA7nfXguj9bPbJSpP6euJJddObkc+Pg+qambANCf7KGjNBOvo4qCEgs9G+s4t2ztoMJ0vodzBc/S31LGHnMj3qIPeGcbEHqNrTBH9HZjMWuZ+22O7CJjzIuSsGACvp24G0wzFwaPNZ6RlyK60tMZTDMXBtPMhcErPZ3y8trw8Frw2LYXgynv3ZJXEnavNSeYsv1EsOeRvBK9pDxx5qaz4acrtH/HGttY9TtrqesaZHx6Fq+nk7o363GjpbZEvqyP3/xcgHFXPRUdAdSllZikC6QYJbwfJ91rkwuFIg0rZC2FBjAzUE+JtRvv74vn6q1G3n7/MlXZanlrnALYTLlYf1Cx48gVnO8a2RzHajIk4eAibc9Iw1mrT5pSJRxciHS7JkQeTpvLgSEjK+LPHITorFpwQnIlZXEirD4RnEKJ4BRKBKdQIjiFEsEplAhOoURwCiWCUygRnEL9DSHyqG7WeMOmAAAAAElFTkSuQmCC"/>
+<text class="kicker" x="228" y="53">TECHNICAL DESIGN</text>
+<text class="title" x="36" y="97">AWS Lightsail deployment</text>
+<text class="subtitle" x="36" y="122">Configured topology: public HTTPS, private app network and off-instance providers</text>
+<line x1="36" x2="1164" y1="139" y2="139" stroke="#D4E2E4" stroke-width="1.4"/>
+<rect x="100" y="174" width="260" height="91" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="100" y="174" width="5" height="91" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="119" y="199">CLIENT</text>
+<text class="panel-title" x="119" y="223">Bookkeeper browser</text>
+<text class="panel-body" x="119" y="241">Firebase sign-in; HTTPS</text>
+<rect x="435" y="174" width="260" height="91" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="435" y="174" width="5" height="91" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="454" y="199">EXTERNAL</text>
+<text class="panel-title" x="454" y="223">Telegram Bot API</text>
+<text class="panel-body" x="454" y="241">OpenClaw polls outbound</text>
+<rect x="770" y="174" width="260" height="91" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="770" y="174" width="5" height="91" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="789" y="199">OPERATOR</text>
+<text class="panel-title" x="789" y="223">Administrator</text>
+<text class="panel-body" x="789" y="241">SSH through firewall</text>
+<rect x="90" y="345" width="740" height="730" rx="22" fill="#F9FCFC" stroke="#9BC5BF" stroke-width="2"/>
+<rect x="90" y="345" width="740" height="49" rx="21" fill="#DFF1EE"/>
+<text class="panel-kicker" x="145" y="377">1  AWS LIGHTSAIL · UBUNTU HOST / FIREWALL</text>
+<text class="panel-kicker" x="145" y="459">HOST USER SERVICE / OUTSIDE COMPOSE</text>
+<rect x="505" y="430" width="270" height="105" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="505" y="430" width="5" height="105" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="524" y="455">4 / HOST SERVICE</text>
+<text class="panel-title" x="524" y="479">OpenClaw</text>
+<text class="panel-body" x="524" y="497">Owner-only Telegram relay;</text>
+<text class="panel-body" x="524" y="515">port 18789: loopback</text>
+<rect x="125" y="600" width="665" height="195" rx="16" fill="#EDF7F6" stroke="#AED2CD" stroke-dasharray="8 6"/>
+<text class="panel-kicker" x="145" y="627">PRIVATE DOCKER COMPOSE NETWORK</text>
+<rect x="145" y="645" width="270" height="105" rx="14" fill="#E5F3F1" stroke="#007A72" stroke-width="1.5"/>
+<rect x="145" y="645" width="5" height="105" rx="2.5" fill="#007A72"/>
+<text class="panel-kicker" x="164" y="670">2 / PUBLIC WEB</text>
+<text class="panel-title" x="164" y="694">Caddy HTTPS</text>
+<text class="panel-body" x="164" y="712">Ports 80 / 443 public;</text>
+<text class="panel-body" x="164" y="730">proxy to FastAPI</text>
+<rect x="505" y="645" width="270" height="105" rx="14" fill="#E5F3F1" stroke="#007A72" stroke-width="1.5"/>
+<rect x="505" y="645" width="5" height="105" rx="2.5" fill="#007A72"/>
+<text class="panel-kicker" x="524" y="670">3 / APPLICATION</text>
+<text class="panel-title" x="524" y="694">FastAPI + UI</text>
+<text class="panel-body" x="524" y="712">OCR, workflow, read-only AI;</text>
+<text class="panel-body" x="524" y="730">port 8000: loopback</text>
+<rect x="310" y="835" width="300" height="90" rx="14" fill="#E6F5ED" stroke="#75B9A0" stroke-width="1.5"/>
+<rect x="310" y="835" width="5" height="90" rx="2.5" fill="#75B9A0"/>
+<text class="panel-kicker" x="329" y="860">5 / PERSISTED DATA</text>
+<text class="panel-title" x="329" y="884">receipt-data volume</text>
+<text class="panel-body" x="329" y="902">SQLite, sources and originals</text>
+<rect x="145" y="970" width="270" height="70" rx="14" fill="#F8FBFB" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="145" y="970" width="5" height="70" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="164" y="995">6 / SUPPORT</text>
+<text class="panel-title" x="164" y="1019">Caddy certificate state</text>
+<rect x="505" y="970" width="270" height="70" rx="14" fill="#F8FBFB" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="505" y="970" width="5" height="70" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="524" y="995">6 / SUPPORT</text>
+<text class="panel-title" x="524" y="1019">OCR model cache</text>
+<path class="edge" d="M230 265 L230 296 L115 296 L115 697 L145 697"/>
+<path class="support" d="M565 265 L565 296 L790 296 L790 482 L775 482"/>
+<path class="support" d="M900 265 L900 321 L812 321 L812 345"/>
+<path class="edge" d="M415 697 L505 697"/>
+<path class="edge" d="M640 535 L640 645"/>
+<path class="edge" d="M555 750 L555 809 L460 809 L460 835"/>
+<text class="panel-kicker" x="900" y="420">OFF-INSTANCE SERVICES</text>
+<rect x="900" y="450" width="265" height="105" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="900" y="450" width="5" height="105" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="919" y="475">7 / IDENTITY</text>
+<text class="panel-title" x="919" y="499">Firebase Auth</text>
+<text class="panel-body" x="919" y="517">Browser sign-in;</text>
+<text class="panel-body" x="919" y="535">API checks allowed UID</text>
+<rect x="900" y="610" width="265" height="105" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="900" y="610" width="5" height="105" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="919" y="635">8 / AI SERVICE</text>
+<text class="panel-title" x="919" y="659">Model gateway</text>
+<text class="panel-body" x="919" y="677">Bounded text or context;</text>
+<text class="panel-body" x="919" y="695">advisory responses only</text>
+<rect x="900" y="770" width="265" height="105" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="900" y="770" width="5" height="105" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="919" y="795">9 / REFERENCE</text>
+<text class="panel-title" x="919" y="819">ECB FX rates</text>
+<text class="panel-body" x="919" y="837">Dated reporting snapshot;</text>
+<text class="panel-body" x="919" y="855">native values unchanged</text>
+<path d="M775 700H854 M854 502V822" fill="none" stroke="#78949A" stroke-width="2" stroke-dasharray="6 5"/>
+<path class="support" d="M854 502 L900 502"/>
+<path class="support" d="M854 662 L900 662"/>
+<path class="support" d="M854 822 L900 822"/>
+<line x1="36" x2="1164" y1="1110" y2="1110" stroke="#D4E2E4"/>
+<text class="footer" x="36" y="1131">Configured architecture, not a live-host attestation. SQLite and uploads need a separate off-instance backup.</text>
+</svg>

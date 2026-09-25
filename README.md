@@ -45,6 +45,7 @@
 - [Use Ledgerly](#use-ledgerly)
 - [Troubleshoot Ledgerly](#troubleshoot-ledgerly)
 - [How it works](#how-it-works)
+  - [Workflow diagrams](#workflow-diagrams)
 - [Project structure](#project-structure)
 - [Documentation and checks](#documentation-and-checks)
 
@@ -164,6 +165,15 @@ Follow the [illustrated user guide](docs/user-guide.md) for screen-by-screen exa
 The React workspace calls a FastAPI backend. OCR runs locally; only bounded text and context go to the model gateway for extraction, classification or read-only Finance Copilot responses. SQLite holds receipt, review and bank records, while receipt files live in protected upload storage. The production Compose overlay places Caddy HTTPS in front of the app; OpenClaw relays approved Telegram messages to the same API.
 
 Vendor lookup, arithmetic checks, duplicate handling, bank matching, status changes and approvals remain controlled by application rules or a person. Finance Copilot cannot alter financial records. Read more in [architecture](docs/architecture.md), [AI responsibilities](docs/ai-agents.md), [security](docs/security.md) and [authentication](docs/authentication.md).
+
+### Workflow diagrams
+
+Select a diagram to open it at full size. The [architecture guide](docs/architecture.md) explains each control and includes the use cases, AI responsibilities and Lightsail deployment.
+
+| Receipt intake and review | Statement import and monthly close |
+| --- | --- |
+| <a href="docs/assets/diagrams/receipt-flow.svg"><img src="docs/assets/diagrams/receipt-flow.svg" alt="Receipt workflow from web or Telegram intake through validation, classification and human review" width="450"></a> | <a href="docs/assets/diagrams/bank-flow.svg"><img src="docs/assets/diagrams/bank-flow.svg" alt="PDF confirmation and CSV validation converging on monthly bank reconciliation" width="450"></a> |
+| Web and Telegram receipts share validation, extraction and category routing. Clean results can auto-file; uncertain results wait for a person. | A PDF needs a signed preview and human confirmation; normalized CSV is validated directly. Both retain the source before matching accepted receipts. |
 
 ## Project structure
 

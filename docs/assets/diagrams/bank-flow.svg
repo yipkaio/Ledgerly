@@ -1,1 +1,82 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1040" role="img" aria-label="Bank-statement import and reconciliation"><defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="#45695a"/></marker></defs><rect width="800" height="1040" fill="white"/><style>text{font:14px Arial,sans-serif;fill:#183f32}.e{stroke:#45695a;stroke-width:1.5;fill:none;marker-end:url(#arr)}</style><rect x="250" y="10" width="300" height="55" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="400.0" y="42.5">Authenticated statement upload</tspan></text><polygon points="400,100 512,145 400,190 288,145" fill="#fff4e2" stroke="#be9b63"/><text text-anchor="middle"><tspan x="400" y="150">PDF or CSV?</tspan></text><rect x="25" y="235" width="265" height="65" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="157.5" y="272.5">CSV: validate and normalise</tspan></text><rect x="510" y="235" width="265" height="65" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="642.5" y="272.5">PDF: local text extraction</tspan></text><polygon points="640,345 752,390 640,435 528,390" fill="#fff4e2" stroke="#be9b63"/><text text-anchor="middle"><tspan x="640" y="395">Supported layout?</tspan></text><rect x="35" y="360" width="285" height="70" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="177.5" y="391.0">Explicit consent for AI retry</tspan><tspan x="177.5" y="409.0">Unsupported PDF layout only</tspan></text><rect x="465" y="500" width="320" height="65" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="625.0" y="528.5">Preview extracted transactions</tspan><tspan x="625.0" y="546.5">Check balances and source</tspan></text><polygon points="625,610 737,655 625,700 513,655" fill="#fff4e2" stroke="#be9b63"/><text text-anchor="middle"><tspan x="625" y="660">Preview valid?</tspan></text><rect x="25" y="625" width="295" height="65" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="172.5" y="653.5">Block invalid preview</tspan><tspan x="172.5" y="671.5">Check layout or use CSV</tspan></text><rect x="465" y="755" width="320" height="65" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="625.0" y="783.5">Human evidence confirmation</tspan><tspan x="625.0" y="801.5">Verify signed preview and file</tspan></text><rect x="100" y="875" width="600" height="65" rx="8" fill="#f0f7f3" stroke="#94b5a4"/><text text-anchor="middle"><tspan x="400.0" y="903.5">Import and retain source; reconcile month and currency</tspan><tspan x="400.0" y="921.5">Match eligible accepted receipts to active bank debits</tspan></text><path class="e" d="M400,65V100"/><path class="e" d="M288,145H157V235"/><path class="e" d="M512,145H640V235"/><path class="e" d="M640,300V345"/><path class="e" d="M528,390H320"/><path class="e" d="M177,430V532H465"/><path class="e" d="M640,435V500"/><path class="e" d="M625,565V610"/><path class="e" d="M513,655H320"/><path class="e" d="M625,700V755"/><path class="e" d="M625,820V875"/><path class="e" d="M157,300V335H10V907H100"/><text text-anchor="middle"><tspan x="210" y="132">CSV</tspan></text><text text-anchor="middle"><tspan x="575" y="132">PDF</tspan></text><text text-anchor="middle"><tspan x="430" y="377">No</tspan></text><text text-anchor="middle"><tspan x="672" y="477">Yes</tspan></text><text text-anchor="middle"><tspan x="407" y="642">No</tspan></text><text text-anchor="middle"><tspan x="658" y="735">Yes</tspan></text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 1190" role="img" aria-labelledby="diagram-title diagram-description">
+<title id="diagram-title">Statement and monthly close</title>
+<desc id="diagram-description">Bank statement workflow. PDF local extraction or optional consented AI produces a signed preview for human confirmation. CSV validates directly. Both retain source bytes and reconcile accepted receipts.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5 0 10Z" fill="#007A72"/></marker><marker id="support-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5 0 10Z" fill="#78949A"/></marker></defs>
+<style>text{font-family:DejaVu Sans,Arial,sans-serif}.kicker{font-size:13px;font-weight:700;letter-spacing:2px;fill:#007A72}.title{font-size:30px;font-weight:700;fill:#1E3341}.subtitle{font-size:15px;fill:#52666F}.panel-title{font-size:17px;font-weight:700;fill:#1E3341}.panel-body{font-size:14px;fill:#415660}.panel-kicker{font-size:11px;font-weight:700;letter-spacing:1.4px;fill:#007A72}.panel-num{font-size:12px;font-weight:700;fill:#fff}.use-text{font-size:15px;font-weight:700;fill:#1E3341}.edge{stroke:#007A72;stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#arrow)}.support{stroke:#78949A;stroke-width:2;stroke-dasharray:6 5;fill:none;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#support-arrow)}.assoc{stroke:#78A7A5;stroke-width:1.7;fill:none;stroke-linecap:round}.branch{font-size:12px;font-weight:700;fill:#52666F}.footer{font-size:13px;fill:#52666F}</style>
+<rect width="1200" height="1190" fill="#FFFFFF"/>
+<rect width="1200" height="9" fill="#007A72"/>
+<image x="18" y="12" width="190" height="74" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAG4AAAArCAYAAACZzr0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAUdSURBVHhe7dpfSFtnGMfxb9eLjF2ku1hbQ4kLzLRau9qtboGhBanaUEuLKbbTxo4gUqFVO2xxyLaSFq2tCKuFEeZcwASs3Yx4Uee2poJssrTKVmuVmVxsyaTTDUaFjgmT7MImHs+2mD8u9ZT3A+fivM9zzgv+OMc3ebMuGAwGERTnGfmAoAwiOIUSwSmUCE6hRHAKJYJTKBGcQongFEoEp1AiOIVal+hXXp7JMa72OvBMjslL/1BdbKbGVC4fFuKQcHBtLgdXe50YMnbKS2HSUA0ZO3E2tCyrC7FLODh9+b4VwzA3ncUzOUZ1sTkccqR+YWUJ/Y+L5vUoVWMqp7rYjGdyDHPTWXlZiEFCwcVDhLc6khpcm8tBm8sRPvdMjsX81AqLkhLc6+mLC5ervc7wEeKZvCvpjCSAzaRDY2rHLy/FwV2vQ5Nei1teWFWDnEzXoakflBcSlpTgakzlOBtaqC42LzuE+CUlOB5/DKgxlYcPQ0aWvEWIQdKC+9/NjWKrzkWXqUOTuQ1DdTfehXCROx1V7MrSoUnXsau6m/G/ll/Owiz91qLw9QXNnVjlr+YIc/g78tGk52PtamRP1r+9Hn00F+rQmDuZCY/NYjfLx6LzdAS34MNWcRjrd5k09d7G80kl6lv1HLg4CsDM9SoOtgygOnSJr9w3adX38eGN5be4czGfiq4Ar52wM/SlC8sf7dgmJA0rzLHIh821gY7bP/LgUp5kHCCNwwe0MNJH/y+Ph37qwz4C+81H2SzrXsnTEdw37VjvqbC02ijbuolUwxmaSlXMdV3HTYDeT4ch9RTO80fZsSWNvTV2LhZIbzDIta45MF7AWZOHfksmZedt1G6RtEScI0SFpf4UepXkOgn9kUqyGcU1OAuA/2Y3XvVxLAX/cUEET0Vwfu8oMI/9rcVXoSZdx0HnPCz8CfjwTgCv7EYfvkLFhuckN5j2MbYA+pdfZelPqOb5DUstkecI0ZK6UXIql3IUixFGbgwwQ4D+Gz5URUZy1ssbV/bEgjNk7MTr+GJVvnRO1e8G1Fg+us33X0uPC+SgJfUlwOuTfIyYxT8tuUGKlq2Ad8q3NLYQwP/z0mnkOaKlwlR6HNXIAO6hbuwTWqpK3pA3ReWJBRe3h+O4BwboDx33ZiHbSNkLc9ibW3E/mAfm+XWonctDD1GRxv58LUw0UtE8wPjUffqbT9M8Jbnn+jz2GoG+Wio6hvFODWOrO439kaQn4hwxMByiTD2MtaETf3Yllu3yhug8seDaXA705fti/+Zkuo+G01VUhA7nfXguj9bPbJSpP6euJJddObkc+Pg+qambANCf7KGjNBOvo4qCEgs9G+s4t2ztoMJ0vodzBc/S31LGHnMj3qIPeGcbEHqNrTBH9HZjMWuZ+22O7CJjzIuSsGACvp24G0wzFwaPNZ6RlyK60tMZTDMXBtPMhcErPZ3y8trw8Frw2LYXgynv3ZJXEnavNSeYsv1EsOeRvBK9pDxx5qaz4acrtH/HGttY9TtrqesaZHx6Fq+nk7o363GjpbZEvqyP3/xcgHFXPRUdAdSllZikC6QYJbwfJ91rkwuFIg0rZC2FBjAzUE+JtRvv74vn6q1G3n7/MlXZanlrnALYTLlYf1Cx48gVnO8a2RzHajIk4eAibc9Iw1mrT5pSJRxciHS7JkQeTpvLgSEjK+LPHITorFpwQnIlZXEirD4RnEKJ4BRKBKdQIjiFEsEplAhOoURwCiWCUygRnEL9DSHyqG7WeMOmAAAAAElFTkSuQmCC"/>
+<text class="kicker" x="228" y="53">TECHNICAL DESIGN</text>
+<text class="title" x="36" y="97">Statement and monthly close</text>
+<text class="subtitle" x="36" y="122">PDF confirmation and direct CSV validation converge on one monthly review</text>
+<line x1="36" x2="1164" y1="139" y2="139" stroke="#D4E2E4" stroke-width="1.4"/>
+<rect x="55" y="171" width="335" height="86" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="55" y="171" width="5" height="86" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="74" y="196">01 / PDF SOURCE</text>
+<text class="panel-title" x="74" y="220">Bank-statement PDF</text>
+<text class="panel-body" x="74" y="238">Allowed bookkeeper uploads</text>
+<rect x="810" y="171" width="335" height="86" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="810" y="171" width="5" height="86" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="829" y="196">01 / CSV SOURCE</text>
+<text class="panel-title" x="829" y="220">Normalized CSV</text>
+<text class="panel-body" x="829" y="238">Allowed bookkeeper uploads</text>
+<rect x="55" y="322" width="335" height="96" rx="14" fill="#E5F3F1" stroke="#007A72" stroke-width="1.5"/>
+<rect x="55" y="322" width="5" height="96" rx="2.5" fill="#007A72"/>
+<text class="panel-kicker" x="74" y="347">02 / PRIVATE-FIRST</text>
+<text class="panel-title" x="74" y="371">Local extraction</text>
+<text class="panel-body" x="74" y="389">PDF text or PaddleOCR;</text>
+<text class="panel-body" x="74" y="407">deterministic debit parser</text>
+<rect x="810" y="322" width="335" height="96" rx="14" fill="#E5F3F1" stroke="#007A72" stroke-width="1.5"/>
+<rect x="810" y="322" width="5" height="96" rx="2.5" fill="#007A72"/>
+<text class="panel-kicker" x="829" y="347">02 / DIRECT ROUTE</text>
+<text class="panel-title" x="829" y="371">Validate CSV rows</text>
+<text class="panel-body" x="829" y="389">Columns, period, currency,</text>
+<text class="panel-body" x="829" y="407">positive debit values</text>
+<path class="edge" d="M223 257 L223 322"/>
+<path class="edge" d="M977 257 L977 322"/>
+<rect x="55" y="525" width="335" height="94" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="55" y="525" width="5" height="94" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="74" y="550">03 / PDF CONTROL</text>
+<text class="panel-title" x="74" y="574">Signed preview</text>
+<text class="panel-body" x="74" y="592">File + preview hashes, expiry;</text>
+<text class="panel-body" x="74" y="610">balance and row checks</text>
+<path class="edge" d="M223 418 L223 525"/>
+<rect x="453" y="525" width="314" height="94" rx="14" fill="#FFF7E8" stroke="#DAB26B" stroke-width="1.5"/>
+<rect x="453" y="525" width="5" height="94" rx="2.5" fill="#DAB26B"/>
+<text class="panel-kicker" x="472" y="550">OPTIONAL / CONSENT</text>
+<text class="panel-title" x="472" y="574">AI layout fallback</text>
+<text class="panel-body" x="472" y="592">Unsupported PDFs only;</text>
+<text class="panel-body" x="472" y="610">bounded, masked text</text>
+<path class="support" d="M390 370 L422 370 L422 553 L453 553"/>
+<path class="support" d="M453 591 L405 591 L405 578 L390 578"/>
+<text class="branch" x="429" y="354">IF UNSUPPORTED</text>
+<rect x="810" y="525" width="335" height="94" rx="14" fill="#F1F7F7" stroke="#D4E2E4" stroke-width="1.5"/>
+<rect x="810" y="525" width="5" height="94" rx="2.5" fill="#D4E2E4"/>
+<text class="panel-kicker" x="829" y="550">03 / CSV CONTROL</text>
+<text class="panel-title" x="829" y="574">Validated source</text>
+<text class="panel-body" x="829" y="592">No PDF preview token</text>
+<path class="edge" d="M977 418 L977 525"/>
+<rect x="55" y="693" width="335" height="94" rx="14" fill="#E5F3F1" stroke="#007A72" stroke-width="1.5"/>
+<rect x="55" y="693" width="5" height="94" rx="2.5" fill="#007A72"/>
+<text class="panel-kicker" x="74" y="718">04 / CONFIRMATION</text>
+<text class="panel-title" x="74" y="742">Human checks PDF</text>
+<text class="panel-body" x="74" y="760">Compare source and debits;</text>
+<text class="panel-body" x="74" y="778">expiry or tampering restarts</text>
+<path class="edge" d="M223 619 L223 693"/>
+<rect x="420" y="854" width="360" height="86" rx="14" fill="#E6F5ED" stroke="#75B9A0" stroke-width="1.5"/>
+<rect x="420" y="854" width="5" height="86" rx="2.5" fill="#75B9A0"/>
+<text class="panel-kicker" x="439" y="879">05 / EVIDENCE</text>
+<text class="panel-title" x="439" y="903">Import + retain</text>
+<text class="panel-body" x="439" y="921">Statement bytes and debit rows</text>
+<path class="edge" d="M223 787 L223 824 L520 824 L520 854"/>
+<path class="edge" d="M977 619 L977 824 L680 824 L680 854"/>
+<rect x="420" y="984" width="360" height="107" rx="14" fill="#E5F3F1" stroke="#007A72" stroke-width="1.5"/>
+<rect x="420" y="984" width="5" height="107" rx="2.5" fill="#007A72"/>
+<text class="panel-kicker" x="439" y="1009">06 / MONTHLY CLOSE</text>
+<text class="panel-title" x="439" y="1033">Match + record review</text>
+<text class="panel-body" x="439" y="1051">Accepted receipts, exceptions,</text>
+<text class="panel-body" x="439" y="1069">audited month decision</text>
+<path class="edge" d="M600 940 L600 984"/>
+<line x1="36" x2="1164" y1="1130" y2="1130" stroke="#D4E2E4"/>
+<text class="footer" x="36" y="1151">A suggested match is not proof of payment. Invalid PDF previews or failed balance controls block confirmation.</text>
+</svg>
