@@ -21,7 +21,10 @@
   <a href="docs/docker.md#lightsail-deployment-and-subsequent-updates"><img alt="Hosting: AWS Lightsail" src="https://img.shields.io/badge/Hosting-AWS%20Lightsail-007A72"></a>
 </p>
 
-<p align="center"><a href="https://github.com/yipkaio/Ledgerly">GitHub repository</a> · <a href="docs/user-guide.md">User guide</a> · <a href="docs/index.md">Documentation index</a></p>
+<p align="center">
+  <a href="docs/user-guide.md"><img alt="Read the Ledgerly user guide" src="https://img.shields.io/badge/User%20guide-Read-007A72"></a>
+  <a href="docs/index.md"><img alt="Browse the documentation index" src="https://img.shields.io/badge/Documentation%20index-Browse-007A72"></a>
+</p>
 
 ![Ledgerly interface: original receipt alongside the expense record, and monthly close with periods to review](docs/assets/readme-hero.png)
 
