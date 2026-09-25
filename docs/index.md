@@ -6,6 +6,8 @@ documents below contain the detailed contracts and operating procedures.
 
 ## Understand the system
 
+- [Technical design (PDF)](Ledgerly_Technical_Design.pdf) — system architecture,
+  receipt and statement workflows, data design, verification and current limits.
 - [Architecture and data flow](architecture.md) — receipt workflow, trust
   boundaries, deployed AWS topology and component responsibilities.
 - [Illustrated user guide](user-guide.md) — privacy-reviewed product walkthrough
