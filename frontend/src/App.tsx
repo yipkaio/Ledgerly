@@ -19,6 +19,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -301,7 +304,13 @@ function Workspace({
     [filters, setFilters] = useState(emptyFilters),
     [checked, setChecked] = useState<Set<string>>(new Set()),
     [exportBusy, setExportBusy] = useState(false),
-    [monthlyReturn, setMonthlyReturn] = useState<MonthlyCloseLocation | null>(null);
+    [monthlyReturn, setMonthlyReturn] = useState<MonthlyCloseLocation | null>(null),
+    [purgeOpen, setPurgeOpen] = useState(false),
+    [purgePreview, setPurgePreview] = useState<{ count: number; fingerprint: string } | null>(null),
+    [purgePhrase, setPurgePhrase] = useState(""),
+    [purgeBusy, setPurgeBusy] = useState(false),
+    [purgeError, setPurgeError] = useState(""),
+    [purgeResult, setPurgeResult] = useState("");
   const now = useClock();
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -389,6 +398,40 @@ function Workspace({
       setError(message(e));
     } finally {
       setExportBusy(false);
+    }
+  }
+  async function openPurge() {
+    setPurgeOpen(true);
+    setPurgePreview(null);
+    setPurgePhrase("");
+    setPurgeError("");
+    try {
+      setPurgePreview(await request<{ count: number; fingerprint: string }>(
+        "/receipts/deleted/purge-preview", token,
+      ));
+    } catch (cause) {
+      setPurgeError(message(cause));
+    }
+  }
+  async function emptyDeleted() {
+    if (!purgePreview || !purgePreview.count || purgePhrase !== "DELETE ALL") return;
+    setPurgeBusy(true);
+    setPurgeError("");
+    try {
+      const result = await request<{ removed: number; remaining: number }>(
+        "/receipts/deleted/purge", token,
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fingerprint: purgePreview.fingerprint, confirmation: purgePhrase }) },
+      );
+      setPurgeResult(`${result.removed} deleted receipt${result.removed === 1 ? "" : "s"} permanently erased.${result.remaining ? ` ${result.remaining} could not be erased and will be retried automatically.` : ""}`);
+      setPurgeOpen(false);
+      setOffset(0);
+      setRefresh((n) => n + 1);
+    } catch (cause) {
+      setPurgeError(message(cause));
+      if (cause instanceof ApiError && cause.status === 409) setRefresh((n) => n + 1);
+    } finally {
+      setPurgeBusy(false);
     }
   }
   return (
@@ -537,6 +580,9 @@ function Workspace({
                     ? "Restore receipts within 30 days. Expired receipts and their files are automatically erased; finalized receipts never enter this area."
                     : "Human decisions take precedence. Voided receipts remain visible as evidence and are excluded from totals and exports."}
               </p>
+              {view === "deleted" && purgeResult && (
+                <Notice>{purgeResult}</Notice>
+              )}
               {view === "history" && (
                 <form
                   className="panel mb-5 p-4 sm:p-5"
@@ -667,6 +713,14 @@ function Workspace({
               )}
               {page && (
                 <div className="panel overflow-hidden">
+                  {view === "deleted" && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+                      <p className="muted">{page.total} deleted receipt{page.total === 1 ? "" : "s"}</p>
+                      <Button variant="destructive" disabled={!page.total || purgeBusy} onClick={() => void openPurge()}>
+                        <Trash2 /> Empty Deleted receipts
+                      </Button>
+                    </div>
+                  )}
                   {view === "history" && (
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
                       <p className="muted" aria-live="polite">
@@ -864,6 +918,30 @@ function Workspace({
           )}
         </main>
       </div>
+      <Dialog open={purgeOpen} onOpenChange={(open) => { if (!purgeBusy) setPurgeOpen(open); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Empty Deleted receipts?</DialogTitle>
+            <DialogDescription>
+              Permanently erase {purgePreview?.count ?? "…"} deleted receipt{purgePreview?.count === 1 ? "" : "s"} and their saved files now. You cannot restore them afterward. Active and voided receipts are unaffected.
+            </DialogDescription>
+          </DialogHeader>
+          {!purgePreview && !purgeError && <p role="status">Loading deleted receipts…</p>}
+          {purgePreview && purgePreview.count > 0 && (
+            <div>
+              <label className="field-label" htmlFor="purge-confirmation">Type DELETE ALL to confirm</label>
+              <Input id="purge-confirmation" autoComplete="off" value={purgePhrase} onChange={(event) => setPurgePhrase(event.target.value)} />
+            </div>
+          )}
+          {purgeError && <Notice variant="destructive">{purgeError}</Notice>}
+          <DialogFooter>
+            <Button variant="outline" disabled={purgeBusy} onClick={() => setPurgeOpen(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={!purgePreview?.count || purgePhrase !== "DELETE ALL" || purgeBusy} onClick={() => void emptyDeleted()}>
+              {purgeBusy && <LoaderCircle className="animate-spin" />} Erase deleted receipts
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

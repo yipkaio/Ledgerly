@@ -1,6 +1,7 @@
 """Recoverable deletion and append-only voiding for the trusted workspace."""
 
 import json
+import hashlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Literal
@@ -25,6 +26,12 @@ class LifecycleRequest(BaseModel):
     def valid_text(cls, value):
         reject_placeholder(value)
         return value
+
+
+class PurgeDeletedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmation: Literal["DELETE ALL"]
 
 
 LIFECYCLE_SCHEMA = (
@@ -94,22 +101,55 @@ def apply_lifecycle(store, receipt_id: str, request: LifecycleRequest) -> dict:
         return event
 
 
+_PURGE_SAFE = "NOT EXISTS (SELECT 1 FROM receipt_amendments a WHERE a.receipt_id=r.receipt_id) AND NOT EXISTS (SELECT 1 FROM receipt_reviews v WHERE v.receipt_id=r.receipt_id AND json_extract(v.result_json,'$.decision')='APPROVED') AND NOT EXISTS (SELECT 1 FROM classifications c WHERE c.receipt_id=r.receipt_id AND c.decision='AUTO_FILED')"
+
+
+def _fingerprint(rows) -> str:
+    return hashlib.sha256(json.dumps([(row['receipt_id'], row['lifecycle_version']) for row in rows], separators=(',', ':')).encode()).hexdigest()
+
+
+def deleted_purge_preview(store) -> dict:
+    with store.connect() as db:
+        rows = db.execute("SELECT receipt_id, lifecycle_version FROM receipts WHERE lifecycle_state='DELETED' ORDER BY receipt_id").fetchall()
+        return {'count': len(rows), 'fingerprint': _fingerprint(rows)}
+
+
+def _erase_rows(db, rows, upload_dir: Path) -> int:
+    removed = 0
+    for row in rows:
+        receipt_id = str(UUID(row['receipt_id']))
+        # Use only generated filenames; never trust an image_path from the DB.
+        try:
+            for extension in ('.jpg', '.png', '.pdf', '.preview.png'):
+                (upload_dir / (receipt_id + extension)).unlink(missing_ok=True)
+        except OSError:
+            continue
+        for table in ('receipt_payment_events', 'receipt_reprocessing', 'review_audit', 'receipt_reviews', 'line_items', 'classifications', 'lifecycle_events'):
+            db.execute(f"DELETE FROM {table} WHERE receipt_id=?", (receipt_id,))
+        db.execute("DELETE FROM receipts WHERE receipt_id=?", (receipt_id,))
+        removed += 1
+    return removed
+
+
+def purge_deleted_now(store, upload_dir: Path, request: PurgeDeletedRequest) -> dict:
+    """Erase the confirmed snapshot of deleted receipts, including unexpired ones."""
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        rows = db.execute("SELECT receipt_id, lifecycle_version FROM receipts WHERE lifecycle_state='DELETED' ORDER BY receipt_id").fetchall()
+        if not rows or request.fingerprint != _fingerprint(rows):
+            raise ReviewConflict('Deleted receipts changed. Reload and confirm again')
+        safe = db.execute(f"SELECT count(*) FROM receipts r WHERE lifecycle_state='DELETED' AND {_PURGE_SAFE}").fetchone()[0]
+        if safe != len(rows):
+            raise ReviewConflict('Some deleted receipts contain protected decisions and cannot be erased')
+        # Existing audit triggers permit deletion only after purge_after has expired.
+        db.execute("UPDATE receipts SET purge_after=datetime('now','-1 second') WHERE lifecycle_state='DELETED'")
+        removed = _erase_rows(db, rows, upload_dir)
+        return {'removed': removed, 'remaining': len(rows) - removed}
+
+
 def purge_expired(store, upload_dir: Path) -> int:
     """Bounded, retryable cleanup. Never follow a DB-supplied path or delete a void."""
-    removed = 0
     with store.connect() as db:
         db.execute("BEGIN IMMEDIATE")
-        rows = db.execute("SELECT receipt_id FROM receipts r WHERE lifecycle_state='DELETED' AND julianday(purge_after)<=julianday('now') AND NOT EXISTS (SELECT 1 FROM receipt_amendments a WHERE a.receipt_id=r.receipt_id) AND NOT EXISTS (SELECT 1 FROM receipt_reviews v WHERE v.receipt_id=r.receipt_id AND json_extract(v.result_json,'$.decision')='APPROVED') AND NOT EXISTS (SELECT 1 FROM classifications c WHERE c.receipt_id=r.receipt_id AND c.decision='AUTO_FILED') LIMIT 100").fetchall()
-        for row in rows:
-            receipt_id = str(UUID(row[0]))
-            # Keep the DB row on a file failure so the next run can retry safely.
-            try:
-                for extension in ('.jpg', '.png', '.pdf', '.preview.png'):
-                    (upload_dir / (receipt_id + extension)).unlink(missing_ok=True)
-            except OSError:
-                continue
-            for table in ('receipt_payment_events', 'receipt_reprocessing', 'review_audit', 'receipt_reviews', 'line_items', 'classifications', 'lifecycle_events'):
-                db.execute(f"DELETE FROM {table} WHERE receipt_id=?", (receipt_id,))
-            db.execute("DELETE FROM receipts WHERE receipt_id=?", (receipt_id,))
-            removed += 1
-    return removed
+        rows = db.execute(f"SELECT receipt_id FROM receipts r WHERE lifecycle_state='DELETED' AND julianday(purge_after)<=julianday('now') AND {_PURGE_SAFE} LIMIT 100").fetchall()
+        return _erase_rows(db, rows, upload_dir)

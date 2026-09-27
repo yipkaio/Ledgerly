@@ -112,6 +112,52 @@ def test_purge_only_expired_deleted_files_and_rows(monkeypatch, tmp_path, reject
     assert purge_expired(store, tmp_path) == 0
 
 
+def test_empty_deleted_requires_current_confirmation_and_preserves_active(monkeypatch, tmp_path):
+    client, first, review, store = setup_review(monkeypatch, tmp_path)
+    first_id = first['receipt_id']
+    review.update(decision='REJECTED', corrected_data=None, category=None)
+    assert client.post(f'/receipts/{first_id}/review', headers=HEADERS, json=review).status_code == 200
+    assert change(client, first_id, body('DELETE', record_version=1)).status_code == 200
+    preview = client.get('/receipts/deleted/purge-preview', headers=HEADERS).json()
+    assert preview['count'] == 1
+    assert client.get('/receipts/deleted/purge-preview').status_code == 401
+    assert client.post('/receipts/deleted/purge', json={**preview, 'confirmation': 'DELETE ALL'}).status_code == 401
+    second = client.post('/receipts/upload', headers=HEADERS,
+                         files={'receipt': ('second.jpg', b'\xff\xd8\xffsecond', 'image/jpeg')}).json()
+    second_id = second['receipt_id']
+    assert change(client, second_id, body('DELETE')).status_code == 200
+    stale = client.post('/receipts/deleted/purge', headers=HEADERS,
+                        json={'fingerprint': preview['fingerprint'], 'confirmation': 'DELETE ALL'})
+    assert stale.status_code == 409
+    assert store.get(first_id) is not None and store.get(second_id) is not None
+    active = client.post('/receipts/upload', headers=HEADERS,
+                         files={'receipt': ('active.jpg', b'\xff\xd8\xffactive', 'image/jpeg')}).json()
+    active_id = active['receipt_id']
+    voided = client.post('/receipts/upload', headers=HEADERS,
+                         files={'receipt': ('voided.jpg', b'\xff\xd8\xffvoided', 'image/jpeg')}).json()
+    voided_id = voided['receipt_id']
+    with store.connect() as db:
+        db.execute("UPDATE classifications SET decision='AUTO_FILED' WHERE receipt_id=?", (voided_id,))
+    assert change(client, voided_id, body('VOID')).status_code == 200
+    current = client.get('/receipts/deleted/purge-preview', headers=HEADERS).json()
+    assert current['count'] == 2
+    invalid = client.post('/receipts/deleted/purge', headers=HEADERS,
+                          json={'fingerprint': current['fingerprint'], 'confirmation': 'yes'})
+    assert invalid.status_code == 422
+    result = client.post('/receipts/deleted/purge', headers=HEADERS,
+                         json={'fingerprint': current['fingerprint'], 'confirmation': 'DELETE ALL'})
+    assert result.status_code == 200, result.text
+    assert result.json() == {'removed': 2, 'remaining': 0}
+    for receipt_id in (first_id, second_id):
+        assert store.get(receipt_id) is None
+        assert not (tmp_path / f'{receipt_id}.jpg').exists()
+    assert store.get(active_id) is not None
+    assert (tmp_path / f'{active_id}.jpg').exists()
+    assert store.get(voided_id)['lifecycle_state'] == 'VOIDED'
+    assert (tmp_path / f'{voided_id}.jpg').exists()
+    assert client.get('/receipts?state=DELETED', headers=HEADERS).json()['total'] == 0
+
+
 def test_auth_validation_processing_and_stale_review(monkeypatch, tmp_path):
     client, receipt, review, store = setup_review(monkeypatch, tmp_path)
     rid = receipt['receipt_id']
