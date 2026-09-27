@@ -1025,7 +1025,9 @@ function UploadForm({
         message(err) +
           (err instanceof ApiError && err.status === 409
             ? " Open the existing record to see why this upload was rejected."
-            : " Check history before trying again; processing may already have started."),
+            : err instanceof ApiError && err.receiptId
+              ? " Try again will check the saved status before processing this same file."
+              : " Check history before trying again; processing may already have started."),
       );
       if (err instanceof ApiError) {
         setFailedId(err.receiptId);
