@@ -955,6 +955,8 @@ function UploadForm({
   open: (id: string) => void;
 }) {
   const [file, setFile] = useState<File | null>(null),
+    [previewUrl, setPreviewUrl] = useState(""),
+    [uploadedId, setUploadedId] = useState<string | null>(null),
     [selectedPurpose, setSelectedPurpose] = useState(""),
     [otherPurpose, setOtherPurpose] = useState(""),
     [busy, setBusy] = useState(false),
@@ -968,9 +970,14 @@ function UploadForm({
       active.current = false;
     };
   }, []);
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (submitting.current) return;
+    if (submitting.current || uploadedId) return;
     setError("");
     setFailedId(null);
     if (
@@ -998,7 +1005,7 @@ function UploadForm({
         token,
         { method: "POST", body, timeoutMs: 330000 },
       );
-      if (active.current) open(result.receipt_id);
+      if (active.current) setUploadedId(result.receipt_id);
     } catch (err) {
       if (!active.current) return;
       setError(
@@ -1012,19 +1019,29 @@ function UploadForm({
     }
   }
   return (
-    <form onSubmit={submit} className="panel max-w-2xl space-y-6 p-6">
+    <div className="grid items-start gap-6 lg:grid-cols-2">
+      <form onSubmit={submit} className="panel space-y-6 p-6">
       <div className="rounded-lg border border-dashed bg-muted p-6">
         <Upload className="mb-3 size-7 text-primary" />
         <label htmlFor="receipt-file" className="field-label">
           Receipt file
         </label>
         <Input
+          key={uploadedId ? "uploaded" : "ready"}
           id="receipt-file"
           type="file"
           accept="image/jpeg,image/png,application/pdf,.pdf"
           required
-          disabled={busy}
-          onChange={(e) => setFile(e.target.files?.[0] || null)}
+          disabled={busy || !!uploadedId}
+          onChange={(e) => {
+            const chosen = e.target.files?.[0] || null;
+            setFile(chosen);
+            setPreviewUrl(
+              chosen && ["image/jpeg", "image/png", "application/pdf"].includes(chosen.type)
+                ? URL.createObjectURL(chosen)
+                : "",
+            );
+          }}
         />
         <p className="muted mt-2">
           JPEG, PNG, or PDF · Up to 5 MB · PDF up to 3 pages · One receipt per
@@ -1053,7 +1070,7 @@ function UploadForm({
                   name="business-purpose"
                   className="sr-only"
                   required
-                  disabled={busy}
+                  disabled={busy || !!uploadedId}
                   checked={selected}
                   onChange={() => {
                     setSelectedPurpose(value);
@@ -1076,7 +1093,7 @@ function UploadForm({
               minLength={3}
               maxLength={500}
               value={otherPurpose}
-              disabled={busy}
+              disabled={busy || !!uploadedId}
               onChange={(event) => setOtherPurpose(event.target.value)}
               placeholder="For example: cleaning supplies for the office pantry"
             />
@@ -1093,21 +1110,77 @@ function UploadForm({
           )}
         </Notice>
       )}
-      <Button
-        disabled={
-          busy ||
-          !file ||
-          !selectedPurpose ||
-          (selectedPurpose === "Other" && otherPurpose.trim().length < 3)
-        }
-      >
-        {busy ? <LoaderCircle className="animate-spin" /> : <Upload />}
-        {busy ? "Processing receipt…" : "Upload and process"}
-      </Button>
+      {uploadedId && (
+        <div role="status" className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+          <p className="font-medium text-emerald-950">Receipt uploaded. Check the extracted fields and routing decision in the saved record.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" onClick={() => open(uploadedId)}>
+              Open processed receipt
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setFile(null);
+                setPreviewUrl("");
+                setSelectedPurpose("");
+                setOtherPurpose("");
+                setUploadedId(null);
+                setError("");
+              }}
+            >
+              Upload another
+            </Button>
+          </div>
+        </div>
+      )}
+      {!uploadedId && (
+        <Button
+          type="submit"
+          disabled={
+            busy ||
+            !file ||
+            !selectedPurpose ||
+            (selectedPurpose === "Other" && otherPurpose.trim().length < 3)
+          }
+        >
+          {busy ? <LoaderCircle className="animate-spin" /> : <Upload />}
+          {busy ? "Processing receipt…" : "Upload and process"}
+        </Button>
+      )}
       <p className="muted">
         OCR runs on the server. Extraction and classification may use gateway
         credits. Keep this page open while processing.
       </p>
-    </form>
+      </form>
+      <aside className="panel p-6" aria-label="Selected receipt preview">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Receipt preview</h2>
+            <p className="muted break-all text-sm">{file?.name || "Select a file to preview it here."}</p>
+          </div>
+          {previewUrl && (
+            <a href={previewUrl} target="_blank" rel="noreferrer" className="shrink-0 text-sm font-medium text-primary underline">
+              Open full size
+            </a>
+          )}
+        </div>
+        {previewUrl && file?.type === "application/pdf" ? (
+          <iframe
+            title={`Preview of ${file.name}`}
+            src={previewUrl}
+            className="h-[65vh] w-full rounded-lg border bg-white"
+          />
+        ) : previewUrl ? (
+          <div className="max-h-[65vh] overflow-auto rounded-lg bg-muted p-3">
+            <img src={previewUrl} alt={`Selected receipt ${file?.name || ""}`} className="mx-auto h-auto max-w-full" />
+          </div>
+        ) : (
+          <p className="muted rounded-lg border border-dashed bg-muted p-6 text-sm">
+            JPEG, PNG and PDF receipts appear here when selected.
+          </p>
+        )}
+      </aside>
+    </div>
   );
 }
