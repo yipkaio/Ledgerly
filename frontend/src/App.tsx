@@ -493,12 +493,6 @@ function Workspace({
                 context={view === "reviews" ? "review" : "history"}
                 onDirty={setDirty}
                 dirty={dirty}
-                openRetry={(id) => {
-                  setSelected(id);
-                  setView("history");
-                  setOffset(0);
-                }}
-                uploadAgain={() => navigate("upload")}
                 saved={() => {
                   setRefresh((n) => n + 1);
                   if (view === "reviews") setOffset(0);
@@ -1172,7 +1166,7 @@ function UploadForm({
           }
         >
           {busy ? <LoaderCircle className="animate-spin" /> : <Upload />}
-          {busy ? "Processing receipt…" : retryableFailedId ? "Retry same file" : "Upload and process"}
+          {busy ? "Processing receipt…" : retryableFailedId ? "Try again" : "Upload and process"}
         </Button>
       )}
       <p className="muted">
