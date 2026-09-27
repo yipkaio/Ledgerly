@@ -31,6 +31,59 @@ def test_result_survives_new_application(monkeypatch, tmp_path):
     assert restarted.get("/receipts/" + original["receipt_id"]).status_code == 401
 
 
+def test_restart_releases_interrupted_upload_for_deletion_and_retry(monkeypatch, tmp_path):
+    client, _, _, _ = configured_client(monkeypatch, tmp_path)
+    store = ReceiptStore(Path(os.environ["DATABASE_PATH"]))
+    receipt_id = str(uuid4())
+    store.start(receipt_id, "image/jpeg", 10, str(tmp_path / "stuck.jpg"),
+                "Office supplies", "stuck-content")
+    assert client.get(f"/receipts/{receipt_id}", headers=HEADERS).json()["processing_status"] == "PROCESSING"
+    with TestClient(create_app()) as restarted:
+        saved = restarted.get(f"/receipts/{receipt_id}", headers=HEADERS).json()
+        assert saved["processing_status"] == "FAILED"
+        assert "interrupted" in saved["error"].lower()
+        assert saved["content_sha256"] == "stuck-content"
+        assert restarted.post(
+            f"/receipts/{receipt_id}/lifecycle", headers=HEADERS,
+            json={"request_id": str(uuid4()), "action": "DELETE",
+                  "expected_version": 0, "expected_record_version": 0,
+                  "reviewer": "Test reviewer", "reason": "Abandoned upload from interrupted processing"},
+        ).status_code == 200
+        assert store.get(receipt_id)["lifecycle_state"] == "DELETED"
+
+
+def test_restart_leaves_completed_and_failed_receipts_unchanged(monkeypatch, tmp_path):
+    configured_client(monkeypatch, tmp_path)
+    store = ReceiptStore(Path(os.environ["DATABASE_PATH"]))
+    failed_id = str(uuid4())
+    store.start(failed_id, "image/jpeg", 10, "private/path", None)
+    store.fail(failed_id, "Existing failure")
+    with TestClient(create_app()) as restarted:
+        saved = restarted.get(f"/receipts/{failed_id}", headers=HEADERS).json()
+        assert saved["processing_status"] == "FAILED"
+        assert saved["error"] == "Existing failure"
+
+
+def test_restart_retains_ocr_for_reprocessing(monkeypatch, tmp_path):
+    client, _, _, _ = configured_client(monkeypatch, tmp_path)
+    store = ReceiptStore(Path(os.environ["DATABASE_PATH"]))
+    receipt_id = str(uuid4())
+    store.start(receipt_id, "image/jpeg", 10, "private/path", "Office supplies")
+    store.save_ocr(receipt_id, "Vendor and total from saved receipt", "tesseract", 0.94)
+    with TestClient(client.app) as restarted:
+        response = restarted.post(
+            f"/receipts/{receipt_id}/reprocess", headers=HEADERS,
+            json={"request_id": str(uuid4()), "expected_record_version": 0,
+                  "expected_lifecycle_version": 0, "reviewer": "Test reviewer",
+                  "reason": "Recover extraction after interrupted upload"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "SUCCEEDED"
+        saved = store.get(receipt_id)
+        assert saved["processing_status"] == "REVIEW_QUEUE"
+        assert saved["ocr_text"] == "Vendor and total from saved receipt"
+
+
 def test_review_filter_and_pagination(monkeypatch, tmp_path):
     client, _, extractor, _ = configured_client(monkeypatch, tmp_path)
     client.post("/receipts/upload", headers=HEADERS, files=FILES)

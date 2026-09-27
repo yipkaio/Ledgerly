@@ -123,6 +123,22 @@ class ReceiptStore:
                     raise DuplicateReceiptError(duplicate[0])
                 raise
 
+    def recover_interrupted(self) -> int:
+        """Close uploads left in progress when the sole API worker was stopped.
+
+        Call only during worker startup, before it can accept new uploads. Keep
+        the retained file and OCR text so the owner can inspect or reprocess it.
+        """
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(
+                "UPDATE receipts SET processing_status='FAILED', "
+                "error='Processing was interrupted. Reprocess from saved OCR or delete and upload again.', "
+                "updated_at=? WHERE processing_status='PROCESSING'",
+                (now(),),
+            )
+            return cursor.rowcount
+
     def probable_duplicates(self, receipt_id: str, extraction: dict) -> list[str]:
         """Return strict identity matches; vendor+amount alone are never enough."""
         required = (extraction.get("receipt_number"), extraction.get("date"),
