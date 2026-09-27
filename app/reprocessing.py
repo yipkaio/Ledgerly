@@ -94,6 +94,14 @@ def finish(store, rid, request, data=None, error=None):
         row = db.execute('SELECT * FROM receipts WHERE receipt_id=?', (rid,)).fetchone()
         result = json.loads(attempt['result_json'])
         changed = row is None or row['lifecycle_state'] != 'ACTIVE' or row['lifecycle_version'] != request.expected_lifecycle_version or record_version(db, rid) != request.expected_record_version
+        if not changed and data is not None and row['processing_status'] == 'FAILED' and row['content_sha256']:
+            changed = db.execute(
+                "SELECT 1 FROM receipts WHERE receipt_id<>? AND content_sha256=? "
+                "AND lifecycle_state<>'DELETED' AND processing_status<>'FAILED'",
+                (rid, row['content_sha256']),
+            ).fetchone() is not None
+            if changed:
+                error = 'An identical active receipt exists. Review the newer upload instead.'
         result.update(status='SUPERSEDED' if changed else 'FAILED' if error else 'SUCCEEDED',
                       extracted_data=data, error=error, finished_at=datetime.now(timezone.utc).isoformat())
         db.execute('UPDATE receipt_reprocessing SET status=?, result_json=? WHERE request_id=?', (result['status'], json.dumps(result), result['request_id']))

@@ -125,7 +125,7 @@ Uploading a new test image may consume gateway credits; reviewing existing recor
 does not. Model routing can vary, so an ambiguous image is not guaranteed to queue.
 
 The review and amendment features first arrived with schema v3; the current
-application migrates supported databases transactionally through schema v9.
+application migrates supported databases transactionally through schema v10.
 Previously accepted invalid requests remain visible in review history;
 use an audited amendment to correct an approved record. Keep invalid test records out of reports.
 
@@ -137,7 +137,7 @@ Review never modifies vendor rules.
 
 ## Migration, verification and deployment
 
-Supported older schemas upgrade transactionally through version 9 on first
+Supported older schemas upgrade transactionally through version 10 on first
 database access (including container startup). The historical v3 step added
 duplicate metadata, amendments and audit protection triggers; later versions
 added lifecycle, statement, FX and monthly review data. Back up the database

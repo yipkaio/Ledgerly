@@ -3,7 +3,7 @@ import sqlite3
 
 import pytest
 
-from app.database import DatabaseError, ReceiptStore
+from app.database import DatabaseError, DuplicateReceiptError, ReceiptStore
 
 
 def test_concurrent_initialization_and_writes(tmp_path):
@@ -72,3 +72,23 @@ def test_failure_retains_ocr(tmp_path):
     assert result["processing_status"] == "FAILED"
     assert result["classification"] is None
     assert store.list(None, "FAILED", 20, 0)["total"] == 1
+
+
+def test_v9_migration_releases_failed_hash_but_keeps_active_hash_unique(tmp_path):
+    path = tmp_path / "expenses.db"
+    store = ReceiptStore(path)
+    store.start("failed", "image/jpeg", 10, "private/path", None, "same-file")
+    store.fail("failed", "Original OCR failed")
+    with sqlite3.connect(path) as db:
+        db.execute("DROP INDEX exact_receipt_content")
+        db.execute("CREATE UNIQUE INDEX exact_receipt_content ON receipts(content_sha256) "
+                   "WHERE content_sha256 IS NOT NULL AND lifecycle_state<>'DELETED'")
+        db.execute("PRAGMA user_version=9")
+
+    store.start("retry", "image/jpeg", 10, "private/path", None, "same-file")
+    with store.connect() as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert db.execute("SELECT processing_status FROM receipts WHERE receipt_id='failed'").fetchone()[0] == "FAILED"
+    with pytest.raises(DuplicateReceiptError) as duplicate:
+        store.start("concurrent", "image/jpeg", 10, "private/path", None, "same-file")
+    assert duplicate.value.receipt_id == "retry"

@@ -38,7 +38,7 @@ invoices before upload.
 
 - 202: processing completed; `ocr_engine` begins with `pdf:` and identifies native
   text, OCR, or a per-page mixture.
-- 409: exact original bytes were already uploaded; use `existing_receipt_id`.
+- 409: exact original bytes belong to another active or voided, non-failed receipt; use `existing_receipt_id`. A failed attempt can be retried without deletion.
 - 415: media type or `%PDF-` signature did not match.
 - 422: encrypted, malformed, excessive-page, unsafe-dimension, or textless PDF.
 - 504: PDF inspection/rendering or OCR exceeded its timeout.

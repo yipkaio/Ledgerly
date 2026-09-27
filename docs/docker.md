@@ -14,7 +14,7 @@ remain attached.
 Paddle's memory needs must be measured on the target machine; a passing health
 check does not prove that OCR models fit in RAM.
 
-The current application migrates supported SQLite databases through schema v9
+The current application migrates supported SQLite databases through schema v10
 on first use. Create the database-and-evidence backup below before replacing
 an older image; an older app image cannot read the upgraded schema.
 
