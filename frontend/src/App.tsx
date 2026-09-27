@@ -493,6 +493,12 @@ function Workspace({
                 context={view === "reviews" ? "review" : "history"}
                 onDirty={setDirty}
                 dirty={dirty}
+                openRetry={(id) => {
+                  setSelected(id);
+                  setView("history");
+                  setOffset(0);
+                }}
+                uploadAgain={() => navigate("upload")}
                 saved={() => {
                   setRefresh((n) => n + 1);
                   if (view === "reviews") setOffset(0);
@@ -961,7 +967,8 @@ function UploadForm({
     [otherPurpose, setOtherPurpose] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [failedId, setFailedId] = useState<string | null>(null);
+    [failedId, setFailedId] = useState<string | null>(null),
+    [retryableFailedId, setRetryableFailedId] = useState<string | null>(null);
   const active = useRef(true),
     submitting = useRef(false);
   useEffect(() => {
@@ -1000,19 +1007,36 @@ function UploadForm({
     body.set("receipt", file);
     body.set("business_purpose", purpose);
     try {
+      if (retryableFailedId) {
+        const previous = await request<{ processing_status: string }>(
+          `/receipts/${retryableFailedId}`, token,
+        );
+        if (previous.processing_status !== "FAILED") {
+          setError("Your previous upload is still processing or has completed. Open its saved record before trying again.");
+          return;
+        }
+      }
       const result = await request<{ receipt_id: string }>(
         "/receipts/upload",
         token,
         { method: "POST", body, timeoutMs: 330000 },
       );
-      if (active.current) setUploadedId(result.receipt_id);
+      if (active.current) {
+        setUploadedId(result.receipt_id);
+        setRetryableFailedId(null);
+      }
     } catch (err) {
       if (!active.current) return;
       setError(
         message(err) +
-          " Check history before uploading again; processing may already have started.",
+          (err instanceof ApiError && err.status === 409
+            ? " Open the existing record to see why this upload was rejected."
+            : " Check history before trying again; processing may already have started."),
       );
-      if (err instanceof ApiError) setFailedId(err.receiptId);
+      if (err instanceof ApiError) {
+        setFailedId(err.receiptId);
+        setRetryableFailedId(err.status === 409 ? null : err.receiptId);
+      }
     } finally {
       submitting.current = false;
       if (active.current) setBusy(false);
@@ -1036,6 +1060,7 @@ function UploadForm({
           onChange={(e) => {
             const chosen = e.target.files?.[0] || null;
             setFile(chosen);
+            setRetryableFailedId(null);
             setPreviewUrl(
               chosen && ["image/jpeg", "image/png", "application/pdf"].includes(chosen.type)
                 ? URL.createObjectURL(chosen)
@@ -1127,6 +1152,8 @@ function UploadForm({
                 setOtherPurpose("");
                 setUploadedId(null);
                 setError("");
+                setFailedId(null);
+                setRetryableFailedId(null);
               }}
             >
               Upload another
@@ -1145,7 +1172,7 @@ function UploadForm({
           }
         >
           {busy ? <LoaderCircle className="animate-spin" /> : <Upload />}
-          {busy ? "Processing receipt…" : "Upload and process"}
+          {busy ? "Processing receipt…" : retryableFailedId ? "Retry same file" : "Upload and process"}
         </Button>
       )}
       <p className="muted">

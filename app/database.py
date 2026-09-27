@@ -43,7 +43,7 @@ class ReceiptStore:
             if version in (0, 1, 2, 3, 4, 5, 6, 7, 8):
                 connection.execute("BEGIN IMMEDIATE")
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9):
+            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
                 raise DatabaseError("Unsupported database schema version")
             if version == 0:
                 for statement in SCHEMA:
@@ -93,6 +93,10 @@ class ReceiptStore:
                 for statement in STATEMENT_MIGRATION_9:
                     connection.execute(statement)
                 connection.execute("PRAGMA user_version=9")
+            if version in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9):
+                for statement in FAILED_RETRY_SCHEMA:
+                    connection.execute(statement)
+                connection.execute("PRAGMA user_version=10")
             connection.commit()
             with connection:
                 yield connection
@@ -116,7 +120,8 @@ class ReceiptStore:
                 )
             except sqlite3.IntegrityError:
                 duplicate = db.execute(
-                    "SELECT receipt_id FROM receipts WHERE content_sha256=? AND lifecycle_state<>'DELETED'",
+                    "SELECT receipt_id FROM receipts WHERE content_sha256=? "
+                    "AND lifecycle_state<>'DELETED' AND processing_status<>'FAILED'",
                     (content_sha256,),
                 ).fetchone()
                 if duplicate:
@@ -133,7 +138,7 @@ class ReceiptStore:
             db.execute("BEGIN IMMEDIATE")
             cursor = db.execute(
                 "UPDATE receipts SET processing_status='FAILED', "
-                "error='Processing was interrupted. Reprocess from saved OCR or delete and upload again.', "
+                "error='Processing was interrupted. Reprocess from saved OCR or upload the same file again.', "
                 "updated_at=? WHERE processing_status='PROCESSING'",
                 (now(),),
             )
@@ -306,4 +311,11 @@ DUPLICATE_SCHEMA = (
     "ALTER TABLE receipts ADD COLUMN duplicate_candidates_json TEXT",
     "CREATE UNIQUE INDEX exact_receipt_content ON receipts(content_sha256) "
     "WHERE content_sha256 IS NOT NULL",
+)
+
+FAILED_RETRY_SCHEMA = (
+    "DROP INDEX exact_receipt_content",
+    "CREATE UNIQUE INDEX exact_receipt_content ON receipts(content_sha256) "
+    "WHERE content_sha256 IS NOT NULL AND lifecycle_state<>'DELETED' "
+    "AND processing_status<>'FAILED'",
 )

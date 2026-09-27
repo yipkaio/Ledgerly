@@ -68,7 +68,7 @@ def apply_lifecycle(store, receipt_id: str, request: LifecycleRequest) -> dict:
                 raise ReviewConflict("Only deleted receipts can be restored")
             if datetime.fromisoformat(row['purge_after']) <= timestamp:
                 raise ReviewConflict("The 30-day restore window has expired")
-            if row['content_sha256'] and db.execute("SELECT 1 FROM receipts WHERE content_sha256=? AND lifecycle_state<>'DELETED' AND receipt_id<>?", (row['content_sha256'], receipt_id)).fetchone():
+            if row['content_sha256'] and row['processing_status'] != 'FAILED' and db.execute("SELECT 1 FROM receipts WHERE content_sha256=? AND lifecycle_state<>'DELETED' AND processing_status<>'FAILED' AND receipt_id<>?", (row['content_sha256'], receipt_id)).fetchone():
                 raise ReviewConflict("An identical retained receipt exists. Open that record instead")
         else:
             if row['lifecycle_state'] != 'ACTIVE':

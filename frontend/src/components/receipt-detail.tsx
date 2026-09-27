@@ -95,6 +95,8 @@ export function ReceiptDetail({
   context,
   saved,
   onDirty,
+  openRetry,
+  uploadAgain,
   dirty = false,
 }: {
   id: string;
@@ -103,12 +105,15 @@ export function ReceiptDetail({
   context: "review" | "history";
   saved: () => void;
   onDirty: (dirty: boolean) => void;
+  openRetry: (id: string) => void;
+  uploadAgain: () => void;
 }) {
   const [receipt, setReceipt] = useState<Receipt | null>(null),
     [data, setData] = useState<Extraction | null>(null),
     [image, setImage] = useState(""),
     [imageError, setImageError] = useState(""),
     [error, setError] = useState(""),
+    [retryBusy, setRetryBusy] = useState(false),
     [audit, setAudit] = useState<Review[]>([]),
     [amendments, setAmendments] = useState<Amendment[]>([]),
     [revision, setRevision] = useState(0),
@@ -233,6 +238,26 @@ export function ReceiptDetail({
   const amending = canAmend && editingAmendment;
   const editable = reviewable || amending;
   const locked = busy || !!pending || stale || !editable;
+  async function retryFailedReceipt() {
+    if (retryBusy || receipt?.processing_status !== "FAILED") return;
+    setRetryBusy(true);
+    setError("");
+    try {
+      const result = await request<{ receipt_id: string }>(
+        `/receipts/${id}/retry`, token, { method: "POST", timeoutMs: 330000 },
+      );
+      saved();
+      openRetry(result.receipt_id);
+    } catch (e) {
+      setError(
+        e instanceof ApiError && e.status === 404
+          ? "The saved original file is unavailable. Choose the same file on Upload receipt to try again."
+          : `${message(e)} Check Receipt history before trying again if the response was uncertain.`,
+      );
+    } finally {
+      setRetryBusy(false);
+    }
+  }
   async function submit(
     submission:
       | { kind: "review"; payload: ReviewRequest }
@@ -546,6 +571,20 @@ export function ReceiptDetail({
       {receipt.error && (
         <Notice variant="warning">
           Original processing error: {receipt.error}
+        </Notice>
+      )}
+      {receipt.processing_status === "FAILED" && receipt.lifecycle_state === "ACTIVE" && (
+        <Notice variant="info">
+          Retry from the saved receipt file without deleting this failed attempt.
+          The retry runs OCR and classification again and creates a new record.
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" disabled={retryBusy} onClick={() => void retryFailedReceipt()}>
+              {retryBusy ? "Retrying receipt…" : "Retry failed receipt"}
+            </Button>
+            <Button type="button" variant="outline" disabled={retryBusy} onClick={uploadAgain}>
+              Choose file again
+            </Button>
+          </div>
         </Notice>
       )}
       {!!receipt.duplicate_candidates?.length && (

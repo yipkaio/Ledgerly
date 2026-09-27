@@ -20,7 +20,7 @@ The authenticated workspace supports **Move to deleted receipts**, **Restore rec
 
 Deletion hides records from ordinary history, review queues, dashboard counts/totals and exports. Deleted receipts appear only in their dedicated UI tab or an explicit `state=DELETED` list query. Voided receipts remain searchable in history but are excluded from dashboards and exports (including explicit ID exports). Previously downloaded spreadsheets do not change.
 
-Identical file uploads may be repeated after soft deletion. Restoration is blocked when the hash matches any non-deleted record, including a voided one. Voiding does not release the file hash. Potential-duplicate searches exclude deleted and voided records.
+Identical file uploads may be repeated after soft deletion or a failed processing attempt. The failed record remains in history; a successful retry gets a new receipt ID. Restoration of an accepted receipt is blocked when the hash matches another active or voided, non-failed record. Voiding does not release the file hash. Potential-duplicate searches exclude deleted and voided records.
 
 ## Retention and operations
 

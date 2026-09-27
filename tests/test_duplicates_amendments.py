@@ -6,6 +6,8 @@ from uuid import uuid4
 import pytest
 
 from app.database import DatabaseError, ReceiptStore
+from app.extraction import ExtractionTimeoutError
+from app.ocr import OCRTimeoutError
 from test_api import TEST_KEY, configured_client
 
 
@@ -50,6 +52,46 @@ def test_exact_duplicate_stops_before_ocr_and_returns_existing_id(monkeypatch, t
     assert duplicate.headers["X-Receipt-ID"] == first.json()["receipt_id"]
     assert (len(ocr.paths), len(extractor.inputs), len(classifier.inputs)) == calls
     assert len(list(tmp_path.glob("*.jpg"))) == 1
+
+
+def test_failed_receipt_retries_from_saved_file_without_deleting(monkeypatch, tmp_path):
+    client, ocr, extractor, _ = configured_client(monkeypatch, tmp_path)
+    extractor.error = ExtractionTimeoutError("private gateway detail")
+    failed = upload(client)
+    assert failed.status_code == 504
+    failed_id = failed.headers["X-Receipt-ID"]
+    assert client.post(f"/receipts/{failed_id}/retry").status_code == 401
+    extractor.error = None
+
+    retried = client.post(f"/receipts/{failed_id}/retry", headers=HEADERS)
+    assert retried.status_code == 202, retried.text
+    new_id = retried.json()["receipt_id"]
+    assert new_id != failed_id
+    assert len(ocr.paths) == 2
+    assert client.get(f"/receipts/{failed_id}", headers=HEADERS).json()["processing_status"] == "FAILED"
+    assert client.get(f"/receipts/{new_id}", headers=HEADERS).json()["processing_status"] == "COMPLETED"
+    assert client.post(f"/receipts/{new_id}/retry", headers=HEADERS).status_code == 409
+    assert client.post(f"/receipts/{failed_id}/retry", headers=HEADERS).status_code == 409
+    assert upload(client).status_code == 409
+
+
+def test_failed_ocr_without_retained_file_allows_same_upload(monkeypatch, tmp_path):
+    client, ocr, _, _ = configured_client(monkeypatch, tmp_path)
+    original_extract = ocr.extract
+
+    def fail_ocr(path):
+        raise OCRTimeoutError("OCR service timed out")
+
+    ocr.extract = fail_ocr
+    failed = upload(client)
+    assert failed.status_code == 504
+    failed_id = failed.headers["X-Receipt-ID"]
+    assert client.post(f"/receipts/{failed_id}/retry", headers=HEADERS).status_code == 404
+    ocr.extract = original_extract
+    retried = upload(client)
+    assert retried.status_code == 202, retried.text
+    assert retried.json()["receipt_id"] != failed_id
+    assert client.get(f"/receipts/{failed_id}", headers=HEADERS).json()["processing_status"] == "FAILED"
 
 
 def test_different_file_is_not_blocked_by_vendor_and_amount(monkeypatch, tmp_path):

@@ -93,6 +93,32 @@ def test_running_and_stale_attempts_cannot_overwrite_decisions(monkeypatch, tmp_
     assert client.post(f'/receipts/{rid}/amendments', headers=HEADERS, json=amendment).status_code == 409
 
 
+def test_old_failed_draft_is_superseded_after_new_upload(monkeypatch, tmp_path):
+    from app.database import ReceiptStore
+    from app.main import get_receipt_extractor
+    from test_api import configured_client
+    from test_duplicates_amendments import upload
+    import os
+    from pathlib import Path
+    client, _, extractor, _ = configured_client(monkeypatch, tmp_path)
+    from app.extraction import ExtractionTimeoutError
+    extractor.error = ExtractionTimeoutError('gateway timeout')
+    first = upload(client)
+    rid = first.headers['X-Receipt-ID']
+    extractor.error = None
+    store = ReceiptStore(Path(os.environ['DATABASE_PATH']))
+    attempt = ReprocessRequest(**request_body())
+    started, text = begin(store, rid, attempt, 'test-model')
+    assert text
+    newer = upload(client)
+    assert newer.status_code == 202
+    result = finish(store, rid, attempt, newer.json()['extracted_data'])
+    assert result['status'] == 'SUPERSEDED'
+    assert 'identical active receipt' in result['error']
+    assert store.get(rid)['processing_status'] == 'FAILED'
+    assert store.get(newer.json()['receipt_id'])['processing_status'] == 'COMPLETED'
+
+
 def test_auth_eligibility_collision_and_interrupted_retry(monkeypatch, tmp_path):
     client, uploaded, _, store = setup_review(monkeypatch, tmp_path)
     rid = uploaded['receipt_id']; url = f'/receipts/{rid}/reprocess'

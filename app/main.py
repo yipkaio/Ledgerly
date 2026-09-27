@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from io import BytesIO
 import logging
 import os
 import re
@@ -22,6 +23,7 @@ from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, U
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError
 from fastapi.responses import JSONResponse, Response
+from starlette.datastructures import Headers
 from fastapi.staticfiles import StaticFiles
 from app.auth import (
     FirebaseAuthError,
@@ -1115,6 +1117,40 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
                 status_code=500, detail="Receipt processing failed",
                 headers={"X-Receipt-ID": receipt_id},
             ) from exc
+
+    @api.post(
+        "/receipts/{receipt_id}/retry",
+        response_model=ReceiptProcessed,
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["receipts"],
+        summary="Retry a failed receipt from its retained original file",
+    )
+    async def retry_failed_receipt(
+        receipt_id: UUID,
+        settings: Annotated[Settings, Depends(require_api_key)],
+        ocr_service: Annotated[OCRService, Depends(get_ocr_service)],
+        receipt_extractor: Annotated[ReceiptExtractor, Depends(get_receipt_extractor)],
+        expense_classifier: Annotated[ExpenseClassifier, Depends(get_expense_classifier)],
+    ) -> ReceiptProcessed:
+        store = ReceiptStore(settings.database_path)
+        previous = await run_in_threadpool(store.get, str(receipt_id))
+        if previous is None:
+            raise HTTPException(status_code=404, detail="Receipt not found")
+        if previous["processing_status"] != "FAILED" or previous["lifecycle_state"] != "ACTIVE":
+            raise HTTPException(status_code=409, detail="Only active failed receipts can be retried")
+        # Read by generated UUID and bounded signature checks, never image_path.
+        original = await run_in_threadpool(
+            receipt_image, store, settings.upload_dir, str(receipt_id), settings.max_upload_bytes
+        )
+        upload = UploadFile(
+            file=BytesIO(original.body),
+            filename=f"retry-{receipt_id}{RECEIPT_TYPES[previous['content_type']][0]}",
+            headers=Headers({"content-type": previous["content_type"]}),
+        )
+        return await upload_receipt(
+            upload, settings, ocr_service, receipt_extractor, expense_classifier,
+            previous["business_purpose"],
+        )
 
     @api.get('/receipts/{receipt_id}/image', tags=['receipts'], summary='View original receipt file (authenticated)',
              response_class=Response,
