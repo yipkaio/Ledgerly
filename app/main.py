@@ -265,6 +265,15 @@ def has_expected_signature(content_type: str, prefix: bytes) -> bool:
 
 @asynccontextmanager
 async def lifespan(api):
+    # Production runs one API worker. After that worker stops, no previous
+    # upload can complete; release its retained records before accepting traffic.
+    recovered = await run_in_threadpool(
+        ReceiptStore(get_settings().database_path).recover_interrupted
+    )
+    if recovered:
+        logging.getLogger(__name__).warning(
+            "Marked %d interrupted receipt upload(s) as failed", recovered
+        )
     async def cleanup():
         while True:
             try:
@@ -1082,6 +1091,10 @@ On timeout, GET the receipt first, then retry the SAME UUID and identical payloa
             result = await process()
             await run_in_threadpool(store.complete, result.model_dump(mode="json"))
             return result
+        except asyncio.CancelledError:
+            # A canceled HTTP task must not leave a permanent PROCESSING row.
+            await run_in_threadpool(store.fail, receipt_id, "Receipt processing was interrupted")
+            raise
         except HTTPException as exc:
             await run_in_threadpool(store.fail, receipt_id, str(exc.detail))
             exc.headers = {**(exc.headers or {}), "X-Receipt-ID": receipt_id}
