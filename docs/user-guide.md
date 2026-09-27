@@ -176,6 +176,8 @@ Choose **Deleted receipts** in the top navigation to inspect recoverable records
 
 **Restore receipt** is available before the 30-day deadline, subject to the app’s duplicate-file checks. The lifecycle history preserves the recorded actions and self-reported reviewer labels. In this image an earlier restore appears in the history, but the receipt currently shown is **Deleted**; the button has not been used in this pictured state. Processing receipts must finish processing before deletion; accepted receipts use **Void receipt** and do not enter Deleted receipts. See [receipt lifecycle](receipt-lifecycle.md) for eligibility, retention and conflict handling.
 
+To clear this tab immediately, select **Empty Deleted receipts**, check the count in the confirmation dialog, type `DELETE ALL`, and select **Erase deleted receipts**. This permanently removes all currently deleted receipts and their saved files, including receipts still within their restore window. Active and voided receipts remain. If the list changes while the dialog is open, reload and confirm the new count. Independent backups follow their own retention policy.
+
 ## Monthly close
 
 ### Find the period

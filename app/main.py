@@ -30,7 +30,8 @@ from app.auth import (
 )
 from app.images import receipt_image, receipt_preview
 from app.agents.router import build_agent_router
-from app.lifecycle import LifecycleRequest, apply_lifecycle, purge_expired
+from app.lifecycle import (LifecycleRequest, PurgeDeletedRequest, apply_lifecycle,
+                           deleted_purge_preview, purge_deleted_now, purge_expired)
 from app.reprocessing import ReprocessRequest, reprocess
 from app.statements import (
     MonthlyExportRequest,
@@ -641,6 +642,17 @@ def create_app() -> FastAPI:
     async def lifecycle(receipt_id: UUID, body: LifecycleRequest,
                         settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
         return await run_in_threadpool(apply_lifecycle, ReceiptStore(settings.database_path), str(receipt_id), body)
+
+    @api.get("/receipts/deleted/purge-preview", tags=["receipts"],
+             summary="Preview the current deleted receipts before permanent erasure")
+    async def preview_deleted_purge(settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
+        return await run_in_threadpool(deleted_purge_preview, ReceiptStore(settings.database_path))
+
+    @api.post("/receipts/deleted/purge", tags=["receipts"],
+              summary="Permanently erase the confirmed set of deleted receipts")
+    async def purge_deleted(body: PurgeDeletedRequest,
+                            settings: Annotated[Settings, Depends(require_api_key)]) -> dict:
+        return await run_in_threadpool(purge_deleted_now, ReceiptStore(settings.database_path), settings.upload_dir, body)
 
     @api.get("/reviews", tags=["reviews"], summary="1. List receipts awaiting human review",
              description="Read only. Copy a receipt_id, then use GET /receipts/{receipt_id}. Empty items means no pending receipts on THIS server. Local port 8000 and the AWS tunnel port 18000 use separate databases. Finalized, AUTO_FILED, FAILED and PROCESSING receipts are excluded.")
