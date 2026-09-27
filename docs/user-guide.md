@@ -20,7 +20,7 @@ The sign-in image is a current capture from the deployed page. The dashboard, hi
 
 *Upload a receipt*
 
-Upload a JPEG, PNG or bounded PDF through the web workspace. Telegram receipts reach the same authenticated backend through the OpenClaw relay.
+Upload a JPEG, PNG or bounded PDF through the web workspace. The selected file appears beside the form, and its preview remains visible after processing. Select **Open processed receipt** to inspect extracted fields and any review reasons, or **Upload another** to clear the form for the next file. This local preview is a convenience; the saved receipt detail shows the retained original evidence. Telegram receipts reach the same authenticated backend through the OpenClaw relay.
 
 ![Pending reviews](assets/screenshots/2026-09-23/03-pending-reviews.jpg)
 
