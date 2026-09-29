@@ -28,7 +28,7 @@ ocr-paddle = [
     "paddlepaddle==3.2.2",
 ]
 test = [
-    "pytest>=9.0.3,<10.0",
+    "pytest>=9.1.1,<10.0",
 ]
 
 [tool.pytest.ini_options]
